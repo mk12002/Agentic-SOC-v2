@@ -157,9 +157,20 @@ def cmd_demo() -> None:
         print(f"[DLP] {judged['new_alerts']} alert(s) judged: " + ", ".join(f"{k.replace('_', ' ')} {n}" for k, n in
               dsum["by_computed"].items()) + f"; {judged['escalated']} escalated into {dsum['open_cases']} case(s); "
               f"{dsum['awaiting_a_person']} await a person")
+        n_inv = dlp.investigate_committing(dlp.investigate_pending())
+        print(f"[DLP] {n_inv} alert(s) investigated with read-only look-ups "
+              f"({'chosen by the model' if gw is not None else 'the platform standard checks, no model'})")
         if gw is not None:
             print(f"[LLM] the model's own decision stored for {dlp.ai_decide_committing(dlp.ai_pending())} DLP alert(s) "
                   "(shadow: compared with analysts, nothing acted on)")
+        from soc_platform.domains.dlp.tuning import suggestions
+        from soc_platform.intelligence.config_snapshots import ConfigSnapshots
+
+        for sug in suggestions(s):
+            print(f"[TUNE] suggested: {sug['change']} - {sug['preview']['hidden_closed_benign']} closed as benign, "
+                  f"{sug['preview']['hidden_escalated']} escalated among the {sug['preview']['hidden']} it would hide")
+        snaps = ConfigSnapshots(s, reg).snapshot_all(by="agent:demo")
+        print(f"[CONFIG] configuration snapshot of {len(snaps['taken'])} tool(s) that export it: {', '.join(snaps['taken'])}")
         health = [(reg.get(n), "health") for n in sorted(reg.enabled_names()) if "health" in reg.get(n).streams]
         SyncRunner(s, ContextStore(s)).sync_many(health)
         cov, th, snap = coverage(s, limit=0), tool_health(s), snapshot(s)

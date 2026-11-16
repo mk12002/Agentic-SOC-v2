@@ -91,8 +91,14 @@ def trellix_epo() -> None:
                "status": "valid", "expires_at": "2027-06-01T00:00:00Z", "reported_at": f"{D}09:30:00Z"},
               {"id": "epo-task-encryption-status", "type": "sync_job", "name": "Encryption status collection",
                "status": "ok", "last_run": f"{D}08:00:00Z", "interval_minutes": 240, "reported_at": f"{D}09:30:00Z"}]
+    policies = [{"id": "epo-pol-de-workstations", "name": "Drive encryption - workstations", "product": "Drive Encryption",
+                 "assigned_to": "Workstations", "settings": {"encrypt": "all disks", "algorithm": "AES-256",
+                                                             "pre_boot_authentication": True}},
+                {"id": "epo-pol-de-servers", "name": "Drive encryption - servers", "product": "Drive Encryption",
+                 "assigned_to": "Servers", "settings": {"encrypt": "none"}}]
     write("trellix_epo", [route("GET", r"^/api/v1/systems$", _page(systems)),
-                          route("GET", r"^/api/v1/server/health$", _page(health))])
+                          route("GET", r"^/api/v1/server/health$", _page(health)),
+                          route("GET", r"^/api/v1/policies$", _page(policies))])
 
 
 def silverfort() -> None:
@@ -108,7 +114,12 @@ def silverfort() -> None:
                 ip="203.0.113.77", managed=False, mfa="not required"),
              ev(4, "arun", "10:01:05", "medium", ["unusual time for this person"], host=LAPTOPS["arun"]["hostname"],
                 ip=LAPTOPS["arun"]["ip"], managed=True)]
-    write("silverfort", [route("GET", r"^/api/v1/risk/events$", _page(items))])
+    policies = [{"id": "sf-pol-admins-mfa", "name": "MFA for privileged accounts", "enabled": True, "action": "mfa",
+                 "applies_to": "Domain Admins", "risk_threshold": "low"},
+                {"id": "sf-pol-risky-mfa", "name": "MFA on high-risk sign-in", "enabled": True, "action": "mfa",
+                 "applies_to": "All users", "risk_threshold": "high"}]
+    write("silverfort", [route("GET", r"^/api/v1/risk/events$", _page(items)),
+                         route("GET", r"^/api/v1/policies$", _page(policies))])
 
 
 def forcepoint_dlp() -> None:
@@ -167,9 +178,21 @@ def forcepoint_dlp() -> None:
             [("Aadhaar number", 2)], "email", USERS["meera"]["upn"], subject="Vendor onboarding form",
             files=["onboarding.pdf"]),
     ]
+    # the rules as configured (the configuration export); every rule the incidents name, plus one quiet rule
+    seen: dict[str, dict] = {}
+    for i in incidents:
+        seen.setdefault(i["rule"], {"policy": i["policy"], "severity": i["severity"].lower(), "channel": i["channel"].lower(),
+                                    "classifiers": sorted({c["name"] for c in i["classifiers"]})})
+    seen["Passport scans to cloud storage"] = {"policy": "Investor personal data", "severity": "medium", "channel": "web",
+                                               "classifiers": ["Passport number"]}
+    rules = [{"id": f"fp-rule-{n + 1:03d}", "name": name, "policy": r["policy"], "enabled": True, "channel": r["channel"],
+              "classifiers": r["classifiers"], "threshold": 1, "action": "audit" if r["severity"] == "low" else "block",
+              "severity": r["severity"], "excluded_destinations": [], "modified_at": "2026-08-01T10:00:00Z"}
+             for n, (name, r) in enumerate(sorted(seen.items()))]
     write("forcepoint_dlp", [route("GET", r"^/api/v1/incidents$", _page(incidents)),
                              route("GET", r"^/api/v1/endpoints$", _page(endpoints)),
-                             route("GET", r"^/api/v1/system/health$", _page(health))])
+                             route("GET", r"^/api/v1/system/health$", _page(health)),
+                             route("GET", r"^/api/v1/policies/rules$", _page(rules))])
 
 
 BUILDERS = [directory_export, forcepoint_dlp, silverfort, trend_micro, trellix_epo]

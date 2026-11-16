@@ -34,6 +34,7 @@ JOBS: dict[str, tuple[str, int]] = {
     "phishing": ("SOC_JOB_PHISHING_SECONDS", 120),
     "dlp": ("SOC_JOB_DLP_SECONDS", 300),
     "posture": ("SOC_JOB_POSTURE_SECONDS", 3600),
+    "config_snapshot": ("SOC_JOB_CONFIG_SNAPSHOT_SECONDS", 24 * 3600),
     "follow_up": ("SOC_JOB_FOLLOWUP_SECONDS", 24 * 3600),
     "daily_report": ("SOC_JOB_DAILY_REPORT_SECONDS", 24 * 3600),
     "weekly_reports": ("SOC_JOB_WEEKLY_REPORTS_SECONDS", 7 * 24 * 3600),
@@ -115,10 +116,12 @@ def _body(name: str, s: Session) -> dict[str, Any]:
 
         svc = _dlp(s)
         ing = svc.ingest()               # context (directory, sign-in risk, agents, encryption) and the incidents
-        out = svc.process_committing()   # alerts and cases are visible now; the model's decisions follow, no lock held
+        out = svc.process_committing()   # alerts and cases are visible now; the model's work follows, no lock held
+        investigated = svc.investigate_committing(svc.investigate_pending())
         decided = svc.ai_decide_committing(svc.ai_pending())
         demoted = svc.decisions.check_drift()
-        return {"synced": sum(ing["synced"].values()), "sync_errors": len(ing["errors"]), **out, "ai_decided": decided,
+        return {"synced": sum(ing["synced"].values()), "sync_errors": len(ing["errors"]), **out,
+                "investigated": investigated, "ai_decided": decided,
                 "demoted": [d["decision_type"] for d in demoted]}
     if name == "posture":
         from soc_platform.connectors.base import SyncRunner
@@ -131,6 +134,10 @@ def _body(name: str, s: Session) -> dict[str, Any]:
         synced = sum(r.ingested for r in SyncRunner(s, ContextStore(s)).sync_many(items)) if items else 0
         snap = snapshot(s)
         return {"health_records": synced, "findings": tool_health(s)["counts"], "score": snap["score"]}
+    if name == "config_snapshot":        # each tool's configuration, where it can export it; changes found and classified
+        from soc_platform.intelligence.config_snapshots import ConfigSnapshots
+
+        return ConfigSnapshots(s, sv["incident"].registry).snapshot_all()
     if name == "vulnerability":
         out = sv["vulnerability"].refresh()
         mis = _misconfig(s).refresh()

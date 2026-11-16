@@ -85,7 +85,8 @@ tokens; a full demo run is about 50k). Prompts (redacted) and responses are kept
 | vulnerability | 6 h | ingest, consolidate, enrich, prioritise, Wiz misconfigurations; keep the risk register current (new P1 CVEs proposed, entries updated / marked remediated) |
 | incident | 5 min | ingest alerts (and Entra directory audits, inventory first), cluster, investigate - activity such as sign-ins, DNS and domain logons is read per investigation, not bulk-synced; reassess open incidents when KEV-listed exposure appeared on their hosts since they were scored; commit the cases, then add the model's explanations in parallel |
 | phishing | 2 min | pull reported mail, analyse; commit the verdicts, then add the model's explanations in parallel |
-| dlp | 5 min | read the directory, sign-in risk, agent and encryption inventories and the DLP incidents; judge each new incident (computed disposition), open cases for escalations; commit in batches, then store the model's own decision per alert (at most `SOC_DLP_AI_MAX_PER_RUN`); demote a decision type whose agreement with analysts slipped |
+| dlp | 5 min | read the directory, sign-in risk, agent and encryption inventories and the DLP incidents; judge each new incident (computed disposition), open cases for escalations; commit in batches, then investigate each new alert with read-only look-ups and store the model's own decision per alert (at most `SOC_DLP_AI_MAX_PER_RUN`); demote a decision type whose agreement with analysts slipped |
+| config_snapshot | 24 h | read the configuration of every tool that exports it; keep a new snapshot when it changed; a change outside a recorded change window is reported on tool health |
 | posture | 1 h | read what each tool reports about its own health (certificates, jobs, directory import); store the day's posture score |
 | follow_up | 24 h | ITSM ticket sync (+ closure validation), weekly follow-up per remediation plan (`SOC_VM_FOLLOWUP_DAYS`, default 7), exception expiry |
 | intelligence | 10 min | risk + correlation + drift, insight narration |
@@ -438,7 +439,7 @@ paths and response shapes are placeholders until each tool's version and license
 a `<stream>_path` setting; `python -m soc_platform preflight NAME` lists what is still to confirm). None of them adds
 an enrichment look-up, an action or an alert to the phishing, incident or vulnerability workflows.
 
-**Jobs.** `inventory` (1 h, `SOC_JOB_INVENTORY_SECONDS`, first in the order), `dlp` (5 min, `SOC_JOB_DLP_SECONDS`) and `posture` (1 h, `SOC_JOB_POSTURE_SECONDS`) - see the Jobs table.
+**Jobs.** `inventory` (1 h, `SOC_JOB_INVENTORY_SECONDS`, first in the order), `dlp` (5 min, `SOC_JOB_DLP_SECONDS`) and `posture` (1 h, `SOC_JOB_POSTURE_SECONDS`) and `config_snapshot` (24 h, `SOC_JOB_CONFIG_SNAPSHOT_SECONDS`) - see the Jobs table.
 
 **Settings.**
 
@@ -448,7 +449,8 @@ an enrichment look-up, an action or an alert to the phishing, incident or vulner
 | `SOC_INVENTORY_STALE_HOURS` | 48 | a device a tool's newest full read no longer lists, by this much, stops counting as listed by that tool (agent removed, object deleted) |
 | `SOC_CERT_WARN_DAYS` | 30 | a certificate with this many days left (or fewer) is a warning |
 | `SOC_CERT_CRITICAL_DAYS` | 14 | ... and with this many (or fewer) is critical; an expired one always is |
-| `SOC_DLP_AI_MAX_PER_RUN` | 200 | at most this many DLP alerts are sent to the model per job run (0 = none); the rest wait for the next run |
+| `SOC_DLP_AI_MAX_PER_RUN` | 200 | per job run, at most this many DLP alerts are investigated and at most this many decided by the model (0 = none); the rest wait for the next run |
+| `SOC_DLP_INVESTIGATION_SECONDS` | 20 | the time budget of one alert's investigation (look-ups and the model's planning) |
 
 **Data protection (DLP)** - *Domains -> Data protection*; data scope `dlp`.
 
@@ -468,6 +470,45 @@ an enrichment look-up, an action or an alert to the phishing, incident or vulner
   device on the block watch list, a device with a known-exploited vulnerability, a deception hit.
 * The subject and file names are text the sender wrote. They are shown to the analyst and passed to the model inside
   a fence, as data. No rule reads them, so they cannot change an outcome or a severity.
+
+**The AI investigator.** Each new alert is investigated once by the `dlp` job, and again on request
+(`POST /api/v1/dlp/alerts/{id}/investigate`, `investigate`; the person's AI limits apply). The model chooses
+read-only look-ups from a fixed menu - sign-in history, the sender's other DLP alerts, who else sent to the
+destination, alerts and deception hits on the device, privileged-access events, open cases, watch lists - at most
+5 look-ups in 2 rounds within `SOC_DLP_INVESTIGATION_SECONDS`. A name not on the menu is dropped. The look-ups read
+what the platform already holds; none calls a tool. Without the model (off, refused, failing, or no usable plan) the
+platform runs its own standard checks. The findings are numbered I1, I2 ... and shown on the alert; the AI's decision
+may cite them; the computed disposition never reads them. Model feature: `dlp.investigate` (small, scheduled).
+Audited as `dlp.investigated`.
+
+**Rule changes for the DLP tool** - the card at the foot of *Data protection*; `GET /api/v1/dlp/tuning`.
+
+* Suggestions are computed from analysts' rulings in the 30 days up to the newest alert: a rule closed as benign at
+  least four times in five gets one suggestion - exclude the destination most closures share, or raise its match
+  threshold above every closed alert - when the preview allows it. A rule with a change in progress or made gets
+  no other suggestion.
+* `POST /api/v1/dlp/tuning/preview` (`rule`, `kind`: `exclude_destination` / `raise_threshold`, `params`) shows what
+  the change would have hidden among the rule's alerts in the last 90 days and stores nothing.
+* `POST /api/v1/dlp/tuning` (`tune_detections` in `dlp`: a lead, in person) proposes it. **Refused** - at proposal and
+  again at approval - when it would have hidden an alert an analyst escalated, an alert with personal data in bulk, a
+  high or critical alert, an alert on the never-automatic list, or nothing at all.
+* `POST /api/v1/dlp/tuning/{id}/approve | reject` (a second lead; rejecting your own proposal withdraws it), then
+  `.../applied` (`manage_connectors`: an engineer, with the change's `reference`) once the change was made in the DLP
+  tool. **The platform never edits a rule in the tool.**
+* An applied change is checked on read: the newest configuration snapshot of the DLP tool since the change shows it
+  (or not), and the number of alerts the change should have stopped that still arrived.
+
+**Configuration snapshots** - *Insight -> Dome Connect · changes*; `GET /api/v1/config-snapshots`,
+`GET /api/v1/config-snapshots/{id}`.
+
+* Tools that export their configuration (now: Forcepoint DLP rules, Silverfort policies, Trellix ePO policies; paths are
+  placeholders like the rest of these connectors, setting `config_path`) are read in full by the `config_snapshot`
+  job; a new snapshot is kept only when something changed. Tools that cannot are shown as "not exported".
+* `POST /api/v1/config-snapshots/{tool}/before-change` (`reference`, `note`), make the change in the tool, then
+  `.../after-change`: the difference field by field and the Dome Score before and after. `.../take` snapshots now.
+  All need `manage_connectors` (an engineer, in person) and are audited (`config.snapshot`).
+* A difference between two snapshots is a *recorded change* when it is a change's after-change snapshot or falls
+  inside an open change window; otherwise it is *unplanned* and shows on tool health (last 7 days).
 
 **How far the AI is trusted** - shown at the foot of the Data protection screen; `GET /api/v1/decisions` (`read`).
 

@@ -1,4 +1,4 @@
-// Agentic SOC console - core: auth, API client, router, shell, shared components.
+// CyberDome console - core: auth, API client, router, shell, shared components.
 // No inline handlers anywhere: clicks are delegated through data-fn / data-go so the page runs under a strict CSP.
 'use strict';
 
@@ -198,11 +198,11 @@ const meter = (v, max = 100) => `<div class="bar"><span style="width:${Math.max(
 
 // ---------------------------------------------------------------- navigation model
 const NAV = [
-  ['Operate', [['overview', 'Overview', 'overview'], ['ciso', 'CISO view', 'gauge', '*'], ['intelligence', 'Intelligence', 'intel', '*'], ['cases', 'Cases', 'cases'],
+  ['Operate', [['overview', 'Overview', 'overview'], ['ciso', 'Dome Score', 'gauge', '*'], ['intelligence', 'Intelligence', 'intel', '*'], ['cases', 'Cases', 'cases'],
     ['approvals', 'Approvals', 'approvals']]],
   ['Domains', [['phishing', 'Phishing', 'phishing', 'phishing'], ['dlp', 'Data protection', 'lock', 'dlp'], ['vulnerabilities', 'Vulnerabilities', 'vuln', 'vulnerability'],
     ['cloud', 'Cloud posture', 'cloud', 'vulnerability']]],
-  ['Insight', [['controls', 'Coverage and tool health', 'pulse'], ['coverage', 'ATT&CK coverage', 'coverage'], ['shadow-it', 'Shadow IT', 'shadow', 'incident'],
+  ['Insight', [['controls', 'Dome Graph · coverage', 'pulse'], ['config', 'Dome Connect · changes', 'policy'], ['coverage', 'ATT&CK coverage', 'coverage'], ['shadow-it', 'Shadow IT', 'shadow', 'incident'],
     ['suppliers', 'Supplier risk', 'supplier', 'phishing']]],
   ['Govern', [['watchlists', 'Watch lists', 'list'], ['tuning', 'Tuning', 'filter'], ['integrations', 'Integrations', 'plug'], ['policy', 'Automation policy', 'policy'], ['ai-usage', 'AI usage', 'ai'], ['reports', 'Reports', 'reports'],
     ['access', 'Access', 'access'], ['audit', 'Audit log', 'audit']]],
@@ -219,7 +219,7 @@ function shell() {
   const initials = (me.name || '?').split(/[@.\s]/).filter(Boolean).slice(0, 2).map(x => x[0].toUpperCase()).join('');
   $('#app').innerHTML = `<div class="shell">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-mark">AS</div><div><div class="brand-name">Agentic SOC</div><div class="brand-sub">Security operations</div></div></div>
+      <div class="brand"><div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17a9 9 0 0 1 18 0z" fill="currentColor"/><path d="M2 19h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div><div><div class="brand-name">CyberDome</div><div class="brand-sub">One view of every security tool</div></div></div>
       ${NAV.map(([g, items]) => `<div class="nav-group">${g}</div>` + items.filter(([, , , d]) => !d || inDomain(d)).map(([id, label, ic]) =>
         `<a class="nav-item" href="#/${id}" data-nav="${id}">${icon(ic)}<span>${esc(label)}</span>${id === 'approvals' ? '<span class="count" id="nav-approvals" hidden></span>' : ''}</a>`).join('')).join('')}
       <div class="sidebar-foot">Signed in as ${esc(me.auth_method === 'api_key' ? 'service account' : me.roles.join(', ') || 'no role')}<br>${esc(me.domains.includes('*') ? 'All domains' : me.domains.join(', '))}<br>All times UTC</div>
@@ -269,7 +269,7 @@ async function render() {
   const title = TITLES[name] || cap(name);
   const parent = {story: 'cases', entity: 'cases', trace: 'audit'}[name] || name;
   $('#crumbs').innerHTML = name === 'search' ? '<b>Search</b>' : params.length ? `<a href="#/${esc(parent)}">${esc(TITLES[parent] || title)}</a> <span class="muted">/</span> <b>${esc(name === 'story' ? 'Attack story' : name === 'entity' ? 'Entity 360' : name === 'trace' ? 'Trace' : 'Detail')}</b>` : `<b>${esc(title)}</b>`;
-  document.title = title + ' · Agentic SOC';
+  document.title = title + ' · CyberDome';
   const view = (window.VIEWS || {})[name];
   const main = $('#main');
   GEN += 1;
@@ -342,7 +342,7 @@ function signInScreen() {
   window.ME = null;
   if (AUTH && AUTH.mode === 'entra') {
     $('#app').innerHTML = `<div class="auth"><section class="card auth-card"><div class="card-b">
-      <div class="brand" style="padding:0"><div class="brand-mark">AS</div><div><div class="brand-name">Agentic SOC</div><div class="brand-sub">Security operations platform</div></div></div>
+      <div class="brand" style="padding:0"><div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17a9 9 0 0 1 18 0z" fill="currentColor"/><path d="M2 19h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div><div><div class="brand-name">CyberDome</div><div class="brand-sub">AI-first security operations</div></div></div>
       <h1>Sign in</h1>
       <button class="btn primary" data-fn="signInEntra" data-args="[]" style="justify-content:center;height:36px">Sign in with Microsoft</button>
       <div class="foot">Single sign-on with your organisation account (Microsoft Entra ID). Your roles come from the platform's app roles.</div>
@@ -352,11 +352,11 @@ function signInScreen() {
     return;
   }
   $('#app').innerHTML = `<div class="auth"><section class="card auth-card"><div class="card-b">
-    <div class="brand" style="padding:0"><div class="brand-mark">AS</div><div><div class="brand-name">Agentic SOC</div><div class="brand-sub">Security operations platform</div></div></div>
+    <div class="brand" style="padding:0"><div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17a9 9 0 0 1 18 0z" fill="currentColor"/><path d="M2 19h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div><div><div class="brand-name">CyberDome</div><div class="brand-sub">AI-first security operations</div></div></div>
     <h1>Sign in</h1>
     <div class="field"><label for="si-user">Work email</label><input class="input" id="si-user" value="lena@acme-demo.com" autocomplete="username"></div>
     <div class="field"><label for="si-role">Role</label><select id="si-role">${['lead', 'analyst', 'auditor', 'automation_admin', 'admin'].map(r => `<option value="${r}">${cap(r)}</option>`).join('')}</select></div>
-    <div class="field"><label for="si-scope">Data scope</label><select id="si-scope">${[['', 'All domains'], ['phishing', 'Phishing only'], ['incident', 'Incident only'], ['vulnerability', 'Vulnerability only']].map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
+    <div class="field"><label for="si-scope">Data scope</label><select id="si-scope">${[['', 'All domains'], ['phishing', 'Phishing only'], ['incident', 'Incident only'], ['vulnerability', 'Vulnerability only'], ['dlp', 'Data protection only']].map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
     <button class="btn primary" data-fn="signIn" data-args="[]" style="justify-content:center;height:36px">Continue</button>
     <div class="foot">Development sign-in. In production the console uses Microsoft Entra ID single sign-on with MFA; this form is only available when <code>SOC_AUTH_MODE=dev</code>.</div>
     <button class="btn ghost sm" data-fn="toggleTheme" data-args="[]" id="theme-btn" style="align-self:flex-start"></button>

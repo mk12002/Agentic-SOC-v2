@@ -11,7 +11,7 @@ it, the conventions the code relies on, and the traps that have already cost tim
 This folder is a copy of the Agentic SOC platform that is being turned into **CyberDome for NAM**: an AI-first layer
 above an Indian asset manager's eight security tools. "NAM" is the working short name for that client; its full name
 is never written here. Sections 1-11 describe the **inherited platform core as it stands** (connectors, domains,
-tests, counts): all of it is still true of the code. The first version of M2-M5 and M10 exists (status column below);
+tests, counts): all of it is still true of the code. The first version of M2-M7, M10 and M11 exists, and the rebrand is done (status column below);
 the rest does not. When a NAM module lands, update this section's status column and the matching part of §2 / §4 / §6 in the same change.
 
 Sources (both under `docs/client_deck_nam/`, which is gitignored - never quote them into tracked files beyond what is
@@ -44,18 +44,18 @@ Paths are proposed; keep the layering of §4 (API → intelligence → domains �
 
 | # | Module (deck name) | What it does | Reuses | New code | Status |
 |---|---|---|---|---|---|
-| M0 | Re-estate and rename | CyberDome branding; a generated Indian asset-manager demo estate (fund-operations users, investor database, PAN / Aadhaar-classified data); no name or data of the earlier client | `scripts/build_estate_variant.py`, `rename_estate.py`, `reporting/style.py` | estate builders and fixtures for the eight tools; a fifth entry in `conftest.ESTATES` | partial: the five tools' fixtures are built on the existing sample estate and renamed with it for every variant estate; CyberDome branding and an asset-manager estate are not done |
+| M0 | Re-estate and rename | CyberDome branding; a generated Indian asset-manager demo estate (fund-operations users, investor database, PAN / Aadhaar-classified data); no name or data of the earlier client | `scripts/build_estate_variant.py`, `rename_estate.py`, `reporting/style.py` | estate builders and fixtures for the eight tools; a fifth entry in `conftest.ESTATES` | rebrand done (console, favicon, API title, reports, notifications, README; the deck's Dome names on the screens); internal identifiers kept (`soc_platform`, `SOC_*`, `agentic-soc` namespace / webhook source). An asset-manager sample estate is not done |
 | M1 | Connectors (Dome Connect) | The tools of §0.1, read-only first | `connector new` scaffold, `test_connector_conformance.py`, `test_live_wire.py`, stages | one module + fixtures + paging test per tool; new categories | partial: `directory_export`, `forcepoint_dlp`, `silverfort`, `trend_micro`, `trellix_epo` in **fake mode only** (placeholder paths and shapes, `_paged.py`); Arcon, Cloudflare, SIEM / SOAR products not started |
 | M2 | Tool health watch (Dome Connect) | Agents silent > 24 h, failed or late sync jobs, certificate days left, users unmapped by the AD / LDAP sync, database sync lag; warns ahead, recommends a ticket or an agent re-push | `api/dashboards.connector_freshness`, `core/notify.py`, `itsm.py` ticket action | `intelligence/tool_health.py`, a `tool_health` job, health streams on each connector "wherever the tool reports them" | v1: `intelligence/tool_health.py`, `posture` job reads the `health` streams; screen *Coverage and tool health* |
 | M3 | Control coverage (Dome Graph) | Baseline devices × controls (EDR agent, DLP agent reporting, disk encryption): every device missing a control, devices a tool sees that the baseline lacks, users in no DLP policy group; ranked by the sensitive data each holds or reaches | `core/entity_resolution.py`, `context_store`, `core/ownership.py` | `intelligence/control_coverage.py` (not `attack_coverage.py`, which is ATT&CK) + screen + report source | v1: `core/controls.py` (`Snapshot`: what each tool's newest read lists) + `intelligence/control_coverage.py`; `inventory` job runs first |
 | M4 | DLP domain (Dome Agents) | Forcepoint incident intake, personal-data flags, computed disposition, case; backlog triage with identity, PAM and endpoint context | `CaseService`, `EnrichmentOrchestrator`, `jobs._isolated`, incident domain as the pattern | `domains/dlp/` (service, models), a `dlp` job, `dlp` in RBAC domains | v1: `domains/dlp/` (computed disposition, never-auto list, cases), `dlp` job, screen *Data protection*; no actions |
 | M5 | Earned autonomy (Dome Agents) | Decision-type registry; Shadow → Recommend → Decide per narrow type; AI decision record; shadow evaluator proposes promotion, drift demotes | `core/policy.py` (`PolicyStore` propose / approve), `intelligence/drift.py`, `tuning.QA_RATE` + `guard`, `llm/gateway.py` | `core/decisions.py` (registry, `ai_decisions` table), a `shadow_eval` job, `dlp.disposition` in `KNOWN_WORKFLOWS` | v1: `core/decisions.py` - shadow and recommend; **decide refused in code**; targets, two-lead promotion, drift demotion |
-| M6 | AI investigator (Dome Agents) | The model picks read-only look-ups from a fixed menu within a step and time budget; results go through enrichment; every finding cited | `intelligence/analyst.py` (`intelligence.plan` already picks tools), `core/enrichment.py` | menu + budgets for case investigation; `dlp.investigate` workflow | not started |
-| M7 | DLP tuning proposals (Dome Agents) | Groups false positives per Forcepoint rule, proposes a change with its effect on past alerts; an engineer approves and makes it in Forcepoint; overrides at Recommend feed it | `core/tuning.py` (draft, preview, two leads, suggestions) | `dlp` in `tuning.DOMAINS`, DLP rule kinds, classification-quality findings | not started |
+| M6 | AI investigator (Dome Agents) | The model picks read-only look-ups from a fixed menu within a step and time budget; results go through enrichment; every finding cited | `intelligence/analyst.py` (`intelligence.plan` already picks tools), `core/enrichment.py` | menu + budgets for case investigation; `dlp.investigate` workflow | v1: `domains/dlp/investigator.py` - 7 read-only look-ups over the context store, model plans up to 5 in 2 rounds, rules plan without it; I-numbered findings the decision may cite |
+| M7 | DLP tuning proposals (Dome Agents) | Groups false positives per Forcepoint rule, proposes a change with its effect on past alerts; an engineer approves and makes it in Forcepoint; overrides at Recommend feed it | `core/tuning.py` (draft, preview, two leads, suggestions) | `dlp` in `tuning.DOMAINS`, DLP rule kinds, classification-quality findings | v1: `domains/dlp/tuning.py` - suggestions from rulings, 90-day preview, refusals, two leads, engineer records the change, verified from the config snapshot |
 | M8 | Cross-tool cases and actions | Rules joining risky sign-in + privileged check-out + DLP exfiltration + encryption off for one person; privileged session outside a change window; computed severity ("N tools agree"); reversible actions by AI, containment by two approvers | `intelligence/correlation.py`, `story.py`, `core/actions.py` | new rules; actions on the Silverfort / Arcon / Trend Micro connectors; `DEFAULT_POLICY` entries | not started |
 | M9 | SOAR execution backend | Approved actions are handed to NAM's SOAR and their outcome read back | `ActionService._execute`, idempotency keys, `reconcile_stuck` | a SOAR connector whose actions wrap the playbooks; still behind `ActionService` | blocked: product unknown |
 | M10 | Dome Score and CISO view | One posture score from a published, versioned formula over coverage, tool health, open cases and overdue items; five domain scores (identity, privileged access, endpoint, data protection, web); "why did it drop" answered from computed factors; monthly board report | `intelligence/risk.py`, `api/dashboards.py`, `intelligence/analyst.py`, `reporting/builder.py` | `intelligence/posture.py` (formula as a versioned, four-eyes document like the autonomy policy), CISO screen, board report | v1: `intelligence/posture.py` (`v1-draft` weights), daily snapshot, *CISO view*; board report not started |
-| M11 | Change baseline (Dome Score) | Snapshot of a tool's configuration before a change "where the tool can export it"; drift between snapshots; posture before / after | `core/blobstore.py`, `core/connector_config.py` versioning pattern | `config_snapshots` table, snapshot stream per capable connector, diff view | not started |
+| M11 | Change baseline (Dome Score) | Snapshot of a tool's configuration before a change "where the tool can export it"; drift between snapshots; posture before / after | `core/blobstore.py`, `core/connector_config.py` versioning pattern | `config_snapshots` table, snapshot stream per capable connector, diff view | v1: `intelligence/config_snapshots.py` - Forcepoint, Silverfort, Trellix exports (placeholder paths), daily job, before / after change with Dome Score, unplanned changes on tool health |
 | M12 | Compliance packs (Dome Comply) | Control catalogue for SEBI CSCRF, DPDP and CERT-In mapped to evidence tests; share of controls with current evidence, the rest named; audit pack; personal-data DLP case opens a breach assessment; 6-hour clock from a person's "reportable"; AI drafts the report; 180-day log retention checked per tool | `reporting/compliance.py` (`build_evidence`, `build_pack`), `core/audit_export.py`, `reporting/builder.py` | `reporting/regimes/` (catalogue as versioned data), `compliance_assessments` table, clock, draft workflow | not started |
 | M13 | Pilot scorecard | DLP alerts reaching an analyst against the week-2 baseline, outages found by users, AI agreement per decision type; QA re-checks reported separately | `reporting/value.py` (baseline / target / measured) | new KPIs | not started |
 
@@ -137,6 +137,12 @@ screen → docs. Coverage (M3) comes before score (M10) and compliance (M12): bo
   the subject or file names, and `test_dlp.py` proves an injected message changes no outcome, severity or fact.
 * **Model decisions** go through `ai_decide_committing` after the job's commit (no write lock across model calls),
   are capped per run (`SOC_DLP_AI_MAX_PER_RUN`), and are stored in `ai_decisions` keyed by (item, evidence hash).
+* **Investigation is not disposition.** Investigator findings (I1...) feed only the AI's decision and the analyst;
+  they enter `evidence_hash`, so a new investigation makes the AI decide again, but no rule reads them.
+* **Rule changes are change requests.** `domains/dlp/tuning.py` never calls the DLP tool; "applied" is recorded by an
+  engineer and verified from `config_snapshots` and later alerts.
+* **Configuration export is not a sync stream.** `PagedConnector.config_items()` reads in full outside `SyncRunner`;
+  nothing of it enters the context store.
 * **Queries stay flat with history:** the DLP summary is database aggregates, the backfill is judged in committed
   batches (`process_committing`), the noisy-rule list and tool rulings look at the 30 days up to the newest alert.
 
@@ -364,13 +370,14 @@ soc_platform/
   core/audit_export.py   audit exports (jsonl / json / csv / xlsx / docx, filtered) + info() for the Audit screen;
                          .xlsx written without a library (text cells only), CSV cells formula-guarded
   domains/phishing/      service.py (pipeline), models.py, supplier.py, agents/{decompose,analyzer,investigation}.py, engine/
-  domains/dlp/           service.py (DLP triage: facts, computed disposition, cases, the AI's decision), models.py (DlpAlert)
+  domains/dlp/           service.py (DLP triage: facts, computed disposition, cases, the AI's decision), models.py (DlpAlert),
+                         investigator.py (read-only look-up menu), tuning.py (rule-change proposals)
   core/controls.py       which tool lists which device, control states (missing / silent / off / unknown)
   core/decisions.py      earned autonomy: decision types, stages, targets, ai_decisions, promotion / demotion
   domains/incident/service.py
   domains/vulnerability/ service.py, misconfig.py, models.py
   intelligence/          risk.py, correlation.py, story.py, deep_analysis.py, analyst.py, attack_coverage.py, shadow_it.py, drift.py,
-                         control_coverage.py, tool_health.py, posture.py (NAM build)
+                         control_coverage.py, tool_health.py, posture.py, config_snapshots.py (NAM build)
   llm/gateway.py         LLMGateway, providers, grounding, numeric guardrail, breaker, timeouts, llm_concurrency();
                          enforces the usage policy (refusal -> BudgetExceeded / UserLimitExceeded, gateway.notice)
   llm/usage_policy.py    AI usage policy (budgets, per-person limits, per-feature tier / answer cap / on-off), its
@@ -589,7 +596,9 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
   NAM build: `test_connector_nam_stack.py` (paging and resume of the five new connectors, one device across four
   tools, nothing added to the other workflows), `test_dlp.py` (decision table, destinations, the pipeline on every
   estate, never-automatic list, injected message text, model decisions stored / discarded / off, analyst rulings,
-  batches), `test_decisions.py` (targets, two-lead promotion, decide refused, demotion on agreement drop and on
+  batches), `test_dlp_investigator.py` (menu only, budget, rules fallback, read-only, citations), `test_dlp_tuning.py`
+  (suggestions, preview, refusals, two leads, engineer, verification), `test_config_snapshots.py` (export, drift,
+  planned / unplanned, before / after with the score), `test_decisions.py` (targets, two-lead promotion, decide refused, demotion on agreement drop and on
   outcome shift), `test_controls_posture.py` (coverage, silent / stale measured from the tools' own times, tool
   health, the score recomputed from its factors, daily trend), `test_dlp_api.py` (routes, scopes, CISO view = the
   screens behind it, jobs).
@@ -597,7 +606,7 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
   decays with time, so a slower run otherwise rounds differently.
 - **New behaviour needs a test**; a bug fix needs a regression test that failed before the fix. Don't hard-code
   demo-specific values in new tests - derive from settings/data or run over `ESTATES`.
-- Current counts (keep docs in sync when they change): NAM build round 35: 1,082 passing on SQLite, 18 skipped, 1,100
+- Current counts (keep docs in sync when they change): NAM build round 36: 1,115 passing on SQLite, 18 skipped, 1,133
   collected; PostgreSQL not yet run for this build. Inherited figures before it: 945 platform tests passing on SQLite and 942 on PostgreSQL (963 collected; skips: 14 opt-in live tests, 3 per-estate repeats of input fuzzing, and database-specific checks - 1 on SQLite, 4 on PostgreSQL), 205
   engine tests, 108/108 features verified with `--browser --engine --live --llm` (round 25); the go-live round's
   offline run: 104/108 (the 4 opt-in live features need `--live --llm`, which calls the real model).

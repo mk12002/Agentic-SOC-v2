@@ -109,6 +109,21 @@ def _agent_findings(session: Session) -> list[dict[str, Any]]:
     return out
 
 
+def _config_findings(session: Session) -> list[dict[str, Any]]:
+    """A configuration that changed outside a recorded change, in the last 7 days (intelligence/config_snapshots.py)."""
+    from soc_platform.intelligence.config_snapshots import ConfigSnapshots
+
+    out = []
+    for c in ConfigSnapshots(session, None).unplanned():
+        d = c["diff"]
+        what = ", ".join(x["name"] for x in (d["changed"] + d["added"] + d["removed"])[:5])
+        out.append(_finding(c["tool"], "configuration", "warning", "Configuration changed outside a recorded change",
+                            f"{d['count']} item(s) changed between snapshots {c['from']} and {c['to']} ({c['at'][:16]} UTC): "
+                            f"{what}.", "Confirm who changed it; record future changes with a before / after snapshot.",
+                            snapshot=c["to"]))
+    return out
+
+
 def tool_health(session: Session, tools: list[str] | None = None) -> dict[str, Any]:
     """``tools``: the connected tools to list (so a healthy or silent tool still shows); default: those that reported."""
     items: dict[str, list[Entity]] = {}
@@ -123,6 +138,7 @@ def tool_health(session: Session, tools: list[str] | None = None) -> dict[str, A
         as_of[tool] = now.isoformat()
         findings += _health_findings(tool, recs, now)
     findings += _agent_findings(session)
+    findings += _config_findings(session)
     findings.sort(key=lambda f: (ORDER[f["severity"]], f["tool"], f["title"]))
     agents = {c.tool for c in controls.CONTROLS if c.seen_field} & controls.snapshot(session).connected
     names = sorted(set(tools or []) | set(items) | agents)

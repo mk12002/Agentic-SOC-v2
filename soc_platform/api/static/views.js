@@ -1,4 +1,4 @@
-// Agentic SOC console - pages. Each view renders into #main; every figure comes from the API.
+// CyberDome console - pages. Each view renders into #main; every figure comes from the API.
 'use strict';
 
 const dot = k => `<span class="dot-i ${esc(k)}"></span>`;
@@ -1007,7 +1007,7 @@ function styleCard(rs) {
     ${card('What every report looks like', `<p class="small muted" style="margin-top:0">Applied to every Word report and PowerPoint deck - standard, described and scheduled - and the audit trail report. Figures and citations never change; only the look and, for model-written text, the wording.</p>
       ${part('word', 'Word template')}${part('deck', 'PowerPoint template (16:9)')}${part('logo', 'Logo')}
       <div class="list-row"><div class="grow"><div class="t-title">Writing guide</div><div class="t-sub">${S.guide ? `${nf(S.guide.length)} characters - used when the model writes report narrative` : 'none - the model writes in plain report English'}</div></div>${manage && S.guide ? btn('Remove', 'styleRemove', ['guide'], 'sm ghost') : ''}</div>
-      <div class="list-row"><div class="grow"><div class="t-title">Brand</div><div class="t-sub">${esc(S.organisation || 'Agentic SOC')} · ${sw(S.primary)} ${sw(S.accent)} · ${esc(S.font)} · ${esc(S.classification)}</div></div></div>
+      <div class="list-row"><div class="grow"><div class="t-title">Brand</div><div class="t-sub">${esc(S.organisation || 'CyberDome')} · ${sw(S.primary)} ${sw(S.accent)} · ${esc(S.font)} · ${esc(S.classification)}</div></div></div>
       <div class="inline mt" style="gap:8px;flex-wrap:wrap">${btn('Preview in Word', 'dl', ['/api/v1/reports/style/preview?format=docx'], '', 'download')}${btn('Preview as slides', 'dl', ['/api/v1/reports/style/preview?format=pptx'], '', 'download')}${manage && rs.custom ? btn('Back to the house style', 'styleReset', [], 'ghost') : ''}</div>`,
       {sub: rs.version ? `version ${esc(rs.version)}` : 'house style'})}
     ${manage ? card('Customise', `<div class="stack" style="gap:10px">
@@ -1016,7 +1016,7 @@ function styleCard(rs) {
       <div class="inline" style="gap:8px">${btn('Upload', 'styleUpload', [], 'primary')}<span class="small muted">Checked before use: macros, document-type declarations and oversized files are refused; a deck template must be 16:9.</span></div>
       <div id="st-out"></div>
       <div class="grid g-2" style="gap:10px">
-        <div class="stack" style="gap:4px">${field('st-org', 'Organisation name (header and footer)', S.organisation, 'Agentic SOC', ' maxlength="80"')}</div>
+        <div class="stack" style="gap:4px">${field('st-org', 'Organisation name (header and footer)', S.organisation, 'CyberDome', ' maxlength="80"')}</div>
         <div class="stack" style="gap:4px">${field('st-cls', 'Classification line', S.classification, '', ' maxlength="80"')}</div>
         <div class="stack" style="gap:4px">${field('st-pri', 'Primary colour (hex)', S.primary, '1F2A44', ' maxlength="7"')}</div>
         <div class="stack" style="gap:4px">${field('st-acc', 'Accent colour (hex)', S.accent, '2563EB', ' maxlength="7"')}</div>
@@ -1626,10 +1626,10 @@ async function Ciso() {
     : `<span class="muted small" title="${esc(m.reason || '')}">Not measured</span>`}</div>`).join('');
   const why = [...p.largest_reductions.map(f => `<div class="list-row small"><div class="grow">${esc(f.label)}<div class="t-sub">${esc(f.domain)} · ${esc(f.value)}</div></div><span class="score">${esc(signed(f.effect))}</span></div>`),
     ...p.penalties.filter(f => f.effect).map(f => `<div class="list-row small"><div class="grow">${esc(f.label)}<div class="t-sub">Whole score · ${esc(f.value)}</div></div><span class="score">${esc(signed(f.effect))}</span></div>`)].join('');
-  setMainG(__g, page('CISO view', 'One view across the connected security tools. Every figure is computed from stored records and opens onto its evidence. The posture score uses draft weights, to be agreed with the CISO.',
+  setMainG(__g, page('Dome Score', 'The CISO view: one view across the connected security tools. Every figure is computed from stored records and opens onto its evidence. The posture score uses draft weights, to be agreed with the CISO.',
     btn('Refresh', 'refreshPage', [], 'ghost', 'refresh'),
     `<div class="grid g-kpi">
-      ${kpi('Posture score (draft)', p.score == null ? '–' : String(p.score), p.score == null ? 'nothing measured yet' : change == null ? 'no earlier day recorded yet' : `${esc(signed(change))} over ${esc(p.trend.days)} days`)}
+      ${kpi('Dome Score (draft)', p.score == null ? '–' : String(p.score), p.score == null ? 'nothing measured yet' : change == null ? 'no earlier day recorded yet' : `${esc(signed(change))} over ${esc(p.trend.days)} days`)}
       ${kpi('Critical cases', nf(d.cases.critical), `${nf(d.cases.high)} high · <a href="#/cases">all cases</a>`, d.cases.critical > 0)}
       ${kpi('DLP alerts', nf(x.alerts), `${nf(x.awaiting_a_person)} awaiting a person · <a href="#/dlp">queue</a>`)}
       ${kpi('Full control coverage', cov.available ? cov.coverage_percent + '%' : '–', cov.available ? `${nf(cov.devices_short_count)} of ${nf(cov.baseline.devices)} devices short · <a href="#/controls">details</a>` : esc(cov.reason || ''), cov.available && cov.devices_short_count > 0)}
@@ -1654,14 +1654,14 @@ async function Controls() {
   const [cov, h] = await Promise.all([api('/api/v1/dashboard/control-coverage'), api('/api/v1/dashboard/tool-health')]);
   const findings = table(['Severity', 'Tool', 'Finding', 'Next step'], h.findings.map(f => `<tr><td>${status(HEALTH_K[f.severity], HEALTH_LABEL[f.severity])}</td><td class="nowrap">${esc(toolName(f.tool))}</td>
     <td><div class="t-title" style="white-space:normal">${esc(f.title)}</div><div class="t-sub" style="white-space:normal">${esc(f.detail)}</div></td><td class="small">${esc(f.next_step)}</td></tr>`), {empty: 'No finding: every reported certificate, job and agent is healthy.'});
-  const healthCard = `<div class="grid g-2e mt">${card('Tool health', healthRows(h.tools), {sub: 'wherever a tool reports it'})}${card('Findings', findings, {flush: true})}</div>`;
-  if (!cov.available) { setMainG(__g, page('Coverage and tool health', esc(cov.reason), '', healthCard)); return; }
+  const healthCard = `<div class="grid g-2e mt">${card('Dome Connect · tool health', healthRows(h.tools), {sub: 'wherever a tool reports it'})}${card('Findings', findings, {flush: true})}</div>`;
+  if (!cov.available) { setMainG(__g, page('Dome Graph · coverage and tool health', esc(cov.reason), '', healthCard)); return; }
   const ctl = table(['Control', 'Tool', {h: 'Expected on', num: 1}, {h: 'In place', num: 1}, {h: 'Missing', num: 1}, {h: 'Silent', num: 1}, {h: 'Off', num: 1}, {h: 'Coverage', num: 1}],
     cov.controls.map(c => `<tr><td class="t-title">${esc(c.label)}</td><td>${esc(toolName(c.tool))}</td><td class="num">${nf(c.applicable)}</td><td class="num">${nf(c.covered)}</td><td class="num">${nf(c.missing)}</td><td class="num">${nf(c.silent)}</td><td class="num">${nf(c.off)}</td><td class="num">${c.covered_percent == null ? '–' : esc(c.covered_percent) + '%'}</td></tr>`)
       .concat(cov.not_measured.map(c => `<tr><td class="t-title">${esc(c.label)}</td><td>${esc(toolName(c.tool))}</td><td colspan="6" class="muted small">Not measured: this tool is not connected</td></tr>`)));
   const short = table([{h: 'Rank', num: 1}, 'Device', 'Type', 'Main user', 'Short of', {h: 'Personal-data alerts', num: 1}], cov.devices_short.map(r => `<tr><td class="num">${esc(r.rank)}</td><td class="t-title">${entLink(r.entity_id, r.name)}</td><td>${esc(cap(r.device_type))}</td><td class="small">${esc(r.primary_user || '–')}</td>
     <td>${r.missing.map(m => `<span class="tag" title="${esc(m.detail)}">${esc(m.label)}: ${esc((STATE_LABEL[m.state] || m.state).toLowerCase())}</span>`).join(' ')}</td><td class="num">${r.personal_data_alerts == null ? '–' : nf(r.personal_data_alerts)}</td></tr>`), {empty: 'Every listed device has every expected control.'});
-  setMainG(__g, page('Coverage and tool health', `Each device in the directory export is checked against the tool that owns each control. A device counts as covered only when every expected control is in place and reporting; an agent is silent after ${esc(cov.silent_after_hours)} hours without a check-in.`,
+  setMainG(__g, page('Dome Graph · coverage and tool health', `Dome Graph checks each device in the directory export is checked against the tool that owns each control. A device counts as covered only when every expected control is in place and reporting; an agent is silent after ${esc(cov.silent_after_hours)} hours without a check-in.`,
     btn('Refresh', 'refreshPage', [], 'ghost', 'refresh'),
     `<div class="grid g-kpi">${kpi('Devices in the baseline', nf(cov.baseline.devices), 'from the directory export')}${kpi('Fully covered', cov.coverage_percent + '%', `${nf(cov.fully_covered)} devices`)}
       ${kpi('Short of a control', nf(cov.devices_short_count), 'ranked below', cov.devices_short_count > 0)}${kpi('Not in the baseline', nf(cov.unlisted.length), 'seen by a tool, not listed', cov.unlisted.length > 0)}</div>
@@ -1693,7 +1693,7 @@ async function Dlp(id) {
       <td class="small">${t.pending ? `Promotion to ${esc(t.pending.stage)} proposed by ${esc(t.pending.proposed_by)}${can('approve_policy') ? ' ' + btn('Approve', 'decProposal', [t.pending.id, 'approve'], 'sm primary') + btn('Reject', 'decProposal', [t.pending.id, 'reject'], 'sm') : ''}`
         : t.eligible && can('approve_policy') ? btn('Propose ' + t.next_stage, 'decStage', [t.decision_type, t.next_stage], 'sm')
         : `<span class="muted">${esc(t.blocked_by || '')}</span>`}${t.stage !== 'shadow' && can('approve_policy') ? ' ' + btn('Back to shadow', 'decStage', [t.decision_type, 'shadow'], 'sm') : ''}</td></tr>`));
-  setMainG(__g, page('Data protection', `DLP alerts judged with what the other tools know: the sender's sign-in risk, the device's controls, the destination and the rule's history. The computed disposition is a published rule; the AI's decision is stored beside it and never closes an alert by itself. Model: ${esc(sm.model)}.`,
+  setMainG(__g, page('Data protection', `Dome Agents judge each DLP alert with what the other tools know: the sender's sign-in risk, the device's controls, the destination and the rule's history. The computed disposition is a published rule; the AI's decision is stored beside it and never closes an alert by itself. Model: ${esc(sm.model)}.`,
     can('investigate') ? btn('Pull DLP alerts', 'dlpRun', [], '', 'play') : '',
     `<div class="grid g-kpi">${kpi('Alerts', nf(sm.alerts), Object.entries(sm.by_computed).map(([k, v]) => `${esc(OUTCOME_LABEL[k] || k)} ${v}`).join(' · ') || 'none yet')}
       ${kpi('Awaiting a person', nf(sm.awaiting_a_person), 'no ruling yet', sm.awaiting_a_person > 0)}${kpi('Open cases', nf(sm.open_cases), '<a href="#/cases">escalations</a>', sm.open_cases > 0)}
@@ -1703,7 +1703,8 @@ async function Dlp(id) {
       + pager(DLP_OFFSET, list.items.length, list.total, 'dlpPage', 'alerts'), {flush: true})}</div>
     <div id="dlp-detail" class="mt"></div>
     <div class="mt">${card('How far the AI is trusted, per decision type', types, {flush: true, sub: 'shadow: compared only · recommend: pre-filled for the analyst · decide: not available in this version'})}</div>
-    ${sm.noisy_rules.length ? `<div class="mt">${card('Rules analysts keep closing as benign', sm.noisy_rules.map(r => `<div class="list-row small"><div class="grow">${esc(r.rule)}<div class="t-sub">${nf(r.closed_benign)} of ${nf(r.decided)} decided alerts closed as benign (${esc(r.benign_percent)}%) - a candidate for a rule change an engineer makes in the DLP tool</div></div><span class="score">${nf(r.alerts)}</span></div>`).join(''), {sub: 'alerts'})}</div>` : ''}`));
+    <div class="mt" id="dlp-tuning"></div>`));
+  dlpTuning();
   if (id) dlpOpen(id);
 }
 function dlpFilter(f) { DLP_FILTER = f; DLP_OFFSET = 0; Dlp(); }
@@ -1727,7 +1728,7 @@ async function dlpOpen(id) {
       <div class="inline" style="margin-top:8px;gap:8px">${btn('Close as benign', 'dlpDecide', [a.id, 'close_benign'], prefill === 'close_benign' ? 'primary' : '')}${btn('Escalate', 'dlpDecide', [a.id, 'escalate'], prefill === 'escalate' || !prefill ? 'primary' : '')}</div>`
     : '<div class="small muted">Waiting for an analyst.</div>';
   el.innerHTML = card(esc(a.rule), `<div class="grid g-2e">
-      <div><div class="small strong">Facts the decision rests on</div>${facts}</div>
+      <div><div class="small strong">Facts the decision rests on</div>${facts}${investigationHtml(a)}</div>
       <div>
         <div class="small strong">Computed disposition</div><div style="margin:4px 0">${outcomeChip(a.computed.outcome)} ${chip(a.severity)}</div>${reasons(a.computed.reasons)}
         ${a.never_auto.length ? `<div class="small" style="margin-top:6px">Never closed automatically: ${esc(a.never_auto.join('; '))}.</div>` : ''}
@@ -1740,6 +1741,25 @@ async function dlpOpen(id) {
         ${a.case_id ? `<div class="small" style="margin-top:8px">${caseLink(a.case_id, 'Open the case')}</div>` : ''}
       </div></div>`, {sub: `${esc(cap(a.channel))} · ${dt(a.event_time)}`, right: a.deep_link ? `<a class="small" href="${esc(safeUrl(a.deep_link))}" target="_blank" rel="noopener noreferrer">Open in the tool</a>` : ''});
   el.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+const LOOKUP_LABEL = {sign_in_history: 'Sign-in history', sender_history: "Sender's other DLP alerts", destination_history: 'Who else sent there',
+  device_alerts: 'Alerts on the device', privileged_access: 'Privileged access', open_cases: 'Open cases', watch_lists: 'Watch lists'};
+function investigationHtml(a) {
+  const inv = a.investigation;
+  const again = can('investigate') && inDomain('dlp') ? btn(inv ? 'Investigate again' : 'Investigate', 'dlpInvestigate', [a.id], 'sm') : '';
+  if (!inv) return `<div class="small strong" style="margin-top:12px">Investigation</div><div class="small muted">Not investigated yet. ${again}</div>`;
+  const by = inv.planned_by === 'model' ? `the model chose ${inv.steps.length} look-up(s)${inv.model ? ' (' + esc(inv.model) + ')' : ''}` : `the platform's standard checks (no model)`;
+  const steps = inv.steps.map(s => `<div class="list-row small"><div class="grow"><b>${esc(LOOKUP_LABEL[s.lookup] || s.lookup)}</b>${s.why ? ` <span class="muted">- ${esc(s.why)}</span>` : ''}
+    ${s.findings.map(id => { const x = inv.findings.find(f => f.id === id) || {}; return `<div class="ev" data-ref="${esc(id)}"><span class="tag">${esc(id)}</span> ${esc(x.claim || '')} <span class="t-sub">${esc(toolName(x.source || ''))}</span></div>`; }).join('')}</div></div>`).join('');
+  return `<div class="inline" style="margin-top:12px;justify-content:space-between"><div class="small strong">Investigation <span class="muted">(${by}; read-only look-ups from a fixed menu)</span></div>${again}</div>
+    ${steps || empty('No look-up ran.')}${(inv.notes || []).length ? `<div class="t-sub">${esc(inv.notes.join('; '))}</div>` : ''}`;
+}
+async function dlpInvestigate(id) {
+  toast('Investigating…');
+  const r = await post(`/api/v1/dlp/alerts/${encodeURIComponent(id)}/investigate`);
+  toast(r.llm_notice || `Investigated: ${(r.investigation || {}).findings ? r.investigation.findings.length : 0} finding(s)`, !!r.llm_notice);
+  if (window.__dlp) window.__dlp[id] = r;
+  dlpOpen(id);
 }
 async function dlpDecide(id, outcome) {
   await post(`/api/v1/dlp/alerts/${encodeURIComponent(id)}/decision`, {outcome, reason: ($('#dlp-reason') || {}).value || ''});
@@ -1759,4 +1779,99 @@ async function decStage(type, stage) {
 async function decProposal(id, verb) { await post(`/api/v1/decisions/proposals/${id}/${verb}`, {reason: ''}); toast(verb === 'approve' ? 'Promotion approved' : 'Proposal rejected'); Dlp(); }
 
 Object.assign(window.VIEWS, {ciso: Ciso, controls: Controls, dlp: Dlp});
-Object.assign(ALLOWED, {dlpFilter, dlpPage, dlpRun, dlpOpen, dlpDecide, decTarget, decStage, decProposal});
+Object.assign(ALLOWED, {dlpInvestigate, dlpFilter, dlpPage, dlpRun, dlpOpen, dlpDecide, decTarget, decStage, decProposal});
+
+// ================================================================= Dome Connect: configuration snapshots and changes
+// Every snapshot is the tool's own export, read in full; nothing here changes a tool.
+const REASON_LABEL = {scheduled: 'Scheduled', manual: 'Taken by hand', before_change: 'Before a change', after_change: 'After a change'};
+async function Config(id) {
+  const __g = GEN;
+  const o = await api('/api/v1/config-snapshots');
+  const manage = can('manage_connectors');
+  const rows = o.tools.map(t => {
+    const w = t.change_in_progress, l = t.latest;
+    const acts = !t.exports_config || !manage ? '' : w
+      ? btn('After change', 'cfgAfter', [t.tool], 'sm primary')
+      : `<span class="inline" style="gap:4px"><input class="input sm" style="width:150px" maxlength="120" id="cfg-ref-${esc(t.tool)}" placeholder="Change reference" aria-label="Change reference for ${esc(toolName(t.tool))}">${btn('Before change', 'cfgBefore', [t.tool], 'sm')}${btn('Snapshot now', 'cfgTake', [t.tool], 'sm ghost')}</span>`;
+    return `<tr><td class="t-title">${esc(toolName(t.tool))}</td>
+      <td>${t.exports_config ? status('ok', 'Exported') : status('info', 'Not exported by the tool')}</td>
+      <td class="small">${l ? `${nf(l.items)} item(s) · ${esc(REASON_LABEL[l.reason] || l.reason)} ${dt(l.taken_at)}<div class="t-sub">confirmed ${dt(l.confirmed_at)}</div>` : '<span class="muted">none yet</span>'}</td>
+      <td class="small">${w ? `<b>${esc(w.reference)}</b><div class="t-sub">since ${dt(w.since)} · ${esc(w.by)}</div>` : '<span class="muted">-</span>'}</td><td>${acts}</td></tr>`;
+  });
+  const changes = o.changes.map(c => `<tr class="click" data-fn="cfgOpen" data-args="${arg(c.to)}"><td class="nowrap">${dt(c.at)}</td><td>${esc(toolName(c.tool))}</td>
+    <td>${c.planned ? status('ok', 'Recorded change') : status('high', 'Unplanned')}</td><td class="small">${esc(c.reference || '-')}</td>
+    <td class="small">${nf(c.diff.changed.length)} changed · ${nf(c.diff.added.length)} added · ${nf(c.diff.removed.length)} removed</td></tr>`);
+  setMainG(__g, page('Dome Connect · configuration', 'A snapshot of each tool\'s configuration where the tool can export it: what changed, whether the change was recorded, and the Dome Score before and after it. A change is recorded with a before-change snapshot (its ticket or name) and an after-change one.',
+    btn('Refresh', 'refreshPage', [], 'ghost', 'refresh'),
+    `<div class="grid g-kpi">${kpi('Tools exporting configuration', nf(o.tools.filter(t => t.exports_config).length), `of ${nf(o.tools.length)} connected`)}
+      ${kpi('Changes in progress', nf(o.tools.filter(t => t.change_in_progress).length))}${kpi('Unplanned changes', nf(o.unplanned_recent), 'last 7 days', o.unplanned_recent > 0)}</div>
+    <div class="mt">${card('Tools', table(['Tool', 'Configuration', 'Newest snapshot', 'Change in progress', ''], rows), {flush: true})}</div>
+    <div class="mt">${card('Changes', table(['When', 'Tool', 'Kind', 'Reference', 'What changed'], changes, {empty: 'No change between snapshots yet.'}), {flush: true})}</div>
+    <div id="cfg-detail" class="mt"></div>`));
+  if (id) cfgOpen(id);
+}
+function diffHtml(d) {
+  const rows = [...d.added.map(x => `<div class="list-row small">${status('ok', 'Added')}<span class="grow">${esc(x.name)}</span></div>`),
+    ...d.removed.map(x => `<div class="list-row small">${status('high', 'Removed')}<span class="grow">${esc(x.name)}</span></div>`),
+    ...d.changed.map(x => `<div class="list-row small">${status('medium', 'Changed')}<div class="grow"><b>${esc(x.name)}</b>${x.fields.map(f => `<div class="t-sub mono">${esc(f.field)}: ${esc(fmtVal(f.before))} → ${esc(fmtVal(f.after))}</div>`).join('')}</div></div>`)];
+  return rows.join('') || empty('No difference.');
+}
+async function cfgOpen(sid) {
+  const el = $('#cfg-detail'); if (!el) return;
+  const s = await api('/api/v1/config-snapshots/' + encodeURIComponent(sid));
+  el.innerHTML = card(`${esc(toolName(s.tool))} · snapshot ${esc(s.id)}`, s.change ? diffHtml(s.change.diff) : empty('The first snapshot of this tool: nothing to compare with.'),
+    {sub: `${esc(REASON_LABEL[s.reason] || s.reason)} ${dt(s.taken_at)}${s.reference ? ' · ' + esc(s.reference) : ''}${s.posture_score != null ? ' · Dome Score ' + esc(s.posture_score) : ''}`});
+  el.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+async function cfgTake(tool) { await post(`/api/v1/config-snapshots/${encodeURIComponent(tool)}/take`, {}); toast('Snapshot taken'); Config(); }
+async function cfgBefore(tool) {
+  const ref = ($('#cfg-ref-' + CSS.escape(tool)) || {}).value || '';
+  if (!ref.trim()) { toast('Enter the change reference (ticket or name) first', true); return; }
+  await post(`/api/v1/config-snapshots/${encodeURIComponent(tool)}/before-change`, {reference: ref.trim()});
+  toast('Before-change snapshot taken: make the change, then take the after-change snapshot'); Config();
+}
+async function cfgAfter(tool) {
+  const r = await post(`/api/v1/config-snapshots/${encodeURIComponent(tool)}/after-change`, {});
+  toast(`${r.reference}: ${r.diff.count} item(s) changed${r.posture_change == null ? '' : ' · Dome Score ' + (r.posture_change >= 0 ? '+' : '') + r.posture_change}`, r.posture_dipped);
+  Config(r.after.id);
+}
+Object.assign(window.VIEWS, {config: Config});
+Object.assign(ALLOWED, {cfgOpen, cfgTake, cfgBefore, cfgAfter});
+
+// ================================================================= DLP rule-change proposals
+// The platform proposes, a second lead approves, an engineer makes the change in the DLP tool, the platform checks it.
+const RC_STATUS = {proposed: ['medium', 'Awaiting a second lead'], approved: ['info', 'Approved - to be made in the tool'],
+  applied: ['ok', 'Made in the tool'], rejected: ['high', 'Rejected'], withdrawn: ['info', 'Withdrawn']};
+const pvLine = pv => `hides ${nf(pv.hidden)} of ${nf(pv.rule_alerts)} alert(s) in ${esc(pv.days)} days: ${nf(pv.hidden_closed_benign)} closed as benign, ${nf(pv.hidden_undecided)} undecided, ${nf(pv.hidden_escalated)} escalated`;
+async function dlpTuning() {
+  const el = $('#dlp-tuning'); if (!el) return;
+  const t = await api('/api/v1/dlp/tuning');
+  window.__rc = t;
+  const lead = can('tune_detections') && inDomain('dlp'), eng = can('manage_connectors');
+  const sug = t.suggestions.map((x, i) => `<div class="list-row small"><div class="grow"><b>${esc(x.change)}</b><div class="t-sub">${esc(x.reason)}. Preview: ${pvLine(x.preview)}.</div>
+    ${x.evidence.overrides_with_reasons.length ? `<div class="t-sub">Analysts overruling the AI said: ${esc(x.evidence.overrides_with_reasons.join(' · '))}</div>` : ''}</div>${lead ? btn('Propose', 'rcPropose', [i], 'sm') : ''}</div>`).join('');
+  const rows = t.proposals.map(r => {
+    const [k, label] = RC_STATUS[r.status] || ['info', r.status];
+    const v = r.verification;
+    const acts = r.status === 'proposed' && lead ? (r.proposed_by === ME.id ? btn('Withdraw', 'rcStep', [r.id, 'reject'], 'sm') : btn('Approve', 'rcStep', [r.id, 'approve'], 'sm primary') + btn('Reject', 'rcStep', [r.id, 'reject'], 'sm'))
+      : r.status === 'approved' && eng ? `<span class="inline" style="gap:4px"><input class="input sm" style="width:130px" maxlength="120" id="rc-ref-${esc(r.id)}" placeholder="Change reference" aria-label="Change reference">${btn('Made in the tool', 'rcStep', [r.id, 'applied'], 'sm')}</span>` : '';
+    return `<tr><td class="t-title" style="white-space:normal">${esc(r.change)}<div class="t-sub">${esc(r.reason)}</div></td><td>${status(k, label)}${r.change_reference ? `<div class="t-sub">${esc(r.change_reference)}</div>` : ''}</td>
+      <td class="small">${pvLine(r.preview)}</td><td class="small">${v ? `${esc(v.configuration)}<div class="t-sub">${nf(v.matching_alerts_since)} matching alert(s) since</div>` : '<span class="muted">-</span>'}</td>
+      <td class="small">${esc(r.proposed_by)}${r.decided_by ? ` → ${esc(r.decided_by)}` : ''}</td><td>${acts}</td></tr>`;
+  });
+  el.innerHTML = card('Rule changes for the DLP tool', `${sug ? `<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div class="small strong">Suggested from analysts' rulings</div>${sug}</div>` : ''}`
+    + table(['Change', 'Status', 'Effect on past alerts', 'Took effect?', 'Proposed → decided', ''], rows, {empty: 'No rule change proposed yet.'}),
+    {flush: true, sub: 'the platform never edits a rule in the tool: an engineer makes the approved change'});
+}
+async function rcPropose(i) {
+  const x = window.__rc.suggestions[i];
+  await post('/api/v1/dlp/tuning', {rule: x.rule, kind: x.kind, params: x.params, reason: x.reason, drafted_by: 'suggestion'});
+  toast('Proposed: a second lead approves it'); dlpTuning();
+}
+async function rcStep(id, verb) {
+  const ref = ($('#rc-ref-' + id) || {}).value || '';
+  if (verb === 'applied' && !ref.trim()) { toast('Enter the change reference first', true); return; }
+  await post(`/api/v1/dlp/tuning/${id}/${verb}`, {note: verb === 'reject' ? 'Not now' : '', reference: ref.trim()});
+  toast({approve: 'Approved: an engineer makes the change in the tool', reject: 'Done', applied: 'Recorded as made in the tool'}[verb]); dlpTuning();
+}
+Object.assign(ALLOWED, {rcPropose, rcStep});

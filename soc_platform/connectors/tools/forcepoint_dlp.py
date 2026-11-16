@@ -50,6 +50,7 @@ class ForcepointDlpConnector(PagedConnector):
     dimension = "data_protection"
     streams = ("dlp_incidents", "endpoints", "health")
     STREAMS = STREAMS
+    CONFIG_PATH = "/api/v1/policies/rules"
     health_stream = "endpoints"
     read_scopes = ("incident read (reports / REST API role)", "endpoint status read", "system health read")
 
@@ -113,7 +114,7 @@ MANIFEST = ConnectorManifest(
     config=[ConfigField("base_url", "Forcepoint Security Manager API URL", kind="url"),
             ConfigField("api_key", "API token of a read-only application account", secret=True),
             ConfigField("user_domain", "UPN suffix for bare user names", required=False),
-            *path_fields(STREAMS)],
+            *path_fields(STREAMS, "/api/v1/policies/rules")],
     confidence="Unknown",
     to_confirm="Version and licensed REST API; the incident export call and its date filters; whether endpoint "
                "check-ins, job state and certificate expiry can be read; classifier names for PAN / Aadhaar",

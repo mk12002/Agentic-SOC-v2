@@ -8,7 +8,24 @@ evidence, not a statement of performance in the client's environment. That is me
 the client's own analyst dispositions (PH-T08, NFR-15), which the platform records automatically
 (`/api/v1/metrics/shadow`).
 
-## 0. Round 35 (2026-11-16) - latest results: data protection, control coverage and posture (first version)
+## 0. Round 36 (2026-11-16) - latest results: CyberDome rebrand, AI investigator, rule changes, configuration snapshots
+
+Aim: rebrand what people see as CyberDome; build the AI investigator (M6), DLP rule-change proposals (M7) and
+configuration snapshots (M11).
+
+**Results (SQLite, Windows 11, Python 3.11.9).** 1,133 collected: **1,115 passed, 18 skipped, 0 failed**; 33 new tests
+in `test_dlp_investigator.py`, `test_dlp_tuning.py`, `test_config_snapshots.py`. PostgreSQL not run. ruff clean,
+bandit no issues, JavaScript parses. `demo`: 14 alerts investigated by the platform's standard checks (no model), one
+rule change suggested (hides 6 alerts of a rule: 4 closed as benign, 0 escalated), configuration snapshots of the 3
+tools that export one; earlier figures unchanged.
+
+**Found while building:** a rule with an open proposal still received a second, different suggestion (now no other
+suggestion until the first is settled).
+
+**Not claimed:** the configuration export paths and shapes (placeholders, as for the rest of these connectors); the
+screens were not opened in a browser in this round.
+
+## 0.05 Round 35 (2026-11-16): data protection, control coverage and posture (first version)
 
 Aim: the first version of the data-protection build: five new connectors in fake mode (directory export, Forcepoint
 DLP, Silverfort, Trend Micro, Trellix ePO), DLP triage with a computed disposition, earned autonomy for the AI's own

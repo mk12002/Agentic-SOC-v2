@@ -127,6 +127,36 @@
     "next_page_token": null
    },
    "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/v1/policies$",
+   "body": {
+    "items": [
+     {
+      "id": "epo-pol-de-workstations",
+      "name": "Drive encryption - workstations",
+      "product": "Drive Encryption",
+      "assigned_to": "Workstations",
+      "settings": {
+       "encrypt": "all disks",
+       "algorithm": "AES-256",
+       "pre_boot_authentication": true
+      }
+     },
+     {
+      "id": "epo-pol-de-servers",
+      "name": "Drive encryption - servers",
+      "product": "Drive Encryption",
+      "assigned_to": "Servers",
+      "settings": {
+       "encrypt": "none"
+      }
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
   }
  ]
 }

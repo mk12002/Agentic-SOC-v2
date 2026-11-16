@@ -70,6 +70,32 @@
     "next_page_token": null
    },
    "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/v1/policies$",
+   "body": {
+    "items": [
+     {
+      "id": "sf-pol-admins-mfa",
+      "name": "MFA for privileged accounts",
+      "enabled": true,
+      "action": "mfa",
+      "applies_to": "Domain Admins",
+      "risk_threshold": "low"
+     },
+     {
+      "id": "sf-pol-risky-mfa",
+      "name": "MFA on high-risk sign-in",
+      "enabled": true,
+      "action": "mfa",
+      "applies_to": "All users",
+      "risk_threshold": "high"
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
   }
  ]
 }

@@ -26,6 +26,7 @@ class TrellixEpoConnector(PagedConnector):
     dimension = "data_protection"
     streams = ("systems", "health")
     STREAMS = STREAMS
+    CONFIG_PATH = "/api/v1/policies"
     read_scopes = ("system tree read", "drive encryption query", "server health read")
 
     def normalize(self, stream: str, raw: dict[str, Any]) -> list[NormalizedRecord]:
@@ -57,7 +58,7 @@ MANIFEST = ConnectorManifest(
     factory=lambda s, t: TrellixEpoConnector(s, t, rate_per_sec=2, burst=4), live_transport=_live,
     config=[ConfigField("base_url", "ePO server API URL", kind="url"),
             ConfigField("api_key", "Credential of a read-only ePO user", secret=True),
-            *path_fields(STREAMS)],
+            *path_fields(STREAMS, "/api/v1/policies")],
     confidence="Unknown",
     to_confirm="ePO version and web API access; the query for drive-encryption state; whether certificate expiry and "
                "server-task results can be read",

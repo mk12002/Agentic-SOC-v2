@@ -1,8 +1,17 @@
-# Agentic SOC Platform
+# CyberDome
 
-AI-assisted investigation and automation layer for a Security Operations Centre, built against the
-*SOC – AI & Automation Consolidated Requirements*. One platform serves three workflows over a shared,
-governed context store, with a cross-domain intelligence layer on top.
+An AI-first layer above an organisation's existing security tools: it connects them, investigates across them and
+gives the CISO one view instead of a console per tool. It does not replace any tool. Its parts, as the product names
+them: **Dome Connect** (connectors and tool health), **Dome Graph** (one record per person and device across tools;
+control coverage), **Dome Agents** (AI investigation and triage, earning autonomy one decision type at a time),
+**Dome Score** (the posture score and CISO view) and **Dome Comply** (regulatory evidence - not built yet). In this version Dome Agents also investigate each DLP alert with
+read-only look-ups the model chooses from a fixed menu, and propose rule changes for the DLP tool with their effect
+previewed; Dome Connect keeps configuration snapshots and tells recorded changes from unplanned ones.
+
+It grew from an agentic SOC platform built against the *SOC – AI & Automation Consolidated Requirements*: phishing,
+incident and vulnerability workflows over a shared, governed context store, with a cross-domain intelligence layer on
+top. Code identifiers keep that history (the `soc_platform` package, `SOC_*` settings, the `agentic-soc` Kubernetes
+namespace) so deployments and integrations are unaffected.
 
 ![Overview](docs/screenshots/01-overview.png)
 

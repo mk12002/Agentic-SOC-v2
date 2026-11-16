@@ -38,6 +38,9 @@ class DlpAlert(Base):
     computed_reasons: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     never_auto: Mapped[list[str]] = mapped_column(JSON, default=list)        # why it is never closed without a person
     personal_data: Mapped[bool | None] = mapped_column(Boolean, nullable=True, index=True)   # a personal-data class matched
+    destination_domain: Mapped[str | None] = mapped_column(String(253), nullable=True, index=True)
+    # the AI investigator's record: plan (model or rules), look-ups run, I-numbered findings (domains/dlp/investigator.py)
+    investigation: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     evidence_hash: Mapped[str] = mapped_column(String(64), default="")
     # the AI's newest decision, copied here so the queue's counts are plain aggregates (the full record: ai_decisions)
     ai_outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)

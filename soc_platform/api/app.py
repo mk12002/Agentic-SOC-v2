@@ -84,7 +84,7 @@ async def _lifespan(_app: FastAPI):
         event("server.stop", pid=__import__("os").getpid(), access_log_dropped=ACCESS_LOG.dropped)
 
 
-app = FastAPI(title="Agentic SOC Platform", version=__version__, lifespan=_lifespan,
+app = FastAPI(title="CyberDome", version=__version__, lifespan=_lifespan,
               docs_url=None if _PROD else "/docs", redoc_url=None, openapi_url=None if _PROD else "/openapi.json")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -3035,8 +3035,25 @@ def dlp_run(p: Principal = Depends(need(Perm.INVESTIGATE, "dlp")), s: Session = 
     svc = _dlp(s)
     ing = svc.ingest()
     out = svc.process_committing()               # alerts and cases saved first: no write lock while the model answers
+    investigated = svc.investigate_committing(svc.investigate_pending())
     decided = svc.ai_decide_committing(svc.ai_pending())
-    return {"ingested": ing["synced"], "errors": ing["errors"], **out, "ai_decided": decided}
+    return {"ingested": ing["synced"], "errors": ing["errors"], **out, "investigated": investigated, "ai_decided": decided}
+
+
+@app.post("/api/v1/dlp/alerts/{alert_id}/investigate")
+def dlp_investigate(alert_id: str, p: Principal = Depends(need(Perm.INVESTIGATE, "dlp")),
+                    s: Session = Depends(db_session, scope="function")):
+    """Investigate one alert again now: the model (with the person's AI limits) picks read-only look-ups from the
+    fixed menu, then the AI's decision is asked again on the new findings. Without the model, the platform's plan."""
+    from soc_platform.domains.dlp.models import DlpAlert
+
+    gw = llm(s, p)
+    svc = _dlp(s, gw)
+    if s.get(DlpAlert, alert_id) is None:
+        raise HTTPException(404, "unknown DLP alert")
+    svc.investigate_committing([alert_id])
+    svc.ai_decide_committing([alert_id])
+    return _with_notice(svc.get(alert_id), gw)
 
 
 @app.get("/api/v1/decisions")
@@ -3148,3 +3165,131 @@ def dash_ciso(_: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends
             "cases": {"critical": sum(c.severity == "critical" for c in worst), "high": sum(c.severity == "high" for c in worst),
                       "items": [{"id": c.id, "domain": c.domain, "title": c.title, "severity": c.severity,
                                  "status": c.status, "created_at": _iso(c.created_at)} for c in worst[:8]]}}
+
+
+# ----------------------------------------------------------------------------- configuration snapshots
+
+
+class ChangeBody(BaseModel):
+    reference: str = Field(default="", max_length=120)
+    note: str = Field(default="", max_length=1000)
+
+
+def _config(s: Session):
+    from soc_platform.intelligence.config_snapshots import ConfigSnapshots
+
+    return ConfigSnapshots(s, registry())
+
+
+@app.get("/api/v1/config-snapshots")
+def config_overview(_: Principal = Depends(need(Perm.READ)), s: Session = Depends(db_session, scope="function")):
+    """Which tools export their configuration, each one's newest snapshot, changes in progress, recent changes."""
+    return _config(s).overview()
+
+
+@app.get("/api/v1/config-snapshots/{snapshot_id}")
+def config_snapshot(snapshot_id: int, _: Principal = Depends(need(Perm.READ)),
+                    s: Session = Depends(db_session, scope="function")):
+    if not -2**31 < snapshot_id < 2**31:
+        raise HTTPException(404, "unknown snapshot")
+    try:
+        return _config(s).get(snapshot_id)
+    except KeyError as exc:
+        raise _err(exc) from exc
+
+
+@app.post("/api/v1/config-snapshots/{tool}/{step}")
+def config_record(tool: str, step: str, body: ChangeBody | None = None,
+                  p: Principal = Depends(need(Perm.MANAGE_CONNECTORS)), s: Session = Depends(db_session, scope="function")):
+    """``take`` a snapshot now, or record a change: ``before-change`` (with its reference), then ``after-change``
+    (the difference and the posture score before and after)."""
+    from soc_platform.connectors.base import ConnectorError
+
+    svc, body = _config(s), body or ChangeBody()
+    try:
+        if step == "take":
+            from soc_platform.intelligence.config_snapshots import _may_record
+
+            _may_record(p)
+            return svc.view(svc.take(tool, reason="manual", by=p.id, note=body.note), with_items=False)
+        if step == "before-change":
+            return svc.view(svc.before_change(tool, p, reference=body.reference, note=body.note), with_items=False)
+        if step == "after-change":
+            return svc.after_change(tool, p, note=body.note)
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+    except ConnectorError as exc:
+        raise HTTPException(503, f"{tool} could not be read: {str(exc)[:200]}") from exc
+    raise HTTPException(404, "not found")
+
+
+# ----------------------------------------------------------------------------- DLP rule-change proposals
+
+
+class RuleChangeBody(BaseModel):
+    rule: str = Field(min_length=1, max_length=256)
+    kind: str = Field(pattern=r"^(exclude_destination|raise_threshold)$")
+    params: dict[str, Any] = Field(default_factory=dict)
+    reason: str = Field(default="", max_length=2000)
+    drafted_by: str = Field(default="lead", pattern=r"^(lead|suggestion)$")
+
+
+class RuleChangeStepBody(BaseModel):
+    note: str = Field(default="", max_length=2000)
+    reference: str = Field(default="", max_length=120)
+
+
+@app.get("/api/v1/dlp/tuning")
+def dlp_tuning(_: Principal = Depends(need(Perm.READ, "dlp")), s: Session = Depends(db_session, scope="function")):
+    """Suggested rule changes (from analysts' rulings), and every proposal with its preview and verification."""
+    from soc_platform.domains.dlp.tuning import DlpTuning
+
+    return DlpTuning(s).overview()
+
+
+@app.post("/api/v1/dlp/tuning/preview")
+def dlp_tuning_preview(body: RuleChangeBody, _: Principal = Depends(need(Perm.READ, "dlp")),
+                       s: Session = Depends(db_session, scope="function")):
+    """What the change would have done to the rule's alerts in the last 90 days. Stores nothing."""
+    from soc_platform.domains.dlp.tuning import preview
+
+    try:
+        return preview(s, body.rule, body.kind, body.params)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/v1/dlp/tuning")
+def dlp_tuning_propose(body: RuleChangeBody, p: Principal = Depends(need(Perm.TUNE_DETECTIONS, "dlp")),
+                       s: Session = Depends(db_session, scope="function")):
+    from soc_platform.domains.dlp.tuning import DlpTuning
+
+    svc = DlpTuning(s)
+    try:
+        row = svc.propose(p, rule=body.rule, kind=body.kind, params=body.params, reason=body.reason,
+                          drafted_by=body.drafted_by)
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+    return svc.view(row)
+
+
+@app.post("/api/v1/dlp/tuning/{proposal_id}/{verb}")
+def dlp_tuning_step(proposal_id: int, verb: str, body: RuleChangeStepBody | None = None,
+                    p: Principal = Depends(need(Perm.READ, "dlp")), s: Session = Depends(db_session, scope="function")):
+    """``approve`` / ``reject`` (a second lead; rejecting your own proposal withdraws it), or ``applied``: an engineer
+    records that the change was made in the DLP tool, with its reference."""
+    from soc_platform.domains.dlp.tuning import DlpTuning
+
+    if verb not in ("approve", "reject", "applied") or not -2**31 < proposal_id < 2**31:
+        raise HTTPException(404, "not found")
+    body, svc = body or RuleChangeStepBody(), DlpTuning(s)
+    try:
+        if verb == "approve":
+            row = svc.approve(proposal_id, p.acting_in("dlp"), body.note)
+        elif verb == "reject":
+            row = svc.reject(proposal_id, p.acting_in("dlp"), body.note)
+        else:
+            row = svc.mark_applied(proposal_id, p, body.reference)
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+    return svc.view(row)

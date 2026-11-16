@@ -159,7 +159,7 @@ def send_test(*, by: str, post: Any = None) -> list[dict[str, Any]]:
     delivery (it is not a finding); the caller audits it."""
     post = post or _post
     link = _link()
-    text = f"Agentic SOC test message, sent by {by}. If you can read this, notifications reach this channel."
+    text = f"CyberDome test message, sent by {by}. If you can read this, notifications reach this channel."
     out = []
     for ch in channels():
         body = ({"source": "agentic-soc", "test": True, "text": text, "link": link} if ch.kind == "json"

@@ -28,6 +28,7 @@ class SilverfortConnector(PagedConnector):
     dimension = "identity"
     streams = ("risk_events",)
     STREAMS = STREAMS
+    CONFIG_PATH = "/api/v1/policies"
     read_scopes = ("read access to authentication risk events",)
 
     def normalize(self, stream: str, raw: dict[str, Any]) -> list[NormalizedRecord]:
@@ -65,7 +66,7 @@ MANIFEST = ConnectorManifest(
     config=[ConfigField("base_url", "Silverfort console API URL", kind="url"),
             ConfigField("api_key", "API token of a read-only application", secret=True),
             ConfigField("user_domain", "UPN suffix for bare user names", required=False),
-            *path_fields(STREAMS)],
+            *path_fields(STREAMS, "/api/v1/policies")],
     confidence="Unknown",
     to_confirm="How authentication risk is exported (REST API or log forwarder), the risk levels and factors "
                "reported, and - for the action rollout - the calls that revoke sessions and force MFA",

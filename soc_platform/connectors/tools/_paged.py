@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from soc_platform.connectors.base import Page
+from soc_platform.connectors.base import ConnectorError, Page
 from soc_platform.connectors.registry import ConfigField
 from soc_platform.connectors.tools._common import ToolConnector, Watermark, need, parse_ts
 from soc_platform.core.schema import NormalizedRecord
@@ -26,7 +26,33 @@ HEALTH_TYPES = ("certificate", "sync_job", "directory_sync", "service")
 class PagedConnector(ToolConnector):
     # stream -> (placeholder path, change-time field for an event stream or None for an inventory read in full)
     STREAMS: ClassVar[dict[str, tuple[str, str | None]]] = {}
+    CONFIG_PATH: ClassVar[str | None] = None   # where the tool exports its configuration; None: it does not
+    CONFIG_MAX_PAGES = 100
     page_size = 200
+
+    @property
+    def exports_config(self) -> bool:
+        return bool(self.settings.get("config_path") or self.CONFIG_PATH)
+
+    def config_items(self) -> list[dict[str, Any]]:
+        """The tool's configuration (policies, rules) read in full - every page of one read, never resumed. Not a
+        sync stream: nothing of it enters the context store; it is kept as a snapshot (intelligence/config_snapshots.py)."""
+        path = str(self.settings.get("config_path") or self.CONFIG_PATH or "")
+        if not path:
+            raise ConnectorError(f"{self.tool} does not export its configuration")
+        out: list[dict[str, Any]] = []
+        token = ""
+        for _ in range(self.CONFIG_MAX_PAGES):
+            params: dict[str, Any] = {"limit": self.page_size}
+            if token:
+                params["page_token"] = token
+            body = self.get(path, params=params)
+            items = (body.get("items") if isinstance(body, dict) else None) or []
+            out += [i for i in items if isinstance(i, dict)]
+            token = body.get("next_page_token") if isinstance(body, dict) else None
+            if not token or not items:
+                return out
+        raise ConnectorError(f"{self.tool} configuration export did not finish within {self.CONFIG_MAX_PAGES} pages")
 
     def path_of(self, stream: str) -> str:
         if stream not in self.STREAMS:
@@ -74,10 +100,15 @@ class PagedConnector(ToolConnector):
                         "unmapped_users": [str(u) for u in users if u] if isinstance(users, list) else []})
 
 
-def path_fields(streams: dict[str, tuple[str, str | None]]) -> list[ConfigField]:
-    """One optional setting per stream: its endpoint path (the defaults are placeholders until the API is confirmed)."""
-    return [ConfigField(f"{s}_path", f"Endpoint path of the {s.replace('_', ' ')} stream (default {p}; to be confirmed "
-                                     f"against the installed version)", required=False) for s, (p, _) in streams.items()]
+def path_fields(streams: dict[str, tuple[str, str | None]], config_path: str | None = None) -> list[ConfigField]:
+    """One optional setting per stream: its endpoint path (the defaults are placeholders until the API is confirmed);
+    and the configuration export's path when the tool has one."""
+    out = [ConfigField(f"{s}_path", f"Endpoint path of the {s.replace('_', ' ')} stream (default {p}; to be confirmed "
+                                    f"against the installed version)", required=False) for s, (p, _) in streams.items()]
+    if config_path:
+        out.append(ConfigField("config_path", f"Endpoint path of the configuration export (default {config_path}; to be "
+                                              "confirmed against the installed version)", required=False))
+    return out
 
 
 def flag(v: Any) -> bool | None:

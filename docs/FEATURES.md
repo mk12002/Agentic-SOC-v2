@@ -606,7 +606,7 @@ a CMDB criticality does. *Export CSV* downloads it; *Clear* empties it; every ch
 `ownership.cleared`). The page never fixes anything in Wiz or the cloud: it routes the work to the owning team as a
 ticket for approval and checks the fix against Wiz.
 
-## 10. Data protection, control coverage and the CISO view (first version)
+## 10. CyberDome: data protection, control coverage and the Dome Score (first version)
 
 Built for an estate whose tools are a DLP product, an identity-protection product, an EDR, a disk-encryption
 manager and a directory. Everything in this section runs on sample data: the five connectors behind it are in fake
@@ -637,6 +637,33 @@ mode until each tool's API is confirmed (section 6). What is not built yet is li
 | Two guards on closing | The AI may escalate alone; a close counts only when the computed disposition agrees and the alert is not on the never-automatic list. |
 | Works without the model | Model off, over budget or failing: no AI decision is stored, and every disposition, severity, case and count is identical. |
 
+### 10.2b The AI investigator
+
+| Feature | What it does |
+|---|---|
+| A fixed menu | Seven read-only look-ups over what the platform holds: sign-in history, the sender's other DLP alerts, who else sent to the destination, alerts and deception hits on the device, privileged-access events, open cases, watch lists. |
+| The model chooses | Up to 5 look-ups in 2 rounds within a time budget; after the first round it sees the findings. Anything not on the menu is dropped and noted. |
+| Without the model | The platform's own standard checks for the kind of alert, so every alert is investigated either way. |
+| Cited findings | Findings are numbered I1, I2 ...; the AI's decision may cite them; the computed disposition never reads them. |
+
+### 10.2c Rule changes for the DLP tool
+
+| Feature | What it does |
+|---|---|
+| Suggested from rulings | A rule analysts close as benign at least four times in five gets a suggested change: exclude the destination the closures share, or raise the match threshold above every closed alert. |
+| Preview | What the change would have hidden among the rule's alerts in 90 days, and how analysts ruled on those. |
+| Refused when unsafe | A change that would have hidden an escalated alert, bulk personal data, a high or critical alert, a never-automatic alert - or nothing - is refused, at proposal and at approval. |
+| Two leads, one engineer | A lead proposes, a second approves, an engineer records the change made in the DLP tool. The platform never edits the tool. |
+| Did it take effect? | The tool's configuration snapshot is checked for the change, and alerts the change should have stopped are counted. |
+
+### 10.2d Configuration snapshots
+
+| Feature | What it does |
+|---|---|
+| Where the tool can export it | DLP rules, identity-protection policies and encryption policies are read in full daily; other tools are shown as "not exported". |
+| Recorded changes | A before-change snapshot with the change's reference, then an after-change one: the difference field by field and the Dome Score before and after. |
+| Unplanned changes | A difference outside a recorded change shows on tool health. |
+
 ### 10.3 Control coverage and tool health
 
 | Feature | What it does |
@@ -662,8 +689,7 @@ mode until each tool's API is confirmed (section 6). What is not built yet is li
 ### 10.5 Not built yet
 
 Connectors for the privileged-access tool, the web application firewall, the SIEM and SOAR products in use · live
-(tenant-verified) versions of the five connectors · the AI choosing its own read-only look-ups · tuning proposals with
-a preview on past alerts · cross-tool correlation rules joining identity, privileged-access, DLP and encryption
+(tenant-verified) versions of the five connectors · cross-tool correlation rules joining identity, privileged-access, DLP and encryption
 signals · actions (session revoke, forced MFA, isolation, credential rotation) and execution through a SOAR · the
-decide stage · configuration snapshots before a change · regulatory control mappings, breach assessment and reporting
+decide stage · regulatory control mappings, breach assessment and reporting
 clock · the board report · the pilot scorecard KPIs.

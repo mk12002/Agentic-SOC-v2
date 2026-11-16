@@ -595,6 +595,167 @@
     "next_page_token": null
    },
    "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/v1/policies/rules$",
+   "body": {
+    "items": [
+     {
+      "id": "fp-rule-001",
+      "name": "Aadhaar number in mail",
+      "policy": "Investor personal data",
+      "enabled": true,
+      "channel": "email",
+      "classifiers": [
+       "Aadhaar number"
+      ],
+      "threshold": 1,
+      "action": "audit",
+      "severity": "low",
+      "excluded_destinations": [],
+      "modified_at": "2026-08-01T10:00:00Z"
+     },
+     {
+      "id": "fp-rule-002",
+      "name": "Card-like numbers in outbound mail",
+      "policy": "Payment card data",
+      "enabled": true,
+      "channel": "email",
+      "classifiers": [
+       "Credit card number (wide)"
+      ],
+      "threshold": 1,
+      "action": "audit",
+      "severity": "low",
+      "excluded_destinations": [],
+      "modified_at": "2026-08-01T10:00:00Z"
+     },
+     {
+      "id": "fp-rule-003",
+      "name": "Confidential document in mail",
+      "policy": "Confidential markings",
+      "enabled": true,
+      "channel": "email",
+      "classifiers": [
+       "Confidential marking"
+      ],
+      "threshold": 1,
+      "action": "audit",
+      "severity": "low",
+      "excluded_destinations": [],
+      "modified_at": "2026-08-01T10:00:00Z"
+     },
+     {
+      "id": "fp-rule-004",
+      "name": "Customer contact list to cloud storage",
+      "policy": "Customer lists",
+      "enabled": true,
+      "channel": "web",
+      "classifiers": [
+       "Customer contact list"
+      ],
+      "threshold": 1,
+      "action": "block",
+      "severity": "medium",
+      "excluded_destinations": [],
+      "modified_at": "2026-08-01T10:00:00Z"
+     },
+     {
+      "id": "fp-rule-005",
+      "name": "Employee directory to file transfer",
+      "policy": "Employee data",
+      "enabled": true,
+      "channel": "web",
+      "classifiers": [
+       "Employee directory"
+      ],
+      "threshold": 1,
+      "action": "block",
+      "severity": "medium",
+      "excluded_destinations": [],
+      "modified_at": "2026-08-01T10:00:00Z"
+     },
+     {
+      "id": "fp-rule-006",
+      "name": "PAN numbers to external recipients",
+      "policy": "Investor personal data",
+      "enabled": true,
+      "channel": "email",
+      "classifiers": [
+       "India PAN",
+       "Investor account number"
+      ],
+      "threshold": 1,
+      "action": "block",
+      "severity": "high",
+      "excluded_destinations": [],
+      "modified_at": "2026-08-01T10:00:00Z"
+     },
+     {
+      "id": "fp-rule-007",
+      "name": "Passport scans to cloud storage",
+      "policy": "Investor personal data",
+      "enabled": true,
+      "channel": "web",
+      "classifiers": [
+       "Passport number"
+      ],
+      "threshold": 1,
+      "action": "block",
+      "severity": "medium",
+      "excluded_destinations": [],
+      "modified_at": "2026-08-01T10:00:00Z"
+     },
+     {
+      "id": "fp-rule-008",
+      "name": "Privileged documents to removable media",
+      "policy": "Legal documents",
+      "enabled": true,
+      "channel": "usb",
+      "classifiers": [
+       "Legal privilege marking"
+      ],
+      "threshold": 1,
+      "action": "block",
+      "severity": "medium",
+      "excluded_destinations": [],
+      "modified_at": "2026-08-01T10:00:00Z"
+     },
+     {
+      "id": "fp-rule-009",
+      "name": "Salary data in mail",
+      "policy": "HR records",
+      "enabled": true,
+      "channel": "email",
+      "classifiers": [
+       "Salary figures"
+      ],
+      "threshold": 1,
+      "action": "audit",
+      "severity": "low",
+      "excluded_destinations": [],
+      "modified_at": "2026-08-01T10:00:00Z"
+     },
+     {
+      "id": "fp-rule-010",
+      "name": "Source code to code hosting",
+      "policy": "Source code",
+      "enabled": true,
+      "channel": "web",
+      "classifiers": [
+       "Source code"
+      ],
+      "threshold": 1,
+      "action": "audit",
+      "severity": "low",
+      "excluded_destinations": [],
+      "modified_at": "2026-08-01T10:00:00Z"
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
   }
  ]
 }
