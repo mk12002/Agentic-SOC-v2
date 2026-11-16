@@ -132,8 +132,8 @@ python -m soc_platform reset-demo --yes      # the same data, fresh (refuses whi
 - the cloud misconfigurations, routed to their teams
 - the correlation, the three standard reports, and an audit-chain check
 
-Result: 7 phishing + 3 incident cases, 6 open vulnerabilities, 37 actions awaiting approval (incident 18, phishing 16,
-vulnerability 3) - the same with or without the ML engine. It uses `SOC_ORG_DOMAINS`, `SOC_RAW_PAYLOAD_DIR` and `SOC_REPORT_OUTPUT_DIR` from settings. Running
+Result: 7 phishing + 3 incident + 3 data-protection cases, 6 open vulnerabilities, 37 actions awaiting approval (incident 18, phishing 16,
+vulnerability 3; data protection recommends no action in this version), 14 DLP alerts, 6 of 10 devices with every expected control - the same with or without the ML engine. It uses `SOC_ORG_DOMAINS`, `SOC_RAW_PAYLOAD_DIR` and `SOC_REPORT_OUTPUT_DIR` from settings. Running
 it twice changes nothing.
 
 To show the LLM features, the `.env` must contain an approved endpoint (already configured for Azure AI Foundry):
@@ -144,7 +144,7 @@ run with `docker compose --env-file .env`). Without them everything works and sa
 without a model keeps the cited summary until the case is reassessed).
 
 Checklist (10 minutes before):
-- [ ] Data loaded: Cases shows 7 phishing + 3 incident cases; Vulnerabilities shows 6 findings.
+- [ ] Data loaded: Cases shows 7 phishing + 3 incident + 3 data-protection cases; Vulnerabilities shows 6 findings.
 - [ ] Intelligence → *Re-correlate* once; the situation brief is populated.
 - [ ] Open the phishing case *"Action required: your password expires today"* and its **Attack story** once
       (warms the cache).

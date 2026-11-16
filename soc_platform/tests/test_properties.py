@@ -101,7 +101,7 @@ def test_guardrail_rejects_a_figure_absent_from_the_evidence(ns, invented):
 
 # ------------------------------------------------------------------------ vendor timestamps
 @FAST
-@given(st.datetimes(min_value=datetime(2000, 1, 1), max_value=datetime(2100, 1, 1), timezones=st.just(UTC)))  # noqa: DTZ001 - hypothesis takes naive bounds and adds the zone
+@given(st.datetimes(min_value=datetime(2000, 1, 1), max_value=datetime(2100, 1, 1), timezones=st.just(UTC)))
 def test_every_vendor_timestamp_format_parses_to_the_same_utc_instant(dt):
     from soc_platform.connectors.tools._common import parse_ts
 

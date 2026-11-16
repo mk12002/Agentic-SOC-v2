@@ -28,9 +28,12 @@ from soc_platform.core.models import JobRun, SystemFlag, utcnow
 # (vulnerability) is collected before incidents and phishing are scored, so a fresh deployment does not score an
 # incident without knowing its host is exposed.
 JOBS: dict[str, tuple[str, int]] = {
+    "inventory": ("SOC_JOB_INVENTORY_SECONDS", 3600),
     "vulnerability": ("SOC_JOB_VM_SECONDS", 6 * 3600),
     "incident": ("SOC_JOB_INCIDENT_SECONDS", 300),
     "phishing": ("SOC_JOB_PHISHING_SECONDS", 120),
+    "dlp": ("SOC_JOB_DLP_SECONDS", 300),
+    "posture": ("SOC_JOB_POSTURE_SECONDS", 3600),
     "follow_up": ("SOC_JOB_FOLLOWUP_SECONDS", 24 * 3600),
     "daily_report": ("SOC_JOB_DAILY_REPORT_SECONDS", 24 * 3600),
     "weekly_reports": ("SOC_JOB_WEEKLY_REPORTS_SECONDS", 7 * 24 * 3600),
@@ -102,6 +105,32 @@ def _body(name: str, s: Session) -> dict[str, Any]:
         _run_pending_actions(s)
         narrated = sv["phishing"].narrate_pending(case_ids)
         return {"processed": len(case_ids), "failed": len(failed), "narrated": narrated}
+    if name == "inventory":            # first on a fresh start: hosts named by later events resolve onto these records
+        from soc_platform.api.app import _dlp
+
+        out = _dlp(s).sync_inventory()
+        return {"synced": sum(out["synced"].values()), "sync_errors": len(out["errors"])}
+    if name == "dlp":
+        from soc_platform.api.app import _dlp
+
+        svc = _dlp(s)
+        ing = svc.ingest()               # context (directory, sign-in risk, agents, encryption) and the incidents
+        out = svc.process_committing()   # alerts and cases are visible now; the model's decisions follow, no lock held
+        decided = svc.ai_decide_committing(svc.ai_pending())
+        demoted = svc.decisions.check_drift()
+        return {"synced": sum(ing["synced"].values()), "sync_errors": len(ing["errors"]), **out, "ai_decided": decided,
+                "demoted": [d["decision_type"] for d in demoted]}
+    if name == "posture":
+        from soc_platform.connectors.base import SyncRunner
+        from soc_platform.core.context_store import ContextStore
+        from soc_platform.intelligence.posture import snapshot
+        from soc_platform.intelligence.tool_health import tool_health
+
+        reg = sv["incident"].registry
+        items = [(reg.get(n), "health") for n in sorted(reg.enabled_names()) if "health" in reg.get(n).streams]
+        synced = sum(r.ingested for r in SyncRunner(s, ContextStore(s)).sync_many(items)) if items else 0
+        snap = snapshot(s)
+        return {"health_records": synced, "findings": tool_health(s)["counts"], "score": snap["score"]}
     if name == "vulnerability":
         out = sv["vulnerability"].refresh()
         mis = _misconfig(s).refresh()

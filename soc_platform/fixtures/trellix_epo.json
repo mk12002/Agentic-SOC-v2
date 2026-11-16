@@ -1,0 +1,132 @@
+{
+ "routes": [
+  {
+   "method": "GET",
+   "path": "^/api/v1/systems$",
+   "body": {
+    "items": [
+     {
+      "node_id": "epo-node-0000",
+      "name": "JANE-LT01",
+      "fqdn": "jane-lt01.acme-demo.com",
+      "ip": "10.20.1.15",
+      "os": "Windows 11 Enterprise",
+      "serial_number": "5CG1234XYZ",
+      "last_communication": "2026-09-20T09:10:00Z",
+      "encryption": {
+       "state": "Not encrypted",
+       "product_version": "7.4.1"
+      }
+     },
+     {
+      "node_id": "epo-node-0001",
+      "name": "BOB-LT02",
+      "fqdn": "bob-lt02.acme-demo.com",
+      "ip": "10.20.1.22",
+      "os": "Windows 11 Enterprise",
+      "serial_number": "5CG5678ABC",
+      "last_communication": "2026-09-20T09:11:00Z",
+      "encryption": {
+       "state": "Encrypted",
+       "product_version": "7.4.1"
+      }
+     },
+     {
+      "node_id": "epo-node-0002",
+      "name": "PRIYA-LT07",
+      "fqdn": "priya-lt07.acme-demo.com",
+      "ip": "10.20.1.31",
+      "os": "Windows 11 Enterprise",
+      "serial_number": "5CG3107QRT",
+      "last_communication": "2026-09-20T09:12:00Z",
+      "encryption": {
+       "state": "Encrypted",
+       "product_version": "7.4.1"
+      }
+     },
+     {
+      "node_id": "epo-node-0003",
+      "name": "ARUN-LT05",
+      "fqdn": "arun-lt05.acme-demo.com",
+      "ip": "10.20.1.41",
+      "os": "Windows 11 Enterprise",
+      "serial_number": "5CG4105QRT",
+      "last_communication": "2026-09-20T09:13:00Z",
+      "encryption": {
+       "state": "Encrypted",
+       "product_version": "7.4.1"
+      }
+     },
+     {
+      "node_id": "epo-node-0004",
+      "name": "MEERA-LT06",
+      "fqdn": "meera-lt06.acme-demo.com",
+      "ip": "10.20.1.44",
+      "os": "Windows 11 Enterprise",
+      "serial_number": "5CG4406QRT",
+      "last_communication": "2026-09-20T09:14:00Z",
+      "encryption": {
+       "state": "Encrypted",
+       "product_version": "7.4.1"
+      }
+     },
+     {
+      "node_id": "epo-node-0005",
+      "name": "TOM-LT07",
+      "fqdn": "tom-lt07.acme-demo.com",
+      "ip": "10.20.1.47",
+      "os": "Windows 11 Enterprise",
+      "serial_number": "5CG4707QRT",
+      "last_communication": "2026-09-20T09:15:00Z",
+      "encryption": {
+       "state": "Encrypted",
+       "product_version": "7.4.1"
+      }
+     },
+     {
+      "node_id": "epo-node-0006",
+      "name": "LI-DEV08",
+      "fqdn": "li-dev08.acme-demo.com",
+      "ip": "10.20.1.52",
+      "os": "Windows 11 Enterprise",
+      "serial_number": "5CG5208QRT",
+      "last_communication": "2026-09-20T09:16:00Z",
+      "encryption": {
+       "state": "Encrypted",
+       "product_version": "7.4.1"
+      }
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/v1/server/health$",
+   "body": {
+    "items": [
+     {
+      "id": "epo-cert-agent-handler",
+      "type": "certificate",
+      "name": "Agent handler certificate",
+      "status": "valid",
+      "expires_at": "2027-06-01T00:00:00Z",
+      "reported_at": "2026-09-20T09:30:00Z"
+     },
+     {
+      "id": "epo-task-encryption-status",
+      "type": "sync_job",
+      "name": "Encryption status collection",
+      "status": "ok",
+      "last_run": "2026-09-20T08:00:00Z",
+      "interval_minutes": 240,
+      "reported_at": "2026-09-20T09:30:00Z"
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
+  }
+ ]
+}

@@ -26,7 +26,7 @@
   --low: #067647;  --low-bg: #ecfdf3; --low-bd: #abefc6;
   --info: #475467; --info-bg: #f2f4f7; --info-bd: #e4e7ec;
 
-  --c-phishing: #2446c7; --c-incident: #d9730d; --c-vulnerability: #7a5af8;
+  --c-phishing: #2446c7; --c-incident: #d9730d; --c-vulnerability: #7a5af8; --c-dlp: #0e7c86;
   --c-critical: #d92d20; --c-high: #f79009; --c-medium: #eaaa08; --c-low: #17b26a; --c-other: #98a2b3;
 
   --radius: 10px;
@@ -59,7 +59,7 @@
   --low: #47cd89;  --low-bg: rgba(23, 178, 106, .12); --low-bd: rgba(23, 178, 106, .3);
   --info: #aab1bd; --info-bg: rgba(152, 162, 179, .1); --info-bd: rgba(152, 162, 179, .22);
 
-  --c-phishing: #7b96ff; --c-incident: #f79009; --c-vulnerability: #a48afb;
+  --c-phishing: #7b96ff; --c-incident: #f79009; --c-vulnerability: #a48afb; --c-dlp: #3fc1c9;
   color-scheme: dark;
 }
 

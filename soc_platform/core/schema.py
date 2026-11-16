@@ -17,11 +17,12 @@ ENTITY_KINDS = {"asset", "identity", "indicator"}
 EVENT_KINDS = {
     "alert", "finding", "vulnerability", "email", "signin", "click", "dns", "process",
     "deception", "secret_access", "elevation", "cloud_issue", "mail_event", "ticket",
+    "dlp_incident", "auth_risk", "tool_health",
 }
 
 Dimension = Literal[
     "endpoint", "identity", "privileged_access", "dns", "deception", "exposure", "email",
-    "threat_intel", "cloud", "ticketing", "other",
+    "threat_intel", "cloud", "ticketing", "data_protection", "web", "other",
 ]
 
 

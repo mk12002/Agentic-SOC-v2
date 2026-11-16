@@ -812,3 +812,7 @@ def generic_siem() -> None:
 BUILDERS = [defender_endpoint, defender_office365, entra, defender_identity, rapid7, wiz, umbrella, canary, delinea_secret_server,
             delinea_privilege_manager, avanan, nvd, epss, cisa_kev, threat_intel, servicenow, jira, cmdb_csv,
             sentinel, generic_siem]
+
+from fixture_builders_nam import BUILDERS as _NAM_BUILDERS  # the data-protection stack's tools
+
+BUILDERS += _NAM_BUILDERS

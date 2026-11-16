@@ -60,7 +60,7 @@ class Perm(str, Enum):
     TUNE_DETECTIONS = "tune_detections"  # propose / approve / revoke detection tuning rules (two leads)
 
 
-DOMAINS = ("phishing", "incident", "vulnerability")
+DOMAINS = ("phishing", "incident", "vulnerability", "dlp")
 # Need a fresh strong authentication (MFA) - decisions with blast radius.
 STEP_UP_PERMS = {Perm.APPROVE_ACTION, Perm.APPROVE_HIGH_IMPACT, Perm.APPROVE_POLICY, Perm.KILL_SWITCH,
                  Perm.MANAGE_ACCESS, Perm.ROLLBACK_ACTION, Perm.MANAGE_WATCHLISTS, Perm.TUNE_DETECTIONS}

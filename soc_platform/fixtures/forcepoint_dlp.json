@@ -1,0 +1,600 @@
+{
+ "routes": [
+  {
+   "method": "GET",
+   "path": "^/api/v1/incidents$",
+   "body": {
+    "items": [
+     {
+      "id": 881001,
+      "event_time": "2026-09-20T09:11:04Z",
+      "updated_at": "2026-09-20T09:11:04Z",
+      "severity": "HIGH",
+      "channel": "EMAIL",
+      "action": "QUARANTINED",
+      "status": "NEW",
+      "policy": "Investor personal data",
+      "rule": "PAN numbers to external recipients",
+      "classifiers": [
+       {
+        "name": "India PAN",
+        "matches": 3980
+       },
+       {
+        "name": "Investor account number",
+        "matches": 3980
+       }
+      ],
+      "source": {
+       "user": "jane.doe@acme-demo.com",
+       "hostname": "JANE-LT01",
+       "ip": "10.20.1.15"
+      },
+      "destination": {
+       "kind": "email",
+       "value": "jane.doe.home@protonmail.example"
+      },
+      "subject": "Approved transfer per manager - reconciliation extract",
+      "file_names": [
+       "investor_master_q3.xlsx"
+      ],
+      "size_bytes": 2400000,
+      "resolution": null,
+      "resolved_by": null
+     },
+     {
+      "id": 881010,
+      "event_time": "2026-09-20T08:05:10Z",
+      "updated_at": "2026-09-20T08:05:10Z",
+      "severity": "LOW",
+      "channel": "EMAIL",
+      "action": "PERMITTED",
+      "status": "CLOSED",
+      "policy": "Payment card data",
+      "rule": "Card-like numbers in outbound mail",
+      "classifiers": [
+       {
+        "name": "Credit card number (wide)",
+        "matches": 2
+       }
+      ],
+      "source": {
+       "user": "priya.nair@acme-demo.com",
+       "hostname": "PRIYA-LT07",
+       "ip": "10.20.1.31"
+      },
+      "destination": {
+       "kind": "email",
+       "value": "accounts@krishna-logistics.com"
+      },
+      "subject": "Remittance advice for invoice 4471",
+      "file_names": [
+       "remittance_4471.pdf"
+      ],
+      "size_bytes": 48000,
+      "resolution": "False Positive",
+      "resolved_by": "dlp.analyst"
+     },
+     {
+      "id": 881011,
+      "event_time": "2026-09-20T08:12:10Z",
+      "updated_at": "2026-09-20T08:12:10Z",
+      "severity": "LOW",
+      "channel": "EMAIL",
+      "action": "PERMITTED",
+      "status": "CLOSED",
+      "policy": "Payment card data",
+      "rule": "Card-like numbers in outbound mail",
+      "classifiers": [
+       {
+        "name": "Credit card number (wide)",
+        "matches": 2
+       }
+      ],
+      "source": {
+       "user": "priya.nair@acme-demo.com",
+       "hostname": "PRIYA-LT07",
+       "ip": "10.20.1.31"
+      },
+      "destination": {
+       "kind": "email",
+       "value": "accounts@krishna-logistics.com"
+      },
+      "subject": "Remittance advice for invoice 4472",
+      "file_names": [
+       "remittance_4472.pdf"
+      ],
+      "size_bytes": 48000,
+      "resolution": "False Positive",
+      "resolved_by": "dlp.analyst"
+     },
+     {
+      "id": 881012,
+      "event_time": "2026-09-20T08:19:10Z",
+      "updated_at": "2026-09-20T08:19:10Z",
+      "severity": "LOW",
+      "channel": "EMAIL",
+      "action": "PERMITTED",
+      "status": "CLOSED",
+      "policy": "Payment card data",
+      "rule": "Card-like numbers in outbound mail",
+      "classifiers": [
+       {
+        "name": "Credit card number (wide)",
+        "matches": 2
+       }
+      ],
+      "source": {
+       "user": "priya.nair@acme-demo.com",
+       "hostname": "PRIYA-LT07",
+       "ip": "10.20.1.31"
+      },
+      "destination": {
+       "kind": "email",
+       "value": "accounts@krishna-logistics.com"
+      },
+      "subject": "Remittance advice for invoice 4473",
+      "file_names": [
+       "remittance_4473.pdf"
+      ],
+      "size_bytes": 48000,
+      "resolution": "False Positive",
+      "resolved_by": "dlp.analyst"
+     },
+     {
+      "id": 881013,
+      "event_time": "2026-09-20T08:26:10Z",
+      "updated_at": "2026-09-20T08:26:10Z",
+      "severity": "LOW",
+      "channel": "EMAIL",
+      "action": "PERMITTED",
+      "status": "CLOSED",
+      "policy": "Payment card data",
+      "rule": "Card-like numbers in outbound mail",
+      "classifiers": [
+       {
+        "name": "Credit card number (wide)",
+        "matches": 2
+       }
+      ],
+      "source": {
+       "user": "priya.nair@acme-demo.com",
+       "hostname": "PRIYA-LT07",
+       "ip": "10.20.1.31"
+      },
+      "destination": {
+       "kind": "email",
+       "value": "accounts@krishna-logistics.com"
+      },
+      "subject": "Remittance advice for invoice 4474",
+      "file_names": [
+       "remittance_4474.pdf"
+      ],
+      "size_bytes": 48000,
+      "resolution": "False Positive",
+      "resolved_by": "dlp.analyst"
+     },
+     {
+      "id": 881014,
+      "event_time": "2026-09-20T08:33:10Z",
+      "updated_at": "2026-09-20T08:33:10Z",
+      "severity": "LOW",
+      "channel": "EMAIL",
+      "action": "PERMITTED",
+      "status": "NEW",
+      "policy": "Payment card data",
+      "rule": "Card-like numbers in outbound mail",
+      "classifiers": [
+       {
+        "name": "Credit card number (wide)",
+        "matches": 2
+       }
+      ],
+      "source": {
+       "user": "priya.nair@acme-demo.com",
+       "hostname": "PRIYA-LT07",
+       "ip": "10.20.1.31"
+      },
+      "destination": {
+       "kind": "email",
+       "value": "accounts@krishna-logistics.com"
+      },
+      "subject": "Remittance advice for invoice 4475",
+      "file_names": [
+       "remittance_4475.pdf"
+      ],
+      "size_bytes": 48000,
+      "resolution": null,
+      "resolved_by": null
+     },
+     {
+      "id": 881015,
+      "event_time": "2026-09-20T08:40:10Z",
+      "updated_at": "2026-09-20T08:40:10Z",
+      "severity": "LOW",
+      "channel": "EMAIL",
+      "action": "PERMITTED",
+      "status": "NEW",
+      "policy": "Payment card data",
+      "rule": "Card-like numbers in outbound mail",
+      "classifiers": [
+       {
+        "name": "Credit card number (wide)",
+        "matches": 2
+       }
+      ],
+      "source": {
+       "user": "priya.nair@acme-demo.com",
+       "hostname": "PRIYA-LT07",
+       "ip": "10.20.1.31"
+      },
+      "destination": {
+       "kind": "email",
+       "value": "accounts@krishna-logistics.com"
+      },
+      "subject": "Remittance advice for invoice 4476",
+      "file_names": [
+       "remittance_4476.pdf"
+      ],
+      "size_bytes": 48000,
+      "resolution": null,
+      "resolved_by": null
+     },
+     {
+      "id": 881020,
+      "event_time": "2026-09-20T10:05:40Z",
+      "updated_at": "2026-09-20T10:05:40Z",
+      "severity": "MEDIUM",
+      "channel": "WEB",
+      "action": "PERMITTED",
+      "status": "NEW",
+      "policy": "Customer lists",
+      "rule": "Customer contact list to cloud storage",
+      "classifiers": [
+       {
+        "name": "Customer contact list",
+        "matches": 240
+       }
+      ],
+      "source": {
+       "user": "arun.k@acme-demo.com",
+       "hostname": "ARUN-LT05",
+       "ip": "10.20.1.41"
+      },
+      "destination": {
+       "kind": "url",
+       "value": "https://www.dropbox.com/upload"
+      },
+      "subject": null,
+      "file_names": [
+       "client_contacts.csv"
+      ],
+      "size_bytes": 48000,
+      "resolution": null,
+      "resolved_by": null
+     },
+     {
+      "id": 881021,
+      "event_time": "2026-09-20T11:20:15Z",
+      "updated_at": "2026-09-20T11:20:15Z",
+      "severity": "LOW",
+      "channel": "EMAIL",
+      "action": "PERMITTED",
+      "status": "NEW",
+      "policy": "HR records",
+      "rule": "Salary data in mail",
+      "classifiers": [
+       {
+        "name": "Salary figures",
+        "matches": 6
+       }
+      ],
+      "source": {
+       "user": "meera.s@acme-demo.com",
+       "hostname": "MEERA-LT06",
+       "ip": "10.20.1.44"
+      },
+      "destination": {
+       "kind": "email",
+       "value": "tom.w@acme-demo.com"
+      },
+      "subject": "Offer letter review",
+      "file_names": [
+       "offer_draft.docx"
+      ],
+      "size_bytes": 48000,
+      "resolution": null,
+      "resolved_by": null
+     },
+     {
+      "id": 881022,
+      "event_time": "2026-09-20T12:10:00Z",
+      "updated_at": "2026-09-20T12:10:00Z",
+      "severity": "MEDIUM",
+      "channel": "USB",
+      "action": "BLOCKED",
+      "status": "NEW",
+      "policy": "Legal documents",
+      "rule": "Privileged documents to removable media",
+      "classifiers": [
+       {
+        "name": "Legal privilege marking",
+        "matches": 12
+       }
+      ],
+      "source": {
+       "user": "tom.w@acme-demo.com",
+       "hostname": "TOM-LT07",
+       "ip": "10.20.1.47"
+      },
+      "destination": {
+       "kind": "device",
+       "value": "USB mass storage"
+      },
+      "subject": null,
+      "file_names": [
+       "contracts_2026.zip"
+      ],
+      "size_bytes": 48000,
+      "resolution": null,
+      "resolved_by": null
+     },
+     {
+      "id": 881023,
+      "event_time": "2026-09-20T13:02:30Z",
+      "updated_at": "2026-09-20T13:02:30Z",
+      "severity": "LOW",
+      "channel": "WEB",
+      "action": "PERMITTED",
+      "status": "NEW",
+      "policy": "Source code",
+      "rule": "Source code to code hosting",
+      "classifiers": [
+       {
+        "name": "Source code",
+        "matches": 40
+       }
+      ],
+      "source": {
+       "user": "li.chen@acme-demo.com",
+       "hostname": "LI-DEV08",
+       "ip": "10.20.1.52"
+      },
+      "destination": {
+       "kind": "url",
+       "value": "https://github.com/"
+      },
+      "subject": null,
+      "file_names": [
+       "build_scripts.tar"
+      ],
+      "size_bytes": 48000,
+      "resolution": null,
+      "resolved_by": null
+     },
+     {
+      "id": 881024,
+      "event_time": "2026-09-20T14:15:00Z",
+      "updated_at": "2026-09-20T14:15:00Z",
+      "severity": "LOW",
+      "channel": "EMAIL",
+      "action": "PERMITTED",
+      "status": "NEW",
+      "policy": "Confidential markings",
+      "rule": "Confidential document in mail",
+      "classifiers": [
+       {
+        "name": "Confidential marking",
+        "matches": 1
+       }
+      ],
+      "source": {
+       "user": "raj.mehta@acme-demo.com",
+       "hostname": null,
+       "ip": null
+      },
+      "destination": {
+       "kind": "email",
+       "value": "raj.mehta.home@protonmail.example"
+      },
+      "subject": "Board pack for the weekend",
+      "file_names": [
+       "board_pack_sept.pdf"
+      ],
+      "size_bytes": 48000,
+      "resolution": null,
+      "resolved_by": null
+     },
+     {
+      "id": 881025,
+      "event_time": "2026-09-20T15:40:20Z",
+      "updated_at": "2026-09-20T15:40:20Z",
+      "severity": "MEDIUM",
+      "channel": "WEB",
+      "action": "PERMITTED",
+      "status": "NEW",
+      "policy": "Employee data",
+      "rule": "Employee directory to file transfer",
+      "classifiers": [
+       {
+        "name": "Employee directory",
+        "matches": 300
+       }
+      ],
+      "source": {
+       "user": "bob.lee@acme-demo.com",
+       "hostname": "BOB-LT02",
+       "ip": "10.20.1.22"
+      },
+      "destination": {
+       "kind": "url",
+       "value": "https://transfer.example.net/upload"
+      },
+      "subject": null,
+      "file_names": [
+       "staff_export.csv"
+      ],
+      "size_bytes": 48000,
+      "resolution": null,
+      "resolved_by": null
+     },
+     {
+      "id": 881026,
+      "event_time": "2026-09-20T16:05:00Z",
+      "updated_at": "2026-09-20T16:05:00Z",
+      "severity": "LOW",
+      "channel": "EMAIL",
+      "action": "PERMITTED",
+      "status": "NEW",
+      "policy": "Investor personal data",
+      "rule": "Aadhaar number in mail",
+      "classifiers": [
+       {
+        "name": "Aadhaar number",
+        "matches": 2
+       }
+      ],
+      "source": {
+       "user": "priya.nair@acme-demo.com",
+       "hostname": "PRIYA-LT07",
+       "ip": "10.20.1.31"
+      },
+      "destination": {
+       "kind": "email",
+       "value": "meera.s@acme-demo.com"
+      },
+      "subject": "Vendor onboarding form",
+      "file_names": [
+       "onboarding.pdf"
+      ],
+      "size_bytes": 48000,
+      "resolution": null,
+      "resolved_by": null
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/v1/endpoints$",
+   "body": {
+    "items": [
+     {
+      "id": "fp-ep-0000",
+      "hostname": "JANE-LT01",
+      "fqdn": "jane-lt01.acme-demo.com",
+      "ip": "10.20.1.15",
+      "agent_version": "23.11.5661",
+      "profile": "Corporate laptops",
+      "status": "connected",
+      "last_checkin": "2026-09-20T09:12:00Z"
+     },
+     {
+      "id": "fp-ep-0001",
+      "hostname": "BOB-LT02",
+      "fqdn": "bob-lt02.acme-demo.com",
+      "ip": "10.20.1.22",
+      "agent_version": "23.11.5661",
+      "profile": "Corporate laptops",
+      "status": "connected",
+      "last_checkin": "2026-09-20T09:13:00Z"
+     },
+     {
+      "id": "fp-ep-0002",
+      "hostname": "PRIYA-LT07",
+      "fqdn": "priya-lt07.acme-demo.com",
+      "ip": "10.20.1.31",
+      "agent_version": "23.11.5661",
+      "profile": "Corporate laptops",
+      "status": "disconnected",
+      "last_checkin": "2026-09-17T16:40:00Z"
+     },
+     {
+      "id": "fp-ep-0003",
+      "hostname": "ARUN-LT05",
+      "fqdn": "arun-lt05.acme-demo.com",
+      "ip": "10.20.1.41",
+      "agent_version": "23.11.5661",
+      "profile": "Corporate laptops",
+      "status": "connected",
+      "last_checkin": "2026-09-20T09:15:00Z"
+     },
+     {
+      "id": "fp-ep-0004",
+      "hostname": "MEERA-LT06",
+      "fqdn": "meera-lt06.acme-demo.com",
+      "ip": "10.20.1.44",
+      "agent_version": "23.11.5661",
+      "profile": "Corporate laptops",
+      "status": "connected",
+      "last_checkin": "2026-09-20T09:16:00Z"
+     },
+     {
+      "id": "fp-ep-0006",
+      "hostname": "LI-DEV08",
+      "fqdn": "li-dev08.acme-demo.com",
+      "ip": "10.20.1.52",
+      "agent_version": "23.11.5661",
+      "profile": "Corporate laptops",
+      "status": "connected",
+      "last_checkin": "2026-09-20T09:18:00Z"
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/v1/system/health$",
+   "body": {
+    "items": [
+     {
+      "id": "fp-cert-manager-ssl",
+      "type": "certificate",
+      "name": "Security Manager SSL certificate",
+      "status": "valid",
+      "expires_at": "2026-09-29T09:30:00Z",
+      "reported_at": "2026-09-20T09:30:00Z"
+     },
+     {
+      "id": "fp-sync-directory",
+      "type": "directory_sync",
+      "name": "User directory import",
+      "status": "completed_with_errors",
+      "last_run": "2026-09-20T06:00:00Z",
+      "interval_minutes": 1440,
+      "unmapped_users": [
+       "meera.s@acme-demo.com",
+       "tom.w@acme-demo.com"
+      ],
+      "reported_at": "2026-09-20T09:30:00Z",
+      "detail": "2 accounts could not be mapped to a policy group"
+     },
+     {
+      "id": "fp-sync-incident-db",
+      "type": "sync_job",
+      "name": "Incident database replication",
+      "status": "ok",
+      "last_run": "2026-09-20T06:30:00Z",
+      "interval_minutes": 240,
+      "reported_at": "2026-09-20T09:30:00Z"
+     },
+     {
+      "id": "fp-sync-policy-deploy",
+      "type": "sync_job",
+      "name": "Policy deployment to endpoints",
+      "status": "ok",
+      "last_run": "2026-09-20T07:00:00Z",
+      "interval_minutes": 1440,
+      "reported_at": "2026-09-20T09:30:00Z"
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
+  }
+ ]
+}

@@ -1,0 +1,124 @@
+{
+ "routes": [
+  {
+   "method": "GET",
+   "path": "^/api/v1/endpoints$",
+   "body": {
+    "items": [
+     {
+      "agent_guid": "tm-agent-0000",
+      "endpoint_name": "JANE-LT01",
+      "fqdn": "jane-lt01.acme-demo.com",
+      "ip": "10.20.1.15",
+      "os_name": "Windows 11 Enterprise",
+      "serial_number": "5CG1234XYZ",
+      "agent_version": "14.0.12980",
+      "agent_status": "online",
+      "last_connected": "2026-09-20T09:20:00Z"
+     },
+     {
+      "agent_guid": "tm-agent-0001",
+      "endpoint_name": "BOB-LT02",
+      "fqdn": "bob-lt02.acme-demo.com",
+      "ip": "10.20.1.22",
+      "os_name": "Windows 11 Enterprise",
+      "serial_number": "5CG5678ABC",
+      "agent_version": "14.0.12980",
+      "agent_status": "online",
+      "last_connected": "2026-09-20T09:21:00Z"
+     },
+     {
+      "agent_guid": "tm-agent-0002",
+      "endpoint_name": "PRIYA-LT07",
+      "fqdn": "priya-lt07.acme-demo.com",
+      "ip": "10.20.1.31",
+      "os_name": "Windows 11 Enterprise",
+      "serial_number": "5CG3107QRT",
+      "agent_version": "14.0.12980",
+      "agent_status": "online",
+      "last_connected": "2026-09-20T09:22:00Z"
+     },
+     {
+      "agent_guid": "tm-agent-0004",
+      "endpoint_name": "MEERA-LT06",
+      "fqdn": "meera-lt06.acme-demo.com",
+      "ip": "10.20.1.44",
+      "os_name": "Windows 11 Enterprise",
+      "serial_number": "5CG4406QRT",
+      "agent_version": "14.0.12980",
+      "agent_status": "online",
+      "last_connected": "2026-09-20T09:24:00Z"
+     },
+     {
+      "agent_guid": "tm-agent-0005",
+      "endpoint_name": "TOM-LT07",
+      "fqdn": "tom-lt07.acme-demo.com",
+      "ip": "10.20.1.47",
+      "os_name": "Windows 11 Enterprise",
+      "serial_number": "5CG4707QRT",
+      "agent_version": "14.0.12980",
+      "agent_status": "online",
+      "last_connected": "2026-09-20T09:25:00Z"
+     },
+     {
+      "agent_guid": "tm-agent-0006",
+      "endpoint_name": "LI-DEV08",
+      "fqdn": "li-dev08.acme-demo.com",
+      "ip": "10.20.1.52",
+      "os_name": "Windows 11 Enterprise",
+      "serial_number": "5CG5208QRT",
+      "agent_version": "14.0.12980",
+      "agent_status": "online",
+      "last_connected": "2026-09-20T09:26:00Z"
+     },
+     {
+      "agent_guid": "tm-agent-0020",
+      "endpoint_name": "web01",
+      "fqdn": "web01.acme-demo.com",
+      "ip": "10.10.0.5",
+      "os_name": "Ubuntu 22.04 LTS",
+      "serial_number": "VMware-42 1a 7c 3e",
+      "agent_version": "14.0.12980",
+      "agent_status": "online",
+      "last_connected": "2026-09-20T09:40:00Z"
+     },
+     {
+      "agent_guid": "tm-agent-0021",
+      "endpoint_name": "DB01",
+      "fqdn": "db01.acme-demo.com",
+      "ip": "10.10.0.6",
+      "os_name": "Windows Server 2019",
+      "serial_number": "VMware-42 9f 11 02",
+      "agent_version": "14.0.12980",
+      "agent_status": "online",
+      "last_connected": "2026-09-20T09:41:00Z"
+     },
+     {
+      "agent_guid": "tm-agent-0022",
+      "endpoint_name": "FS01",
+      "fqdn": "fs01.acme-demo.com",
+      "ip": "10.10.0.20",
+      "os_name": "Windows Server 2022",
+      "serial_number": "CZ20240001",
+      "agent_version": "14.0.12980",
+      "agent_status": "online",
+      "last_connected": "2026-09-20T09:42:00Z"
+     },
+     {
+      "agent_guid": "tm-agent-0040",
+      "endpoint_name": "KIOSK-RC01",
+      "fqdn": "kiosk-rc01.acme-demo.com",
+      "ip": "10.20.1.90",
+      "os_name": "Windows 10 IoT Enterprise",
+      "serial_number": "5CG9001QRT",
+      "agent_version": "14.0.12980",
+      "agent_status": "online",
+      "last_connected": "2026-09-20T09:60:00Z"
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
+  }
+ ]
+}

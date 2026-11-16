@@ -170,3 +170,36 @@ connectors:
       client_secret: "${WIZ_CLIENT_SECRET}"   # SECRET - Service account secret
       auth_url: "${WIZ_AUTH_URL}"   # Token URL (optional)
       lookup_max_pages: "${WIZ_LOOKUP_MAX_PAGES}"   # Max GraphQL pages per lookup (default 20) (optional)
+  # --- the data-protection stack (fake mode until each tool's API is confirmed against the installed version) ---
+  directory_export:   # Directory export (devices and users) - directory; confidence Unknown
+    enabled: true
+    mode: fake
+    settings:
+      base_url: "${DIRECTORY_EXPORT_BASE_URL}"   # URL of the service that serves the export
+      api_key: "${DIRECTORY_EXPORT_API_KEY}"   # SECRET - API key
+  forcepoint_dlp:   # Forcepoint DLP - dlp; confidence Unknown
+    enabled: true
+    mode: fake
+    settings:
+      base_url: "${FORCEPOINT_DLP_BASE_URL}"   # Forcepoint Security Manager API URL
+      api_key: "${FORCEPOINT_DLP_API_KEY}"   # SECRET - API token of a read-only application account
+      user_domain: "${FORCEPOINT_DLP_USER_DOMAIN}"   # UPN suffix for bare user names (optional)
+  silverfort:   # Silverfort - identity; confidence Unknown
+    enabled: true
+    mode: fake
+    settings:
+      base_url: "${SILVERFORT_BASE_URL}"   # Silverfort console API URL
+      api_key: "${SILVERFORT_API_KEY}"   # SECRET - API token of a read-only application
+      user_domain: "${SILVERFORT_USER_DOMAIN}"   # UPN suffix for bare user names (optional)
+  trellix_epo:   # Trellix ePO (drive encryption) - encryption; confidence Unknown
+    enabled: true
+    mode: fake
+    settings:
+      base_url: "${TRELLIX_EPO_BASE_URL}"   # ePO server API URL
+      api_key: "${TRELLIX_EPO_API_KEY}"   # SECRET - Credential of a read-only ePO user
+  trend_micro:   # Trend Micro endpoint security - edr; confidence Unknown
+    enabled: true
+    mode: fake
+    settings:
+      base_url: "${TREND_MICRO_BASE_URL}"   # API URL of the console (region specific)
+      api_key: "${TREND_MICRO_API_KEY}"   # SECRET - API key of a read-only role

@@ -81,9 +81,12 @@ tokens; a full demo run is about 50k). Prompts (redacted) and responses are kept
 
 | Job | Default interval | Does |
 |---|---|---|
+| inventory | 1 h | read the device and people baseline (directory export) and the control tools' inventories (EDR agents, DLP agents, disk encryption) - first on a fresh start, so hosts that later events only name resolve onto these records |
 | vulnerability | 6 h | ingest, consolidate, enrich, prioritise, Wiz misconfigurations; keep the risk register current (new P1 CVEs proposed, entries updated / marked remediated) |
 | incident | 5 min | ingest alerts (and Entra directory audits, inventory first), cluster, investigate - activity such as sign-ins, DNS and domain logons is read per investigation, not bulk-synced; reassess open incidents when KEV-listed exposure appeared on their hosts since they were scored; commit the cases, then add the model's explanations in parallel |
 | phishing | 2 min | pull reported mail, analyse; commit the verdicts, then add the model's explanations in parallel |
+| dlp | 5 min | read the directory, sign-in risk, agent and encryption inventories and the DLP incidents; judge each new incident (computed disposition), open cases for escalations; commit in batches, then store the model's own decision per alert (at most `SOC_DLP_AI_MAX_PER_RUN`); demote a decision type whose agreement with analysts slipped |
+| posture | 1 h | read what each tool reports about its own health (certificates, jobs, directory import); store the day's posture score |
 | follow_up | 24 h | ITSM ticket sync (+ closure validation), weekly follow-up per remediation plan (`SOC_VM_FOLLOWUP_DAYS`, default 7), exception expiry |
 | intelligence | 10 min | risk + correlation + drift, insight narration |
 | daily_report | 24 h | daily exposure report |
@@ -93,8 +96,9 @@ tokens; a full demo run is about 50k). Prompts (redacted) and responses are kept
 | notify | 1 min | send new findings at or above the threshold to the configured Teams / Slack / webhook channels; retry failures |
 | actions | 1 min | run approved actions still waiting (e.g. approved by policy inside a job item, or left by a stopped process); mark any action stuck in `executing` longer than `SOC_ACTION_STUCK_SECONDS` (900) as `unverified` with a high finding - never re-run it |
 
-When several jobs are due at once (first start) they run in this order, vulnerability first, so incidents are
-scored knowing which hosts are exposed. Intervals: `SOC_JOB_<NAME>_SECONDS` (`SOC_JOB_NOTIFY_SECONDS` for notify, `SOC_JOB_ACTIONS_SECONDS` for actions). Every run is recorded (`GET /api/v1/jobs`, Integrations screen). A job
+When several jobs are due at once (first start) they run in this order: inventory first, so the hosts that later
+events only name resolve onto the baseline's records; then vulnerability, so incidents are scored knowing which hosts
+are exposed. Intervals: `SOC_JOB_<NAME>_SECONDS` (`SOC_JOB_NOTIFY_SECONDS` for notify, `SOC_JOB_ACTIONS_SECONDS` for actions). Every run is recorded (`GET /api/v1/jobs`, Integrations screen). A job
 failing 3 runs in a row is marked **dead_letter** and raises a high insight; fix the cause and use
 *Run now* / `POST /api/v1/jobs/{name}/run`. Jobs are idempotent, so replays never duplicate incidents or actions.
 
@@ -425,6 +429,87 @@ events `*.processing_failed` with `final: true` (an item left to an analyst afte
   stored blob, whatever `SOC_BLOB_STORE` is: every replica and the scheduler render with the same files, and
   `blobs reencrypt` re-keys them. A style file that cannot be read is skipped (that part uses the house style) and
   logged as `report_style.file_unreadable`; the report is still produced.
+
+## Data protection, control coverage and posture
+
+These modules read the data-protection stack: the directory export (the device and people baseline), Forcepoint
+DLP, Silverfort, Trend Micro and Trellix ePO. All five connectors run in **fake mode only** for now: their endpoint
+paths and response shapes are placeholders until each tool's version and licensed API are confirmed (every path is
+a `<stream>_path` setting; `python -m soc_platform preflight NAME` lists what is still to confirm). None of them adds
+an enrichment look-up, an action or an alert to the phishing, incident or vulnerability workflows.
+
+**Jobs.** `inventory` (1 h, `SOC_JOB_INVENTORY_SECONDS`, first in the order), `dlp` (5 min, `SOC_JOB_DLP_SECONDS`) and `posture` (1 h, `SOC_JOB_POSTURE_SECONDS`) - see the Jobs table.
+
+**Settings.**
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `SOC_AGENT_SILENT_HOURS` | 24 | an agent that has not reported for this long, measured from the newest check-in its tool reported for any device, is "silent" |
+| `SOC_INVENTORY_STALE_HOURS` | 48 | a device a tool's newest full read no longer lists, by this much, stops counting as listed by that tool (agent removed, object deleted) |
+| `SOC_CERT_WARN_DAYS` | 30 | a certificate with this many days left (or fewer) is a warning |
+| `SOC_CERT_CRITICAL_DAYS` | 14 | ... and with this many (or fewer) is critical; an expired one always is |
+| `SOC_DLP_AI_MAX_PER_RUN` | 200 | at most this many DLP alerts are sent to the model per job run (0 = none); the rest wait for the next run |
+
+**Data protection (DLP)** - *Domains -> Data protection*; data scope `dlp`.
+
+* `POST /api/v1/dlp/run` (`investigate`) reads the incidents and their context now and judges the new ones; the `dlp`
+  job does the same on its schedule. A second run changes nothing.
+* `GET /api/v1/dlp/summary`, `GET /api/v1/dlp/alerts?status=open|escalated|closed&limit=&offset=`,
+  `GET /api/v1/dlp/alerts/{id}` (`read`): the queue, each alert with the numbered facts it was judged on, the computed
+  disposition and its reasons, the AI's decision when there is one, and the analyst's ruling. The "rules to tune" list
+  covers the 30 days up to the newest alert; every other count covers all alerts.
+* `POST /api/v1/dlp/alerts/{id}/decision` (`investigate`; `outcome`: `close_benign` or `escalate`, `reason`): the
+  analyst's ruling. Escalating opens (or joins) a data-protection case. A ruling given in the DLP tool itself is
+  carried over as the analyst's outcome and is never written over one given here.
+* The computed disposition is a published decision table (`domains/dlp/service.py:dispose`): escalate, close as
+  benign, or "needs a person". Severity is the tool's own, raised only by what other tools corroborate. **Nothing is
+  closed automatically in this version, at any stage.**
+* Never closed automatically, whatever a later stage allows: high / critical alerts, privileged senders, a person or
+  device on the block watch list, a device with a known-exploited vulnerability, a deception hit.
+* The subject and file names are text the sender wrote. They are shown to the analyst and passed to the model inside
+  a fence, as data. No rule reads them, so they cannot change an outcome or a severity.
+
+**How far the AI is trusted** - shown at the foot of the Data protection screen; `GET /api/v1/decisions` (`read`).
+
+* A decision type is narrow (`dlp.email`, `dlp.web`, `dlp.removable_media`, `dlp.other`) and each has its own stage:
+  `shadow` (the AI decides, nothing happens, its decision is stored beside the computed one and the analyst's),
+  `recommend` (its decision is pre-filled for the analyst; overruling it needs a reason). `decide` is **refused in
+  code** in this version.
+* `PUT /api/v1/decisions/{type}/target` (`approve_policy` in `dlp`: a lead, in person; `agreement_percent` 50-100,
+  `min_sample` 20 or more): the agreement the AI must reach with analysts, over how many decided alerts. There is no
+  default: until the SOC lead sets one, nothing can be promoted.
+* `POST /api/v1/decisions/{type}/stage` (`stage`, `reason`): moving up proposes a promotion - refused unless the
+  measured agreement meets the target - which a second lead approves with
+  `POST /api/v1/decisions/proposals/{id}/approve` (agreement is measured again then) or `.../reject`. Moving down
+  takes one lead and is immediate.
+* The `dlp` job demotes a type by itself when, over the newest decided alerts since its promotion, agreement falls
+  below the target or the mix of its outcomes shifts (PSI above 0.25).
+* The model feature is `dlp.disposition` (small, scheduled): switch it off, cap it or choose its model on *AI usage*.
+  With the model off, refused or failing, no AI decision is stored and every other figure is identical.
+* Every AI decision is stored with its decision type, stage, model, prompt version, a hash of the facts it was
+  given, its outcome and cited reasons (`ai_decisions`), and audited (`decision.recorded`).
+
+**Coverage and tool health** - *Insight -> Coverage and tool health*.
+
+* `GET /api/v1/dashboard/control-coverage` (`read`): every device of the baseline checked against each control that
+  applies to it (EDR agent: every device; DLP agent reporting and disk encryption: workstations). A device is covered
+  only when every expected control is in place and reporting. Also listed: devices a tool sees that the baseline
+  does not, and controls not measured because their tool is not connected (never counted as missing). Devices short
+  of a control are ranked by the DLP alerts with personal data on them and their main user (that figure is shown only
+  within `dlp` scope).
+* `GET /api/v1/dashboard/tool-health` (`read`): findings from what each tool reports about itself - certificates,
+  sync and deployment jobs, the directory import, silent agents - each with the next step. A tool that reports none of
+  this is shown as "not reported", never as healthy. Days to expiry and lateness are counted from the tool's own
+  newest report.
+
+**Posture score and the CISO view** - *Operate -> CISO view*; needs all-domain scope.
+
+* `GET /api/v1/dashboard/posture`, `GET /api/v1/dashboard/ciso` (`read`, all domains). The score's formula is in
+  `intelligence/posture.py`; it is version `v1-draft` and **its weights are a draft to be agreed with the CISO** (the
+  API and the screen say so). Domains no connected tool can measure (privileged access, web) are "not measured" and
+  left out of the mean. Each response carries the factors, so the score can be recomputed by hand.
+* The `posture` job stores one score per day (`posture_snapshots`); the change shown is between the oldest and the
+  newest stored day of the last 30. Until two days are stored, no change is shown.
 
 ## Tuning (noise, attention, exercises, phishing auto-close)
 

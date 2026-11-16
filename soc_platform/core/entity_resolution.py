@@ -40,14 +40,16 @@ from soc_platform.core.models import (
 
 STRONG_KEYS: dict[str, list[str]] = {
     "asset": ["crowdstrike_aid", "mde_device_id", "aad_device_id", "cloud_resource_id", "serial_number",
-              "mac", "rapid7_asset_id", "wiz_id", "canary_device_id"],
+              "mac", "rapid7_asset_id", "wiz_id", "canary_device_id", "ad_object_guid", "forcepoint_endpoint_id",
+              "trend_agent_guid", "epo_node_id"],
     "identity": ["entra_object_id", "upn", "email", "sam", "sid", "delinea_user_id"],
     "indicator": ["value"],
 }
 # A differing value on one of these proves two records are NOT the same entity: one host has exactly
 # one agent/device/asset id per tool, one cloud resource id and one serial.
 CONFLICT_KEYS = {"serial_number", "cloud_resource_id", "entra_object_id", "crowdstrike_aid", "mde_device_id",
-                 "rapid7_asset_id", "wiz_id", "canary_device_id"}
+                 "rapid7_asset_id", "wiz_id", "canary_device_id", "ad_object_guid", "forcepoint_endpoint_id",
+                 "trend_agent_guid", "epo_node_id"}
 # Hardware-derived keys are shared by cloned VMs / docking stations / virtual NICs: a match on them alone is
 # only trusted when the names do not contradict it (see EntityResolver._corroborated).
 SHARED_PRONE_KEYS = {"serial_number", "mac"}

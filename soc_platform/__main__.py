@@ -87,6 +87,11 @@ def cmd_demo() -> None:
         # with an approved model configured the demo cases get its written explanation, as the scheduled jobs give
         # theirs: verdicts, scores and actions are computed first and are identical either way
         gw = LLMGateway(s, st) if st.llm_provider != "none" else None
+        # the device and people baseline first, as the scheduler's first job does: hosts later events name resolve onto it
+        from soc_platform.domains.dlp.service import DlpService
+
+        inv = DlpService(s, reg).sync_inventory()
+        print(f"[INVENTORY] {sum(inv['synced'].values())} device / person record(s) from the baseline and control tools")
         vm = VulnerabilityService(s, reg)
         r = vm.refresh()
         print(f"[VM] {r['consolidation']['raw_findings']} raw findings -> {r['consolidation']['consolidated']} consolidated; "
@@ -134,6 +139,35 @@ def cmd_demo() -> None:
         mis = MisconfigurationService(s, reg)
         mis.refresh()
         mis.route(analyst)
+        # data protection: the DLP incidents judged with the sign-in risk and the device controls the other tools report
+        from soc_platform.connectors.base import SyncRunner
+        from soc_platform.core.context_store import ContextStore
+        from soc_platform.domains.dlp.service import DlpService
+        from soc_platform.domains.phishing.supplier import load_suppliers
+        from soc_platform.intelligence.control_coverage import coverage
+        from soc_platform.intelligence.posture import snapshot
+        from soc_platform.intelligence.shadow_it import load_sanctioned
+        from soc_platform.intelligence.tool_health import tool_health
+
+        dlp = DlpService(s, reg, llm=gw, org_domains=org, sanctioned=load_sanctioned(),
+                         partner_domains={d for sup in load_suppliers(session=s) for d in sup.domains})
+        dlp.ingest()
+        judged = dlp.process_committing()
+        dsum = dlp.summary()
+        print(f"[DLP] {judged['new_alerts']} alert(s) judged: " + ", ".join(f"{k.replace('_', ' ')} {n}" for k, n in
+              dsum["by_computed"].items()) + f"; {judged['escalated']} escalated into {dsum['open_cases']} case(s); "
+              f"{dsum['awaiting_a_person']} await a person")
+        if gw is not None:
+            print(f"[LLM] the model's own decision stored for {dlp.ai_decide_committing(dlp.ai_pending())} DLP alert(s) "
+                  "(shadow: compared with analysts, nothing acted on)")
+        health = [(reg.get(n), "health") for n in sorted(reg.enabled_names()) if "health" in reg.get(n).streams]
+        SyncRunner(s, ContextStore(s)).sync_many(health)
+        cov, th, snap = coverage(s, limit=0), tool_health(s), snapshot(s)
+        if cov["available"]:
+            print(f"[COVERAGE] {cov['fully_covered']} of {cov['baseline']['devices']} devices have every expected control "
+                  f"({cov['coverage_percent']}%); {cov['devices_short_count']} short")
+        print(f"[HEALTH] {th['counts']['critical']} critical and {th['counts']['warning']} warning finding(s) on the tools themselves")
+        print(f"[POSTURE] score {snap['score']} (draft weights, to be agreed)")
         from soc_platform.intelligence.analyst import IntelligenceService
 
         intel = IntelligenceService(s, vm=vm)

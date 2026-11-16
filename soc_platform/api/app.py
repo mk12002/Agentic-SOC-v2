@@ -31,7 +31,7 @@ from soc_platform.connectors.registry import ConfigError, ConnectorRegistry
 from soc_platform.core.access import AccessService, kill_switch_on, permissions_matrix
 from soc_platform.core.actions import ActionService
 from soc_platform.core.audit import AuditLog
-from soc_platform.core.auth import AuthError, Perm, Principal, issue_dev_token, principal_from_token
+from soc_platform.core.auth import DOMAINS, AuthError, Perm, Principal, issue_dev_token, principal_from_token
 from soc_platform.core.cases import CaseService, agreement_report, detection_quality
 from soc_platform.core.connector_config import ConfigRejected, ConfigStore, version_dict
 from soc_platform.core.context_store import ContextStore
@@ -1493,7 +1493,7 @@ def _origin(p: Principal, case: Case | None, campaign: Any) -> dict[str, Any]:
 def _action_in_scope(s: Session, p: Principal, ar: ActionRequest | None) -> Case | None:
     """An action is visible when its domain is, and its case too when it has one. A remediation ticket carries its
     campaign's id in case_id - there is no case behind it, so the domain alone decides (it once answered 404)."""
-    if ar is None or not p.in_domain(ar.domain if ar.domain in {"phishing", "incident", "vulnerability"} else "*"):
+    if ar is None or not p.in_domain(ar.domain if ar.domain in DOMAINS else "*"):
         raise HTTPException(404, "unknown action")
     case = s.get(Case, ar.case_id) if ar.case_id else None
     if case is not None and not p.in_domain(case.domain):
@@ -1709,7 +1709,7 @@ def _audit_domain(s: Session, subject_type: str, subject_id: str) -> str | None:
         return c.domain if c else None
     if subject_type == "action":
         a = s.get(ActionRequest, subject_id)
-        return a.domain if a and a.domain in {"phishing", "incident", "vulnerability"} else None
+        return a.domain if a and a.domain in DOMAINS else None
     if subject_type == "submission":
         return "phishing"
     return "vulnerability" if subject_type in _VM_SUBJECTS else None
@@ -2041,7 +2041,7 @@ def story_approve(cid: str, body: BundleBody, p: Principal = Depends(need(Perm.A
             out.append({"id": aid, "ok": False, "error": "not a pending action of this story"})
             continue
         ar = s.get(ActionRequest, aid)
-        if not p.in_domain(ar.domain if ar.domain in {"phishing", "incident", "vulnerability"} else "*"):
+        if not p.in_domain(ar.domain if ar.domain in DOMAINS else "*"):
             out.append({"id": aid, "ok": False, "error": "outside your data scope"})
             continue
         s.commit()           # each approval stands alone: one that fails discards only its own changes
@@ -2958,3 +2958,193 @@ def value_input(body: ValueInputBody, p: Principal = Depends(need(Perm.APPROVE_P
         return set_input(s, body.kpi, body.kind, body.value, note=body.note, by=p.id)
     except ValueInputError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+# ----------------------------------------------------------------------------- data protection, coverage, posture
+
+
+def _dlp(s: Session, gw: LLMGateway | None = None):
+    from soc_platform.domains.dlp.service import DlpService
+    from soc_platform.domains.phishing.supplier import load_suppliers
+    from soc_platform.intelligence.shadow_it import load_sanctioned
+
+    reg = registry()
+    partners = {d for sup in load_suppliers(session=s) for d in sup.domains}
+    sanctioned = load_sanctioned(override=(getattr(reg, "lists", None) or {}).get("sanctioned"))
+    return DlpService(s, reg, llm=gw if gw is not None else llm(s), org_domains=list(get_settings().org_domains),
+                      partner_domains=partners, sanctioned=sanctioned)
+
+
+class DlpDecisionBody(BaseModel):
+    outcome: str = Field(pattern=r"^(close_benign|escalate)$")
+    reason: str = Field(default="", max_length=2000)
+
+
+class DecisionTargetBody(BaseModel):
+    agreement_percent: int = Field(ge=0, le=1000)
+    min_sample: int = Field(ge=0, le=10_000_000)
+
+
+class DecisionStageBody(BaseModel):
+    stage: str = Field(min_length=1, max_length=16)
+    reason: str = Field(default="", max_length=1000)
+
+
+def _decision_error(exc: Exception) -> HTTPException:
+    """A refused ruling, or a refused change of a decision type's stage or target, answers 400 with the reason."""
+    return HTTPException(400, str(exc)) if isinstance(exc, ValueError) else _err(exc)
+
+
+@app.get("/api/v1/dlp/summary")
+def dlp_summary(_: Principal = Depends(need(Perm.READ, "dlp")), s: Session = Depends(db_session, scope="function")):
+    svc = _dlp(s)
+    return {**svc.summary(), "decision_types": svc.decisions.evaluate()}
+
+
+@app.get("/api/v1/dlp/alerts")
+def dlp_alerts(status: str | None = Query(None, pattern=r"^(open|escalated|closed)$"),
+               limit: int = Query(50, ge=1, le=500), offset: int = Query(0, ge=0, le=10_000_000),
+               _: Principal = Depends(need(Perm.READ, "dlp")), s: Session = Depends(db_session, scope="function")):
+    return _dlp(s).alerts(status=status, limit=limit, offset=offset)
+
+
+@app.get("/api/v1/dlp/alerts/{alert_id}")
+def dlp_alert(alert_id: str, _: Principal = Depends(need(Perm.READ, "dlp")),
+              s: Session = Depends(db_session, scope="function")):
+    try:
+        return _dlp(s).get(alert_id)
+    except KeyError as exc:
+        raise _err(exc) from exc
+
+
+@app.post("/api/v1/dlp/alerts/{alert_id}/decision")
+def dlp_decide(alert_id: str, body: DlpDecisionBody, p: Principal = Depends(need(Perm.INVESTIGATE, "dlp")),
+               s: Session = Depends(db_session, scope="function")):
+    """An analyst's ruling on one DLP alert: close as benign or escalate (which opens or joins a case)."""
+    svc = _dlp(s)
+    try:
+        alert = svc.decide(alert_id, p, outcome=body.outcome, reason=body.reason)
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+    return svc.get(alert.id)
+
+
+@app.post("/api/v1/dlp/run")
+def dlp_run(p: Principal = Depends(need(Perm.INVESTIGATE, "dlp")), s: Session = Depends(db_session, scope="function")):
+    """Read the DLP incidents and their context now, judge the new ones, then let the model decide them."""
+    svc = _dlp(s)
+    ing = svc.ingest()
+    out = svc.process_committing()               # alerts and cases saved first: no write lock while the model answers
+    decided = svc.ai_decide_committing(svc.ai_pending())
+    return {"ingested": ing["synced"], "errors": ing["errors"], **out, "ai_decided": decided}
+
+
+@app.get("/api/v1/decisions")
+def decisions_list(_: Principal = Depends(need(Perm.READ, "dlp")), s: Session = Depends(db_session, scope="function")):
+    """Every decision type: its stage, the AI's measured agreement with analysts, the target, what blocks promotion."""
+    from soc_platform.core.decisions import AVAILABLE_STAGES, STAGES, DecisionStore
+
+    store = DecisionStore(s)
+    return {"stages": list(STAGES), "available_stages": list(AVAILABLE_STAGES), "types": store.evaluate(),
+            "history": store.history()}
+
+
+@app.put("/api/v1/decisions/{decision_type}/target")
+def decisions_target(decision_type: str, body: DecisionTargetBody, p: Principal = Depends(need(Perm.APPROVE_POLICY, "dlp")),
+                     s: Session = Depends(db_session, scope="function")):
+    """The SOC lead sets the agreement the AI must reach, and over how many decided items, before it can move up."""
+    from soc_platform.core.decisions import DecisionStore
+
+    try:
+        return DecisionStore(s).set_target(decision_type, body.agreement_percent, body.min_sample, p)
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+
+
+@app.post("/api/v1/decisions/{decision_type}/stage")
+def decisions_stage(decision_type: str, body: DecisionStageBody, p: Principal = Depends(need(Perm.APPROVE_POLICY, "dlp")),
+                    s: Session = Depends(db_session, scope="function")):
+    """Propose moving a decision type up (a second lead approves) or move it down at once."""
+    from soc_platform.core.decisions import DecisionStore
+
+    try:
+        row = DecisionStore(s).propose(decision_type, body.stage, p, reason=body.reason)
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+    return {"id": row.id, "decision_type": row.decision_type, "stage": row.stage, "status": row.status}
+
+
+@app.post("/api/v1/decisions/proposals/{proposal_id}/{verb}")
+def decisions_proposal(proposal_id: int, verb: str, body: ReasonBody | None = None,
+                       p: Principal = Depends(need(Perm.APPROVE_POLICY, "dlp")),
+                       s: Session = Depends(db_session, scope="function")):
+    from soc_platform.core.decisions import DecisionStore
+
+    if verb not in ("approve", "reject"):
+        raise HTTPException(404, "not found")
+    if not -2**31 < proposal_id < 2**31:
+        raise HTTPException(404, "unknown proposal")
+    store = DecisionStore(s)
+    try:
+        row = store.approve(proposal_id, p) if verb == "approve" else store.reject(
+            proposal_id, p, reason=(body.reason if body else "") or "")
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+    return {"id": row.id, "decision_type": row.decision_type, "stage": row.stage, "status": row.status}
+
+
+_HEALTH_TOOLS = ("forcepoint_dlp", "silverfort", "trend_micro", "trellix_epo", "directory_export")
+
+
+def _health_tools() -> list[str]:
+    return [n for n in registry().enabled_names() if n in _HEALTH_TOOLS]
+
+
+@app.get("/api/v1/dashboard/control-coverage")
+def dash_control_coverage(p: Principal = Depends(need(Perm.READ)), s: Session = Depends(db_session, scope="function")):
+    """Every device missing a control, ranked. The ranking's DLP figure is shown only within DLP data scope."""
+    from soc_platform.intelligence.control_coverage import coverage
+
+    out = coverage(s)
+    if not p.in_domain("dlp"):
+        for d in out["devices_short"]:
+            d["personal_data_alerts"] = None
+    return out
+
+
+@app.get("/api/v1/dashboard/tool-health")
+def dash_tool_health(_: Principal = Depends(need(Perm.READ)), s: Session = Depends(db_session, scope="function")):
+    from soc_platform.intelligence.tool_health import tool_health
+
+    return tool_health(s, _health_tools())
+
+
+@app.get("/api/v1/dashboard/posture")
+def dash_posture(_: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends(db_session, scope="function")):
+    from soc_platform.intelligence.posture import posture, trend
+
+    return {**posture(s), "trend": trend(s)}
+
+
+@app.get("/api/v1/dashboard/ciso")
+def dash_ciso(_: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends(db_session, scope="function")):
+    """One screen for the CISO: the posture score, coverage, tool health, the DLP queue and the worst open cases.
+    Every figure is the one its own screen shows (the same functions)."""
+    from soc_platform.core.schema import severity_rank
+    from soc_platform.intelligence.control_coverage import coverage
+    from soc_platform.intelligence.posture import posture, trend
+    from soc_platform.intelligence.tool_health import tool_health
+
+    cov = coverage(s, limit=5)
+    dlp = _dlp(s).summary()
+    worst = sorted(s.execute(select(Case).where(Case.status != "closed", Case.severity.in_(("critical", "high")))).scalars(),
+                   key=lambda c: (-severity_rank(c.severity), c.created_at, c.id))
+    return {"posture": {**posture(s), "trend": trend(s)},
+            "coverage": {k: cov.get(k) for k in ("available", "reason", "coverage_percent", "fully_covered", "baseline",
+                                                 "controls", "not_measured", "devices_short", "devices_short_count")},
+            "tool_health": tool_health(s, _health_tools()),
+            "dlp": {k: dlp[k] for k in ("alerts", "awaiting_a_person", "by_status", "by_computed", "personal_data_alerts",
+                                        "ai_decided", "ai_and_computed_would_close", "open_cases", "noisy_rules", "model")},
+            "cases": {"critical": sum(c.severity == "critical" for c in worst), "high": sum(c.severity == "high" for c in worst),
+                      "items": [{"id": c.id, "domain": c.domain, "title": c.title, "severity": c.severity,
+                                 "status": c.status, "created_at": _iso(c.created_at)} for c in worst[:8]]}}

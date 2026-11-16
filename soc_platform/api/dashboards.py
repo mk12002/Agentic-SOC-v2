@@ -52,7 +52,7 @@ def overview(s: Session, domains: frozenset[str], *, days: int = 14) -> dict[str
             trend[ca.date().isoformat()][c.domain] += 1
     series = [{"date": (since + timedelta(days=i + 1)).date().isoformat(),
                **{d: trend[(since + timedelta(days=i + 1)).date().isoformat()].get(d, 0)
-                  for d in ("phishing", "incident", "vulnerability")}} for i in range(days)]
+                  for d in ("phishing", "incident", "vulnerability", "dlp")}} for i in range(days)]
     ttc = [(_aware(c.closed_at) - _aware(c.created_at)).total_seconds() / 3600 for c in cases if c.closed_at]
     in_scope = [] if "*" in domains else [ActionRequest.domain.in_(sorted(domains))]      # same scope as the action list
     acts = list(s.execute(select(ActionRequest).where(ActionRequest.created_at >= since, *in_scope)).scalars())

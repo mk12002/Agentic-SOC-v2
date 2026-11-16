@@ -68,7 +68,7 @@ class ConnectorManifest:
     name: str                      # unique connector id, e.g. "crowdstrike"
     tool: str                      # product name
     vendor: str
-    category: str                  # edr | email | identity | dns | deception | pam | vuln | cloud | intel | itsm | cmdb | siem
+    category: str                  # one of devkit.CATEGORIES (edr, email, identity, ... dlp, encryption, waf, soar, directory)
     dimension: str                 # context dimension (section 7.2)
     description: str
     factory: Callable[[dict[str, Any], Transport], BaseConnector]

@@ -1,0 +1,75 @@
+{
+ "routes": [
+  {
+   "method": "GET",
+   "path": "^/api/v1/risk/events$",
+   "body": {
+    "items": [
+     {
+      "id": "sf-risk-0001",
+      "event_time": "2026-09-20T07:55:10Z",
+      "user": "priya.nair@acme-demo.com",
+      "source_host": "PRIYA-LT07",
+      "source_ip": "10.20.1.31",
+      "destination": "portal",
+      "protocol": "kerberos",
+      "result": "allowed",
+      "mfa": "passed",
+      "risk_level": "low",
+      "risk_factors": [],
+      "device_managed": true
+     },
+     {
+      "id": "sf-risk-0002",
+      "event_time": "2026-09-20T08:15:42Z",
+      "user": "bob.lee@acme-demo.com",
+      "source_host": "BOB-LT02",
+      "source_ip": "10.20.1.22",
+      "destination": "portal",
+      "protocol": "kerberos",
+      "result": "allowed",
+      "mfa": "passed",
+      "risk_level": "low",
+      "risk_factors": [],
+      "device_managed": true
+     },
+     {
+      "id": "sf-risk-0003",
+      "event_time": "2026-09-20T09:02:31Z",
+      "user": "jane.doe@acme-demo.com",
+      "source_host": null,
+      "source_ip": "203.0.113.77",
+      "destination": "portal",
+      "protocol": "oidc",
+      "result": "allowed",
+      "mfa": "not required",
+      "risk_level": "high",
+      "risk_factors": [
+       "unmanaged device",
+       "new source address"
+      ],
+      "device_managed": false
+     },
+     {
+      "id": "sf-risk-0004",
+      "event_time": "2026-09-20T10:01:05Z",
+      "user": "arun.k@acme-demo.com",
+      "source_host": "ARUN-LT05",
+      "source_ip": "10.20.1.41",
+      "destination": "portal",
+      "protocol": "kerberos",
+      "result": "allowed",
+      "mfa": "passed",
+      "risk_level": "medium",
+      "risk_factors": [
+       "unusual time for this person"
+      ],
+      "device_managed": true
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
+  }
+ ]
+}

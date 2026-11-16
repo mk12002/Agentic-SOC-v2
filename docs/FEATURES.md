@@ -605,3 +605,65 @@ ownership-file connector are asked first - and never overrides them. Criticality
 a CMDB criticality does. *Export CSV* downloads it; *Clear* empties it; every change is audited (`ownership.uploaded`,
 `ownership.cleared`). The page never fixes anything in Wiz or the cloud: it routes the work to the owning team as a
 ticket for approval and checks the fix against Wiz.
+
+## 10. Data protection, control coverage and the CISO view (first version)
+
+Built for an estate whose tools are a DLP product, an identity-protection product, an EDR, a disk-encryption
+manager and a directory. Everything in this section runs on sample data: the five connectors behind it are in fake
+mode until each tool's API is confirmed (section 6). What is not built yet is listed at the end.
+
+### 10.1 Data protection (DLP triage)
+
+| Feature | What it does |
+|---|---|
+| One alert per DLP incident | Each incident the DLP tool reports becomes one alert, linked to its sender and device in the shared context store. Re-reading the tool changes nothing. |
+| Judged with the other tools | The facts an alert is judged on are numbered (F1, F2 ...): the rule and what matched, the destination (internal, known partner, sanctioned service, personal mail, removable media, external), the sender (and whether the account is privileged), a risky sign-in within 24 hours, the device's missing controls, and how analysts ruled on the rule before. |
+| Computed disposition | A published decision table answers escalate, close as benign, or needs a person, with the rule that fired (E1-E4, C1, R1). Severity is the tool's, raised only for bulk personal data leaving and when two other tools corroborate. No model takes part. |
+| Cases | An escalation opens one data-protection case per sender and day, with every fact as cited evidence, the tools that agree, the personal-data classes involved and the manual next steps. |
+| Never automatic | High / critical alerts, privileged senders, a person or device on the block watch list, a device with a known-exploited vulnerability and deception hits are flagged as never to be closed without a person. |
+| Sender's text is data | The subject and file names are shown to the analyst and to the model as fenced data. No rule reads them: a message that says "approved transfer" changes nothing. |
+| Baseline from the tool | A ruling an analyst already gave in the DLP tool is carried over, so the queue shows what is really waiting and agreement can be measured from the first day. |
+| Rules to tune | Rules analysts keep closing as benign are listed as candidates for a change an engineer makes in the DLP tool. |
+
+### 10.2 Earned autonomy for the AI
+
+| Feature | What it does |
+|---|---|
+| The AI's own decision | For each alert the model answers close or escalate from the numbered facts and must cite them. A decision that cites nothing, or names no valid outcome, is discarded and the computed disposition stands. |
+| Stored to be replayed | Decision type, stage, model, prompt version, a hash of the facts given, outcome, cited reasons, the computed outcome and the analyst's - one row per alert and evidence, audited. |
+| Shadow, then recommend | Every decision type starts at shadow (compared only). At recommend the AI's decision is pre-filled; overruling it needs a reason. The decide stage is refused in code in this version. |
+| Promotion is earned | The SOC lead sets an agreement target and a minimum sample per decision type (no default). A promotion is refused until the measured agreement meets it, is proposed by one lead and approved by another, and agreement is measured again at approval. |
+| Demotion needs nobody | Agreement falling below the target, or the mix of the AI's outcomes shifting, sends a type back down on the next job run. A lead can also demote at once, alone. |
+| Two guards on closing | The AI may escalate alone; a close counts only when the computed disposition agrees and the alert is not on the never-automatic list. |
+| Works without the model | Model off, over budget or failing: no AI decision is stored, and every disposition, severity, case and count is identical. |
+
+### 10.3 Control coverage and tool health
+
+| Feature | What it does |
+|---|---|
+| Coverage against a baseline | Every device in the directory export is checked against each control that applies to it. Covered means every expected control is in place and reporting. |
+| Four kinds of gap | Missing (the tool does not list the device), silent (the agent stopped reporting), off (the tool says the control is not in force), unknown (the tool says nothing). |
+| Not in the baseline | Devices a control tool sees that the directory does not list are reported separately. |
+| Not measured | A control whose tool is not connected is shown as not measured - never as missing everywhere. |
+| Riskiest first | Devices short of a control are ranked by the DLP alerts with personal data on them and their main user. |
+| Tool health | Certificates near expiry, failed or late jobs, a directory import that left people out of every policy group, silent agents - each finding with its next step. Shown wherever a tool reports it; a tool that reports nothing is "not reported". |
+| Dated by the data | "Silent", "days left" and "late" are counted from the tool's own newest report, so dated sample data and a tool that was unreachable are judged correctly. |
+
+### 10.4 Posture score and the CISO view
+
+| Feature | What it does |
+|---|---|
+| One score, published formula | Domain scores (endpoint, data protection, identity) from coverage, tool health, risky sign-ins and open cases; a weighted mean less penalties for open critical cases and critical health findings. Version `v1-draft`: the weights are a proposal to be agreed with the CISO, and the screen says so. |
+| Not measured is not zero | Privileged access and web have no connected tool yet: shown as not measured and left out of the mean. |
+| Recomputable | Every response carries the factors and their effect in points. |
+| Trend | One score is stored per day; the change over 30 days is shown once two days exist. |
+| CISO view | Score, critical cases, the DLP queue, coverage, tool health, what lowers the score, devices to fix first, rules to tune - each figure the same as on its own screen. |
+
+### 10.5 Not built yet
+
+Connectors for the privileged-access tool, the web application firewall, the SIEM and SOAR products in use · live
+(tenant-verified) versions of the five connectors · the AI choosing its own read-only look-ups · tuning proposals with
+a preview on past alerts · cross-tool correlation rules joining identity, privileged-access, DLP and encryption
+signals · actions (session revoke, forced MFA, isolation, credential rotation) and execution through a SOAR · the
+decide stage · configuration snapshots before a change · regulatory control mappings, breach assessment and reporting
+clock · the board report · the pilot scorecard KPIs.

@@ -32,3 +32,14 @@ class Insight(Base):
     first_seen: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     last_seen: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     decided_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
+class PostureSnapshot(Base):
+    """The posture score as it stood on one day (one row per day; the trend is read from these)."""
+
+    __tablename__ = "posture_snapshots"
+
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)             # YYYY-MM-DD (UTC)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    document: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)        # domains, factors, formula version
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)

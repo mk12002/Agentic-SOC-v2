@@ -1,0 +1,247 @@
+{
+ "routes": [
+  {
+   "method": "GET",
+   "path": "^/api/v1/devices$",
+   "body": {
+    "items": [
+     {
+      "id": "ad-dev-jane",
+      "name": "JANE-LT01",
+      "dns_name": "jane-lt01.acme-demo.com",
+      "ip": "10.20.1.15",
+      "os": "Windows 11 Enterprise",
+      "ou": "Workstations",
+      "enabled": true,
+      "serial_number": "5CG1234XYZ",
+      "last_logon": "2026-09-20T08:10:00Z",
+      "managed_by": "jane.doe@acme-demo.com"
+     },
+     {
+      "id": "ad-dev-bob",
+      "name": "BOB-LT02",
+      "dns_name": "bob-lt02.acme-demo.com",
+      "ip": "10.20.1.22",
+      "os": "Windows 11 Enterprise",
+      "ou": "Workstations",
+      "enabled": true,
+      "serial_number": "5CG5678ABC",
+      "last_logon": "2026-09-20T08:11:00Z",
+      "managed_by": "bob.lee@acme-demo.com"
+     },
+     {
+      "id": "ad-dev-priya",
+      "name": "PRIYA-LT07",
+      "dns_name": "priya-lt07.acme-demo.com",
+      "ip": "10.20.1.31",
+      "os": "Windows 11 Enterprise",
+      "ou": "Workstations",
+      "enabled": true,
+      "serial_number": "5CG3107QRT",
+      "last_logon": "2026-09-20T08:12:00Z",
+      "managed_by": "priya.nair@acme-demo.com"
+     },
+     {
+      "id": "ad-dev-arun",
+      "name": "ARUN-LT05",
+      "dns_name": "arun-lt05.acme-demo.com",
+      "ip": "10.20.1.41",
+      "os": "Windows 11 Enterprise",
+      "ou": "Workstations",
+      "enabled": true,
+      "serial_number": "5CG4105QRT",
+      "last_logon": "2026-09-20T08:13:00Z",
+      "managed_by": "arun.k@acme-demo.com"
+     },
+     {
+      "id": "ad-dev-meera",
+      "name": "MEERA-LT06",
+      "dns_name": "meera-lt06.acme-demo.com",
+      "ip": "10.20.1.44",
+      "os": "Windows 11 Enterprise",
+      "ou": "Workstations",
+      "enabled": true,
+      "serial_number": "5CG4406QRT",
+      "last_logon": "2026-09-20T08:14:00Z",
+      "managed_by": "meera.s@acme-demo.com"
+     },
+     {
+      "id": "ad-dev-tom",
+      "name": "TOM-LT07",
+      "dns_name": "tom-lt07.acme-demo.com",
+      "ip": "10.20.1.47",
+      "os": "Windows 11 Enterprise",
+      "ou": "Workstations",
+      "enabled": true,
+      "serial_number": "5CG4707QRT",
+      "last_logon": "2026-09-20T08:15:00Z",
+      "managed_by": "tom.w@acme-demo.com"
+     },
+     {
+      "id": "ad-dev-li",
+      "name": "LI-DEV08",
+      "dns_name": "li-dev08.acme-demo.com",
+      "ip": "10.20.1.52",
+      "os": "Windows 11 Enterprise",
+      "ou": "Workstations",
+      "enabled": true,
+      "serial_number": "5CG5208QRT",
+      "last_logon": "2026-09-20T08:16:00Z",
+      "managed_by": "li.chen@acme-demo.com"
+     },
+     {
+      "id": "ad-dev-web01",
+      "name": "web01",
+      "dns_name": "web01.acme-demo.com",
+      "ip": "10.10.0.5",
+      "os": "Ubuntu 22.04 LTS",
+      "ou": "Servers",
+      "enabled": true,
+      "serial_number": "VMware-42 1a 7c 3e",
+      "last_logon": "2026-09-20T06:00:00Z",
+      "managed_by": null
+     },
+     {
+      "id": "ad-dev-db01",
+      "name": "DB01",
+      "dns_name": "db01.acme-demo.com",
+      "ip": "10.10.0.6",
+      "os": "Windows Server 2019",
+      "ou": "Servers",
+      "enabled": true,
+      "serial_number": "VMware-42 9f 11 02",
+      "last_logon": "2026-09-20T06:01:00Z",
+      "managed_by": null
+     },
+     {
+      "id": "ad-dev-fs01",
+      "name": "FS01",
+      "dns_name": "fs01.acme-demo.com",
+      "ip": "10.10.0.20",
+      "os": "Windows Server 2022",
+      "ou": "Servers",
+      "enabled": true,
+      "serial_number": "CZ20240001",
+      "last_logon": "2026-09-20T06:02:00Z",
+      "managed_by": null
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/v1/users$",
+   "body": {
+    "items": [
+     {
+      "id": "ad-user-jane",
+      "upn": "jane.doe@acme-demo.com",
+      "sam": "jane.doe",
+      "display_name": "Jane Doe",
+      "department": "Finance",
+      "title": "Finance Analyst",
+      "enabled": true,
+      "groups": [
+       "Finance Team",
+       "DLP-Policy-Finance"
+      ]
+     },
+     {
+      "id": "ad-user-bob",
+      "upn": "bob.lee@acme-demo.com",
+      "sam": "bob.lee",
+      "display_name": "Bob Lee",
+      "department": "IT",
+      "title": "IT Support Engineer",
+      "enabled": true,
+      "groups": [
+       "IT Team",
+       "Domain Admins",
+       "DLP-Policy-IT"
+      ]
+     },
+     {
+      "id": "ad-user-raj",
+      "upn": "raj.mehta@acme-demo.com",
+      "sam": "raj.mehta",
+      "display_name": "Raj Mehta",
+      "department": "Executive",
+      "title": "Chief Executive Officer",
+      "enabled": true,
+      "groups": [
+       "Executive Team",
+       "DLP-Policy-Executive"
+      ]
+     },
+     {
+      "id": "ad-user-priya",
+      "upn": "priya.nair@acme-demo.com",
+      "sam": "priya.nair",
+      "display_name": "Priya Nair",
+      "department": "Finance",
+      "title": "Accounts Payable",
+      "enabled": true,
+      "groups": [
+       "Finance Team",
+       "DLP-Policy-Finance"
+      ]
+     },
+     {
+      "id": "ad-user-arun",
+      "upn": "arun.k@acme-demo.com",
+      "sam": "arun.k",
+      "display_name": "Arun Kumar",
+      "department": "Sales",
+      "title": "Account Manager",
+      "enabled": true,
+      "groups": [
+       "Sales Team",
+       "DLP-Policy-Sales"
+      ]
+     },
+     {
+      "id": "ad-user-meera",
+      "upn": "meera.s@acme-demo.com",
+      "sam": "meera.s",
+      "display_name": "Meera Shah",
+      "department": "HR",
+      "title": "HR Partner",
+      "enabled": true,
+      "groups": [
+       "HR Team"
+      ]
+     },
+     {
+      "id": "ad-user-tom",
+      "upn": "tom.w@acme-demo.com",
+      "sam": "tom.w",
+      "display_name": "Tom White",
+      "department": "Legal",
+      "title": "Counsel",
+      "enabled": true,
+      "groups": [
+       "Legal Team"
+      ]
+     },
+     {
+      "id": "ad-user-li",
+      "upn": "li.chen@acme-demo.com",
+      "sam": "li.chen",
+      "display_name": "Li Chen",
+      "department": "Engineering",
+      "title": "Developer",
+      "enabled": true,
+      "groups": [
+       "Engineering Team",
+       "DLP-Policy-Engineering"
+      ]
+     }
+    ],
+    "next_page_token": null
+   },
+   "status": 200
+  }
+ ]
+}

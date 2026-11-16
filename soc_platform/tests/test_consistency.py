@@ -70,14 +70,14 @@ def api(request, tmp_path_factory, estate_configs):
     def ok(r):
         assert r.status_code == 200, (str(r.request.url), r.status_code, r.text[:500])
 
-    for step in ("/api/v1/vm/refresh", "/api/v1/incidents/run", "/api/v1/phishing/ingest"):
+    for step in ("/api/v1/vm/refresh", "/api/v1/incidents/run", "/api/v1/phishing/ingest", "/api/v1/dlp/run"):
         ok(c.post(step, headers=lead))
     for f in cfg["uploads"]:
         ok(c.post("/api/v1/phishing/submit", headers=lead, files={"file": (f, (Path(cfg["corpus_dir"]) / f).read_bytes())}))
     ok(c.post("/api/v1/vm/campaigns", headers=lead, json={"cve": cfg["campaign_cve"], "notify_via": "ticket"}))
     ok(c.post("/api/v1/vm/misconfigurations/route", headers=lead))
     ok(c.post("/api/v1/intelligence/refresh", headers=lead))
-    for j in ("intelligence", "follow_up", "retention"):
+    for j in ("intelligence", "follow_up", "retention", "posture"):
         ok(c.post(f"/api/v1/jobs/{j}/run", headers=ops))
     return {"c": c, "H": H, "lead": lead, "app": appmod.app, "cfg": cfg}
 
@@ -243,8 +243,10 @@ def test_every_get_route_as_every_role_no_errors_no_leaks_explicit_utc(api):
     ids = {"cid": next(x["id"] for x in cases if x["domain"] == "phishing"),
            "eid": J(c.get("/api/v1/intelligence/risk/top", headers=lead))[0]["entity_id"], "rid": rep["id"], "cve": api["cfg"]["campaign_cve"],
            "aid": next(x["id"] for x in J(c.get("/api/v1/actions", headers=lead)) if x["domain"] == "phishing"),
-           "fid": J(c.get("/api/v1/vm/findings", headers=lead))[0]["id"]}
-    by_domain = {d: {x["id"] for x in cases if x["domain"] == d} for d in ("phishing", "incident", "vulnerability")}
+           "fid": J(c.get("/api/v1/vm/findings", headers=lead))[0]["id"],
+           "alert_id": J(c.get("/api/v1/dlp/alerts", headers=lead))["items"][0]["id"]}
+    by_domain = {d: {x["id"] for x in cases if x["domain"] == d} for d in ("phishing", "incident", "vulnerability", "dlp")}
+    assert by_domain["dlp"] and by_domain["phishing"] and by_domain["incident"]
     org = api["cfg"]["org"]
     roles = {"lead": lead, "analyst": H(f"alice@{org}", "analyst"), "auditor": H(f"audrey@{org}", "auditor"),
              "admin": H(f"ada@{org}", "admin"), "phishing_only": H(f"pia@{org}", "analyst", "phishing"),

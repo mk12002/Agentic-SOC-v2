@@ -10,7 +10,8 @@ const nf = n => (n == null || n === '') ? '–' : Number(n).toLocaleString();
 const pct = (x, d = 0) => x == null ? '–' : (x * 100).toFixed(d) + '%';
 const cap = s => { const t = String(s || '').replace(/_/g, ' ').trim(); return t.charAt(0).toUpperCase() + t.slice(1); };
 // risk dimensions in plain words ('other' is what the SIEM connectors report)
-const DIM_LABELS = {other: 'SIEM', privileged_access: 'privileged access', threat_intel: 'threat intel'};
+const DIM_LABELS = {other: 'SIEM', privileged_access: 'privileged access', threat_intel: 'threat intel', data_protection: 'data protection'};
+const domLabel = d => d === 'dlp' ? 'Data protection' : cap(d);
 const dimLabel = d => DIM_LABELS[d] || String(d || '').replace(/_/g, ' ');
 const dt = s => s ? String(s).slice(0, 16).replace('T', ' ') : '–';
 const day = s => s ? String(s).slice(0, 10) : '–';
@@ -63,6 +64,9 @@ async function dl(path) {
 // ---------------------------------------------------------------- icons (hand-drawn 24px line set)
 const I = {
   overview: '<path d="M3 13h8V3H3zM13 21h8V11h-8zM13 3v6h8V3zM3 21h8v-6H3z"/>',
+  gauge: '<path d="M4 18a8 8 0 1 1 16 0M12 18l4-6"/>',
+  lock: '<path d="M6 11h12v9H6zM9 11V8a3 3 0 0 1 6 0v3"/>',
+  pulse: '<path d="M3 12h4l2-6 4 12 2-6h6"/>',
   intel: '<path d="M12 3a6 6 0 0 0-6 6c0 2.2 1.2 3.6 2.4 4.8.8.8 1.1 1.6 1.1 2.7V18h5v-1.5c0-1.1.3-1.9 1.1-2.7C16.8 12.6 18 11.2 18 9a6 6 0 0 0-6-6zM10 21h4"/>',
   cases: '<path d="M4 7h16v12H4zM9 7V5h6v2M4 12h16"/>',
   approvals: '<path d="M9 12l2 2 4-4M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/>',
@@ -134,13 +138,13 @@ function stackedBars(series, keys, h = 170) {
     let y = h - 22; const x = pad + i * (bw + 6);
     keys.forEach(k => {
       const v = d[k] || 0, bh = v / max * (h - 30);
-      if (v) g += `<rect x="${x}" y="${y - bh}" width="${bw}" height="${bh}" rx="2" style="fill:var(--c-${k})"><title>${esc(d.date)} · ${esc(k)}: ${v}</title></rect>`;
+      if (v) g += `<rect x="${x}" y="${y - bh}" width="${bw}" height="${bh}" rx="2" style="fill:var(--c-${k})"><title>${esc(d.date)} · ${esc(domLabel(k))}: ${v}</title></rect>`;
       y -= bh;
     });
     if (i % 2 === 0 || n < 10) g += `<text x="${x}" y="${h - 6}">${esc(String(d.date).slice(5))}</text>`;
   });
   return `<svg class="chart" viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="none" role="img" aria-label="daily volume">${g}</svg>
-    <div class="legend">${keys.map(k => `<span><i style="background:var(--c-${k})"></i>${esc(cap(k))}</span>`).join('')}</div>`;
+    <div class="legend">${keys.map(k => `<span><i style="background:var(--c-${k})"></i>${esc(domLabel(k))}</span>`).join('')}</div>`;
 }
 function donut(counts, colors = {}) {
   const e = Object.entries(counts || {}).filter(([, v]) => v > 0), total = e.reduce((a, [, v]) => a + v, 0);
@@ -194,11 +198,11 @@ const meter = (v, max = 100) => `<div class="bar"><span style="width:${Math.max(
 
 // ---------------------------------------------------------------- navigation model
 const NAV = [
-  ['Operate', [['overview', 'Overview', 'overview'], ['intelligence', 'Intelligence', 'intel', '*'], ['cases', 'Cases', 'cases'],
+  ['Operate', [['overview', 'Overview', 'overview'], ['ciso', 'CISO view', 'gauge', '*'], ['intelligence', 'Intelligence', 'intel', '*'], ['cases', 'Cases', 'cases'],
     ['approvals', 'Approvals', 'approvals']]],
-  ['Domains', [['phishing', 'Phishing', 'phishing', 'phishing'], ['vulnerabilities', 'Vulnerabilities', 'vuln', 'vulnerability'],
+  ['Domains', [['phishing', 'Phishing', 'phishing', 'phishing'], ['dlp', 'Data protection', 'lock', 'dlp'], ['vulnerabilities', 'Vulnerabilities', 'vuln', 'vulnerability'],
     ['cloud', 'Cloud posture', 'cloud', 'vulnerability']]],
-  ['Insight', [['coverage', 'ATT&CK coverage', 'coverage'], ['shadow-it', 'Shadow IT', 'shadow', 'incident'],
+  ['Insight', [['controls', 'Coverage and tool health', 'pulse'], ['coverage', 'ATT&CK coverage', 'coverage'], ['shadow-it', 'Shadow IT', 'shadow', 'incident'],
     ['suppliers', 'Supplier risk', 'supplier', 'phishing']]],
   ['Govern', [['watchlists', 'Watch lists', 'list'], ['tuning', 'Tuning', 'filter'], ['integrations', 'Integrations', 'plug'], ['policy', 'Automation policy', 'policy'], ['ai-usage', 'AI usage', 'ai'], ['reports', 'Reports', 'reports'],
     ['access', 'Access', 'access'], ['audit', 'Audit log', 'audit']]],

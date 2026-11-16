@@ -1,6 +1,6 @@
 # Test report - Agentic SOC platform
 
-Date: 2026-11-15 (rounds 15-34; earlier rounds 2026-09-24 to 2026-09-30) · Environment: Windows 11, Python 3.11.9, CPU only · Branch: `main`
+Date: 2026-11-16 (rounds 15-35; earlier rounds 2026-09-24 to 2026-09-30) · Environment: Windows 11, Python 3.11.9, CPU only · Branch: `main`
 
 This report covers what was tested, on what data, what was found, what was fixed, and what can
 **not** be claimed yet. Accuracy figures below come from synthetic or public data; they are design
@@ -8,7 +8,45 @@ evidence, not a statement of performance in the client's environment. That is me
 the client's own analyst dispositions (PH-T08, NFR-15), which the platform records automatically
 (`/api/v1/metrics/shadow`).
 
-## 0. Round 34 (2026-11-15) - latest results: whole-system check and security audit
+## 0. Round 35 (2026-11-16) - latest results: data protection, control coverage and posture (first version)
+
+Aim: the first version of the data-protection build: five new connectors in fake mode (directory export, Forcepoint
+DLP, Silverfort, Trend Micro, Trellix ePO), DLP triage with a computed disposition, earned autonomy for the AI's own
+decision (shadow and recommend; decide refused in code), control coverage, tool health, a draft posture score and a
+CISO view. Every pipeline stays unchanged; the platform behaves identically with the model off.
+
+**Method.** The inherited suite on an untouched copy first (it stopped at a missing engine dependency, which was then
+installed); the new code; 70 new tests in five files plus the existing parametrised suites, which pick up the new
+connectors and routes by themselves (conformance, live wire, every GET route x 7 roles on four estates); `demo` on a
+fresh database, read line by line; ruff, bandit, `node --check`, the secret scan.
+
+**Results (SQLite, Windows 11, Python 3.11.9).** 1,100 collected (989 before): **1,082 passed, 18 skipped, 0
+failed**. PostgreSQL was **not** run this round. Feature verification (`verify_features.py`) was not re-run and does
+not yet map the new features. ruff clean, bandit no issues, JavaScript parses, no `.env` secret in tracked files.
+The banned-name scan could not run: its pattern file is not in this copy of the repository.
+
+**Demo (no model).** 14 DLP alerts: 8 closeable as benign, 3 escalated (3 data-protection cases), 3 for a person; the
+bulk personal-data alert after a high-risk sign-in from a laptop with encryption off is critical with three tools
+agreeing. Coverage: 6 of 10 devices have every expected control; 4 short (EDR missing, DLP agent missing, DLP agent
+silent, encryption off), 1 device seen by the EDR but not in the baseline. Tool health: 2 critical, 1 warning.
+Existing figures unchanged: 7 phishing + 3 incident cases, 37 actions awaiting approval, asset match rate 1.0.
+
+**Found and fixed while building:**
+
+| Defect | Seen as | Fix |
+|---|---|---|
+| A device named in a DLP incident counted as listed by the DLP tool | The demo reported a laptop with no DLP agent as "unknown" instead of "missing" | A tool lists a device only through its own inventory record, still present in its newest read (`controls.snapshot`) |
+| The baseline lost a device on a first start | Demo: 9 of 10 devices; the directory record waited in the analyst queue | The phishing job had created the laptop from a DNS event first; an `inventory` job now runs first, and `demo` reads the baseline first |
+| Dating inventory "as read" broke an existing figure | Asset match rate 1.0 -> 0.98 (a Wiz record no longer matched its server) | Inventory records are dated by the vendor's own time, as every other inventory connector; "still listed" is read from the sync time |
+| Estate builders wrote the new tools' fixtures into the first estate only | Variant estates had no fixtures for the five tools | The builder writes through the fixture module loaded for the current estate |
+| A real mailbox domain in sample data | The handoff estate's reserved-address test | Personal mail in the sample data uses a reserved domain; providers are matched by name in any country domain |
+| Queries that grow with history | Code review: summary and rule history read every alert | Database aggregates; backfill judged in committed batches of 500; 30-day windows anchored to the newest alert |
+
+**Not claimed:** any behaviour against a real tool (the five connectors' paths and shapes are placeholders), the
+posture score's weights (a draft), the AI's agreement with analysts (needs the client's past decisions), PostgreSQL
+parity for the new tables (not run).
+
+## 0.1 Round 34 (2026-11-15): whole-system check and security audit
 
 Aim: confirm that everything works as intended, and audit the platform's security: gates, both test suites, the demo
 run on a scratch database and read, a running server probed, the security-relevant code read, the dependencies

@@ -45,7 +45,7 @@ async function Overview() {
     </div>
     <div class="mt">${valueCard(val)}</div>
     <div class="grid g-2 mt">
-      ${card('New cases per day', stackedBars(o.trend, ['phishing', 'incident', 'vulnerability']), {sub: 'by domain'})}
+      ${card('New cases per day', stackedBars(o.trend, ['phishing', 'incident', 'vulnerability', 'dlp']), {sub: 'by domain'})}
       ${card('Open cases by severity', donut(c.open_by_severity))}
     </div>
     <div class="grid g-2 mt">
@@ -168,14 +168,14 @@ async function Cases(id) {
     : CASE_FILTER === 'all' ? csum.total : (csum.by_domain[CASE_FILTER] || 0);
   const rows = cs.map(c => `
     <tr class="click" data-fn="goTo" data-args="${arg('#/cases/' + c.id)}"><td>${chip(c.severity)}</td>
-      <td><div class="t-title">${esc(c.title)}</div><div class="t-sub">${esc(cap(c.domain))}${wlBadges(c.watchlists)}</div></td>
+      <td><div class="t-title">${esc(c.title)}</div><div class="t-sub">${esc(domLabel(c.domain))}${wlBadges(c.watchlists)}</div></td>
       <td>${esc(cap(c.verdict || 'pending'))}</td><td class="num">${c.confidence != null ? pct(c.confidence) : '–'}</td>
       <td>${esc(cap(c.status))}</td><td class="small">${c.assignee ? esc(c.assignee) : '<span class="muted">unassigned</span>'}</td><td class="muted">${dt(c.created_at)}</td></tr>`);
   const actions = (can('investigate') && inDomain('incident') ? btn('Run incident pipeline', 'runInc', [], '', 'play') : '') +
     (can('investigate') && inDomain('phishing') ? btn('Pull reported email', 'runPh', [], '', 'phishing') : '');
   setMainG(__g, page('Cases', 'Investigations across all domains. Open a case for the evidence, reasoning and recommended actions.', actions,
-    card(null, `<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div class="seg">${['all', 'phishing', 'incident', 'vulnerability'].map(f =>
-      `<button class="${f === CASE_FILTER ? 'on' : ''}" data-fn="caseFilter" data-args="${arg(f)}">${cap(f)} <span class="muted">${f === 'all' ? csum.total : (csum.by_domain[f] || 0)}</span></button>`).join('')}</div>
+    card(null, `<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div class="seg">${['all', 'phishing', 'incident', 'vulnerability', 'dlp'].map(f =>
+      `<button class="${f === CASE_FILTER ? 'on' : ''}" data-fn="caseFilter" data-args="${arg(f)}">${domLabel(f)} <span class="muted">${f === 'all' ? csum.total : (csum.by_domain[f] || 0)}</span></button>`).join('')}</div>
       <div class="seg" style="margin-left:10px" role="group" aria-label="Owner">${[['all', 'Everyone', csum.total], ['me', 'Mine', csum.mine], ['unassigned', 'Unassigned', csum.unassigned]].map(([f, label, n]) =>
       `<button class="${f === OWNER_FILTER ? 'on' : ''}" data-fn="ownerFilter" data-args="${arg(f)}">${label} <span class="muted">${n}</span></button>`).join('')}</div></div>` +
       table([{h: 'Severity'}, {h: 'Case'}, {h: 'Verdict'}, {h: 'Confidence', num: 1}, {h: 'Status'}, {h: 'Owner'}, {h: 'Opened'}], rows, {empty: OWNER_FILTER === 'me' ? 'No cases assigned to you.' : 'No cases yet - run a pipeline to ingest alerts and reported email.'}) +
@@ -248,7 +248,7 @@ async function CaseDetail(id) {
       <div class="t-sub">Result: severity ${esc(cs.severity)}, confidence ${pct(cs.confidence)}.</div>`;
   };
   setMainG(__g, `<div class="page-head"><div>
-      <div class="inline" style="margin-bottom:8px"><a href="#/cases" class="small" aria-label="Back to cases" title="Back to cases">${icon('back', '')}</a>${chip(c.severity)}${chip(c.verdict || 'pending', 'plain')}<span class="muted small">${esc(cap(c.domain))} · ${esc(cap(c.status))} · opened ${dt(c.created_at)}</span></div>
+      <div class="inline" style="margin-bottom:8px"><a href="#/cases" class="small" aria-label="Back to cases" title="Back to cases">${icon('back', '')}</a>${chip(c.severity)}${chip(c.verdict || 'pending', 'plain')}<span class="muted small">${esc(domLabel(c.domain))} · ${esc(cap(c.status))} · opened ${dt(c.created_at)}</span></div>
       <h1>${esc(c.title)}</h1><p>Confidence ${pct(c.confidence)} ·
         owner <b>${c.assignee ? esc(c.assignee) : 'unassigned'}</b>
         ${can('investigate') && c.assignee !== ME.id.toLowerCase() ? btn('Take case', 'assignCase', [id, 'me'], 'sm') : ''}
@@ -304,7 +304,7 @@ async function Search(q) {
   const r = await api('/api/v1/search?q=' + encodeURIComponent(q));
   const group = (title, rows, empty_) => card(`${title} <span class="muted">(${rows.length})</span>`, rows.join('') || empty(empty_));
   const sections = [
-    group('Cases', r.cases.map(c => `<div class="list-row click" data-fn="goTo" data-args="${arg('#/cases/' + c.id)}">${chip(c.severity)}<div class="grow"><div class="t-title">${esc(c.title)}</div><div class="t-sub">${esc(cap(c.domain))} · ${esc(cap(c.status))}${c.assignee ? ' · ' + esc(c.assignee) : ''}</div></div></div>`), 'No matching cases'),
+    group('Cases', r.cases.map(c => `<div class="list-row click" data-fn="goTo" data-args="${arg('#/cases/' + c.id)}">${chip(c.severity)}<div class="grow"><div class="t-title">${esc(c.title)}</div><div class="t-sub">${esc(domLabel(c.domain))} · ${esc(cap(c.status))}${c.assignee ? ' · ' + esc(c.assignee) : ''}</div></div></div>`), 'No matching cases'),
   ];
   if (r.entities) sections.push(group('People, hosts and indicators', r.entities.map(e => `<div class="list-row"><span class="tag">${esc(e.kind)}</span><div class="grow">${['asset', 'identity'].includes(e.kind) ? entLink(e.id, e.name) : esc(e.name)}</div></div>`), 'No matching people, hosts or indicators'));
   if (r.insights) sections.push(group('Correlated findings', r.insights.map(i => `<div class="list-row">${chip(i.severity)}<div class="grow small">${esc(i.title)}</div><span class="muted small">${esc(cap(i.status))}</span></div>`), 'No matching findings'));
@@ -330,7 +330,7 @@ async function Entity(id) {
       </div>
       <div class="stack">
         ${card('Identifiers', `<dl class="kv">${Object.entries(e.keys).map(([k, v]) => `<dt>${esc(cap(k))}</dt><dd class="mono">${esc(v)}</dd>`).join('')}</dl>`)}
-        ${card('Cases', e.cases.map(c => `<div class="list-row">${chip(c.severity)}<div class="grow small">${caseLink(c.id, c.title)}<div class="t-sub">${esc(cap(c.domain))} · ${esc(cap(c.status))}</div></div></div>`).join('') || empty('No cases'))}
+        ${card('Cases', e.cases.map(c => `<div class="list-row">${chip(c.severity)}<div class="grow small">${caseLink(c.id, c.title)}<div class="t-sub">${esc(domLabel(c.domain))} · ${esc(cap(c.status))}</div></div></div>`).join('') || empty('No cases'))}
         ${e.insights.length ? card('Insights', e.insights.map(i => `<div class="list-row">${chip(i.severity)}<span class="grow small">${esc(i.title)}</span></div>`).join('')) : ''}
         ${e.vulnerabilities.length ? card('Vulnerabilities', e.vulnerabilities.map(x => `<div class="list-row">${pchip(x.band)}<span class="grow mono small">${esc(x.cve)}</span><span class="small muted">${esc(cap(x.status))}</span></div>`).join('')) : ''}
         ${card('Related', Object.entries(e.related).map(([k, xs]) => `<div class="small strong" style="margin:8px 0 2px">${esc(cap(k))}</div>` +
@@ -1601,3 +1601,162 @@ window.VIEWS = {trace: Trace, search: Search, story: Story, overview: Overview, 
 Object.assign(ALLOWED, {saveValueInput, casePage, approvalPage, actDetail, showMore, notifyTest, assignCase, addNote, ownerFilter, reportPlan, buildPlanned, savePlanned, buildTemplate, runDeep, approveBundle, approvalFilter, intelAll, askIntel, refreshIntel, insightAct, intelFilter, caseFilter, runInc, runPh, act, decide, upload, vmRefresh, ticketSync,
   campaign, vmAsk, misRoute, misVerb, ownUpload, ownClear, testConn, runJob, preflight, configure, pauseConn, proposeConfig, approveConfig,
   rejectConfig, closePanel, showHistory, showImport, importConfig, restoreConfig, showLists, proposeLists, saveLlmPolicy, checkModels, loadCalls, kill, approvePolicy, report, compliancePack, grant, approveGrant, revokeGrant, revokeKey, newKey, auditExport, wlUpload, wlRemove, tuneDraft, tuneBlank, tuneSuggest, tunePreview, tunePropose, tuneDecide, tuneAutoclose, tuneActSuggest, styleUpload, styleSave, styleRemove, styleReset});
+
+// ================================================================= CISO view, coverage and tool health, data protection
+// Every figure below is computed by the server. The AI's part is its own close / escalate decision on a DLP alert,
+// shown beside the computed one and the analyst's; it never sets a score, a severity or a count.
+const HEALTH_K = {critical: 'critical', warning: 'medium', healthy: 'ok', not_reported: 'info'};
+const HEALTH_LABEL = {critical: 'Critical', warning: 'Warning', healthy: 'Healthy', not_reported: 'Not reported'};
+const OUTCOME_LABEL = {close_benign: 'Close as benign', escalate: 'Escalate', review: 'Needs a person'};
+const OUTCOME_K = {close_benign: 'ok', escalate: 'critical', review: 'medium'};
+const STATE_LABEL = {missing: 'Missing', silent: 'Silent', off: 'Off', unknown: 'Unknown', ok: 'In place'};
+const TOOL_NAMES = {forcepoint_dlp: 'Forcepoint DLP', silverfort: 'Silverfort', trend_micro: 'Trend Micro', trellix_epo: 'Trellix ePO',
+  directory_export: 'Directory export', controls: 'Control coverage', platform: 'Platform'};
+const toolName = t => TOOL_NAMES[t] || cap(t);
+const scoreBar = v => `<div class="bar"><span style="width:${Math.max(2, Math.min(100, v))}%;background:${v >= 85 ? 'var(--c-low)' : v >= 70 ? 'var(--c-medium)' : 'var(--c-high)'}"></span></div>`;
+const signed = v => (v > 0 ? '+' : '') + v;
+const healthRows = tools => tools.map(t => `<div class="list-row"><div class="grow"><div class="t-title">${esc(toolName(t.tool))}</div><div class="t-sub">${esc(t.headline)}</div></div>${status(HEALTH_K[t.status] || 'info', HEALTH_LABEL[t.status] || cap(t.status))}</div>`).join('') || empty('No tool has reported its health yet.');
+
+async function Ciso() {
+  const __g = GEN;
+  const d = await api('/api/v1/dashboard/ciso'), p = d.posture, cov = d.coverage, h = d.tool_health, x = d.dlp;
+  const change = p.trend.change;
+  const domains = p.domains.map(m => `<div class="list-row"><span class="grow">${esc(m.label)}</span>${m.measured
+    ? `<div style="width:120px">${scoreBar(m.score)}</div><span class="score">${esc(Math.round(m.score))}</span>`
+    : `<span class="muted small" title="${esc(m.reason || '')}">Not measured</span>`}</div>`).join('');
+  const why = [...p.largest_reductions.map(f => `<div class="list-row small"><div class="grow">${esc(f.label)}<div class="t-sub">${esc(f.domain)} · ${esc(f.value)}</div></div><span class="score">${esc(signed(f.effect))}</span></div>`),
+    ...p.penalties.filter(f => f.effect).map(f => `<div class="list-row small"><div class="grow">${esc(f.label)}<div class="t-sub">Whole score · ${esc(f.value)}</div></div><span class="score">${esc(signed(f.effect))}</span></div>`)].join('');
+  setMainG(__g, page('CISO view', 'One view across the connected security tools. Every figure is computed from stored records and opens onto its evidence. The posture score uses draft weights, to be agreed with the CISO.',
+    btn('Refresh', 'refreshPage', [], 'ghost', 'refresh'),
+    `<div class="grid g-kpi">
+      ${kpi('Posture score (draft)', p.score == null ? '–' : String(p.score), p.score == null ? 'nothing measured yet' : change == null ? 'no earlier day recorded yet' : `${esc(signed(change))} over ${esc(p.trend.days)} days`)}
+      ${kpi('Critical cases', nf(d.cases.critical), `${nf(d.cases.high)} high · <a href="#/cases">all cases</a>`, d.cases.critical > 0)}
+      ${kpi('DLP alerts', nf(x.alerts), `${nf(x.awaiting_a_person)} awaiting a person · <a href="#/dlp">queue</a>`)}
+      ${kpi('Full control coverage', cov.available ? cov.coverage_percent + '%' : '–', cov.available ? `${nf(cov.devices_short_count)} of ${nf(cov.baseline.devices)} devices short · <a href="#/controls">details</a>` : esc(cov.reason || ''), cov.available && cov.devices_short_count > 0)}
+      ${kpi('Tool health', h.counts.critical ? nf(h.counts.critical) + ' critical' : h.counts.warning ? nf(h.counts.warning) + ' warning' : 'Healthy', `${nf(h.tools.length)} tools watched`, h.counts.critical > 0)}
+    </div>
+    <div class="grid g-2e mt">
+      ${card('Posture by domain', domains, {sub: 'formula ' + esc(p.formula_version)})}
+      ${card('Tool health', healthRows(h.tools), {right: go('#/controls', 'Findings', 'small')})}
+    </div>
+    <div class="grid g-2e mt">
+      ${card('What lowers the score', why || empty('Nothing is lowering the score.'), {sub: 'points'})}
+      ${card('Open critical and high cases', d.cases.items.map(c => `<div class="list-row click" data-fn="goTo" data-args="${arg('#/cases/' + c.id)}">${chip(c.severity)}<div class="grow"><div class="t-title">${esc(c.title)}</div><div class="t-sub">${esc(domLabel(c.domain))} · ${esc(cap(c.status))} · opened ${dt(c.created_at)}</div></div></div>`).join('') || empty('No open critical or high case.'))}
+    </div>
+    <div class="grid g-2e mt">
+      ${card('Devices to fix first', cov.available ? (cov.devices_short.map(r => `<div class="list-row small"><span class="score">${esc(r.rank)}</span><div class="grow">${entLink(r.entity_id, r.name)}<div class="t-sub">${esc(r.missing.map(m => m.label + ': ' + (STATE_LABEL[m.state] || m.state).toLowerCase()).join(' · '))}</div></div></div>`).join('') || empty('Every listed device has every expected control.')) : empty(cov.reason), {right: go('#/controls', 'All devices', 'small')})}
+      ${card('DLP rules to tune', x.noisy_rules.map(r => `<div class="list-row small"><div class="grow">${esc(r.rule)}<div class="t-sub">analysts closed ${nf(r.closed_benign)} of ${nf(r.decided)} decided alerts as benign</div></div><span class="score">${nf(r.alerts)}</span></div>`).join('') || empty('No rule stands out as noise yet.'), {sub: 'alerts'})}
+    </div>`));
+}
+
+async function Controls() {
+  const __g = GEN;
+  const [cov, h] = await Promise.all([api('/api/v1/dashboard/control-coverage'), api('/api/v1/dashboard/tool-health')]);
+  const findings = table(['Severity', 'Tool', 'Finding', 'Next step'], h.findings.map(f => `<tr><td>${status(HEALTH_K[f.severity], HEALTH_LABEL[f.severity])}</td><td class="nowrap">${esc(toolName(f.tool))}</td>
+    <td><div class="t-title" style="white-space:normal">${esc(f.title)}</div><div class="t-sub" style="white-space:normal">${esc(f.detail)}</div></td><td class="small">${esc(f.next_step)}</td></tr>`), {empty: 'No finding: every reported certificate, job and agent is healthy.'});
+  const healthCard = `<div class="grid g-2e mt">${card('Tool health', healthRows(h.tools), {sub: 'wherever a tool reports it'})}${card('Findings', findings, {flush: true})}</div>`;
+  if (!cov.available) { setMainG(__g, page('Coverage and tool health', esc(cov.reason), '', healthCard)); return; }
+  const ctl = table(['Control', 'Tool', {h: 'Expected on', num: 1}, {h: 'In place', num: 1}, {h: 'Missing', num: 1}, {h: 'Silent', num: 1}, {h: 'Off', num: 1}, {h: 'Coverage', num: 1}],
+    cov.controls.map(c => `<tr><td class="t-title">${esc(c.label)}</td><td>${esc(toolName(c.tool))}</td><td class="num">${nf(c.applicable)}</td><td class="num">${nf(c.covered)}</td><td class="num">${nf(c.missing)}</td><td class="num">${nf(c.silent)}</td><td class="num">${nf(c.off)}</td><td class="num">${c.covered_percent == null ? '–' : esc(c.covered_percent) + '%'}</td></tr>`)
+      .concat(cov.not_measured.map(c => `<tr><td class="t-title">${esc(c.label)}</td><td>${esc(toolName(c.tool))}</td><td colspan="6" class="muted small">Not measured: this tool is not connected</td></tr>`)));
+  const short = table([{h: 'Rank', num: 1}, 'Device', 'Type', 'Main user', 'Short of', {h: 'Personal-data alerts', num: 1}], cov.devices_short.map(r => `<tr><td class="num">${esc(r.rank)}</td><td class="t-title">${entLink(r.entity_id, r.name)}</td><td>${esc(cap(r.device_type))}</td><td class="small">${esc(r.primary_user || '–')}</td>
+    <td>${r.missing.map(m => `<span class="tag" title="${esc(m.detail)}">${esc(m.label)}: ${esc((STATE_LABEL[m.state] || m.state).toLowerCase())}</span>`).join(' ')}</td><td class="num">${r.personal_data_alerts == null ? '–' : nf(r.personal_data_alerts)}</td></tr>`), {empty: 'Every listed device has every expected control.'});
+  setMainG(__g, page('Coverage and tool health', `Each device in the directory export is checked against the tool that owns each control. A device counts as covered only when every expected control is in place and reporting; an agent is silent after ${esc(cov.silent_after_hours)} hours without a check-in.`,
+    btn('Refresh', 'refreshPage', [], 'ghost', 'refresh'),
+    `<div class="grid g-kpi">${kpi('Devices in the baseline', nf(cov.baseline.devices), 'from the directory export')}${kpi('Fully covered', cov.coverage_percent + '%', `${nf(cov.fully_covered)} devices`)}
+      ${kpi('Short of a control', nf(cov.devices_short_count), 'ranked below', cov.devices_short_count > 0)}${kpi('Not in the baseline', nf(cov.unlisted.length), 'seen by a tool, not listed', cov.unlisted.length > 0)}</div>
+    <div class="mt">${card('Controls', ctl, {flush: true})}</div>
+    <div class="mt">${card('Devices short of a control', short, {flush: true, sub: 'most personal-data alerts first'})}</div>
+    ${cov.unlisted.length ? `<div class="mt">${card('Seen by a tool, not in the baseline', cov.unlisted.map(u => `<div class="list-row small"><span class="grow">${entLink(u.entity_id, u.name)}</span><span class="muted">${esc(u.seen_by.map(toolName).join(', '))}</span></div>`).join(''))}</div>` : ''}
+    ${healthCard}`));
+}
+
+let DLP_FILTER = 'open', DLP_OFFSET = 0;
+const outcomeChip = o => o ? status(OUTCOME_K[o] || 'info', OUTCOME_LABEL[o] || cap(o)) : '<span class="muted">–</span>';
+async function Dlp(id) {
+  const __g = GEN;
+  const qs = new URLSearchParams({limit: 50, offset: DLP_OFFSET});
+  if (DLP_FILTER !== 'all') qs.set('status', DLP_FILTER);
+  const [sm, list] = await Promise.all([api('/api/v1/dlp/summary'), api('/api/v1/dlp/alerts?' + qs)]);
+  window.__dlp = Object.fromEntries(list.items.map(a => [a.id, a]));
+  const rows = list.items.map(a => `<tr class="click" data-fn="dlpOpen" data-args="${arg(a.id)}"><td>${chip(a.severity)}</td>
+    <td><div class="t-title" style="white-space:normal">${esc(a.rule)}</div><div class="t-sub">${esc(cap(a.channel))} · ${esc(cap(a.action || 'unknown'))} · ${dt(a.event_time)}</div></td>
+    <td class="small">${esc((a.user || {}).name || '–')}<div class="t-sub">${esc((a.device || {}).name || '')}</div></td>
+    <td class="small">${esc(cap(a.destination_class))}<div class="t-sub">${esc(a.destination_domain || '')}</div></td>
+    <td class="small">${a.data_classes.length ? esc(a.data_classes.map(cap).join(', ')) + (a.bulk ? ' (bulk)' : '') : '<span class="muted">none</span>'}</td>
+    <td>${outcomeChip(a.computed.outcome)}</td><td>${a.ai && a.ai.outcome ? outcomeChip(a.ai.outcome) : `<span class="muted small">${a.ai ? esc(cap(a.ai.source)) : 'not decided'}</span>`}</td>
+    <td>${a.analyst ? outcomeChip(a.analyst.outcome) : '<span class="muted small">waiting</span>'}</td></tr>`);
+  const types = table(['Decision type', 'Stage', {h: 'AI decisions', num: 1}, {h: 'Decided by analysts', num: 1}, {h: 'AI agreement', num: 1}, {h: 'Computed agreement', num: 1}, 'Target', ''],
+    sm.decision_types.map(t => `<tr><td class="t-title" style="white-space:normal">${esc(t.label)}</td><td>${status(t.stage === 'shadow' ? 'info' : 'ok', cap(t.stage))}</td><td class="num">${nf(t.ai_decisions)}</td><td class="num">${nf(t.sample)}</td>
+      <td class="num">${t.agreement_percent == null ? '–' : esc(t.agreement_percent) + '%'}</td><td class="num">${t.computed_agreement_percent == null ? '–' : esc(t.computed_agreement_percent) + '%'}</td>
+      <td class="small">${t.target ? `${esc(t.target.agreement_percent)}% over ${nf(t.target.min_sample)}` : '<span class="muted">not set</span>'}${can('approve_policy') ? `<div class="inline" style="gap:4px;margin-top:4px"><input class="input sm" style="width:64px" type="number" min="50" max="100" aria-label="Agreement target in percent for ${esc(t.decision_type)}" id="tg-a-${esc(t.decision_type)}" placeholder="%"><input class="input sm" style="width:72px" type="number" min="20" aria-label="Minimum decided items for ${esc(t.decision_type)}" id="tg-n-${esc(t.decision_type)}" placeholder="items">${btn('Set', 'decTarget', [t.decision_type], 'sm')}</div>` : ''}</td>
+      <td class="small">${t.pending ? `Promotion to ${esc(t.pending.stage)} proposed by ${esc(t.pending.proposed_by)}${can('approve_policy') ? ' ' + btn('Approve', 'decProposal', [t.pending.id, 'approve'], 'sm primary') + btn('Reject', 'decProposal', [t.pending.id, 'reject'], 'sm') : ''}`
+        : t.eligible && can('approve_policy') ? btn('Propose ' + t.next_stage, 'decStage', [t.decision_type, t.next_stage], 'sm')
+        : `<span class="muted">${esc(t.blocked_by || '')}</span>`}${t.stage !== 'shadow' && can('approve_policy') ? ' ' + btn('Back to shadow', 'decStage', [t.decision_type, 'shadow'], 'sm') : ''}</td></tr>`));
+  setMainG(__g, page('Data protection', `DLP alerts judged with what the other tools know: the sender's sign-in risk, the device's controls, the destination and the rule's history. The computed disposition is a published rule; the AI's decision is stored beside it and never closes an alert by itself. Model: ${esc(sm.model)}.`,
+    can('investigate') ? btn('Pull DLP alerts', 'dlpRun', [], '', 'play') : '',
+    `<div class="grid g-kpi">${kpi('Alerts', nf(sm.alerts), Object.entries(sm.by_computed).map(([k, v]) => `${esc(OUTCOME_LABEL[k] || k)} ${v}`).join(' · ') || 'none yet')}
+      ${kpi('Awaiting a person', nf(sm.awaiting_a_person), 'no ruling yet', sm.awaiting_a_person > 0)}${kpi('Open cases', nf(sm.open_cases), '<a href="#/cases">escalations</a>', sm.open_cases > 0)}
+      ${kpi('With personal data', nf(sm.personal_data_alerts), 'a person decides reportability')}${kpi('Decided by the AI', nf(sm.ai_decided), sm.model === 'on' ? `${nf(sm.ai_and_computed_would_close)} it and the computed check would both close` : 'the model is off: computed dispositions only')}</div>
+    <div class="mt">${card(null, `<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div class="seg">${['open', 'escalated', 'closed', 'all'].map(f => `<button class="${f === DLP_FILTER ? 'on' : ''}" data-fn="dlpFilter" data-args="${arg(f)}">${cap(f)} <span class="muted">${f === 'all' ? sm.alerts : (sm.by_status[f] || 0)}</span></button>`).join('')}</div></div>`
+      + table(['Severity', 'Rule', 'Sender', 'Destination', 'Personal data', 'Computed', 'AI', 'Analyst'], rows, {empty: 'No alert here. Pull DLP alerts to read the tool.'})
+      + pager(DLP_OFFSET, list.items.length, list.total, 'dlpPage', 'alerts'), {flush: true})}</div>
+    <div id="dlp-detail" class="mt"></div>
+    <div class="mt">${card('How far the AI is trusted, per decision type', types, {flush: true, sub: 'shadow: compared only · recommend: pre-filled for the analyst · decide: not available in this version'})}</div>
+    ${sm.noisy_rules.length ? `<div class="mt">${card('Rules analysts keep closing as benign', sm.noisy_rules.map(r => `<div class="list-row small"><div class="grow">${esc(r.rule)}<div class="t-sub">${nf(r.closed_benign)} of ${nf(r.decided)} decided alerts closed as benign (${esc(r.benign_percent)}%) - a candidate for a rule change an engineer makes in the DLP tool</div></div><span class="score">${nf(r.alerts)}</span></div>`).join(''), {sub: 'alerts'})}</div>` : ''}`));
+  if (id) dlpOpen(id);
+}
+function dlpFilter(f) { DLP_FILTER = f; DLP_OFFSET = 0; Dlp(); }
+function dlpPage(o) { DLP_OFFSET = Math.max(0, Number(o) || 0); Dlp(); }
+async function dlpRun() {
+  toast('Reading DLP alerts and their context…');
+  const r = await post('/api/v1/dlp/run');
+  toast(`${r.new_alerts} new alert(s) · ${r.escalated} escalated${r.ai_decided ? ' · ' + r.ai_decided + ' decided by the AI' : ''}`);
+  Dlp();
+}
+async function dlpOpen(id) {
+  const el = $('#dlp-detail'); if (!el) return;
+  const a = (window.__dlp || {})[id] || await api('/api/v1/dlp/alerts/' + encodeURIComponent(id));
+  const u = a.untrusted || {};
+  const facts = a.evidence.map(e => `<div class="list-row small ev" data-ref="${esc(e.id)}"><span class="tag">${esc(e.id)}</span><div class="grow">${esc(e.claim)}<div class="t-sub">${esc(toolName(e.source))}</div></div></div>`).join('');
+  const reasons = rs => rs.map(r => `<div class="small">${esc(r.text)} ${(r.evidence_ids || []).map(i => `<span class="tag">${esc(i)}</span>`).join('')}${r.code ? ` <span class="muted">(rule ${esc(r.code)})</span>` : ''}</div>`).join('');
+  const prefill = a.ai && a.ai.prefilled ? a.ai.outcome : null;
+  const form = a.analyst ? `<div class="small">Ruled <b>${esc(OUTCOME_LABEL[a.analyst.outcome])}</b> by ${esc(a.analyst.by || 'an analyst')}${a.analyst.source === 'tool' ? ' in the DLP tool' : ''}${a.analyst.at ? ' on ' + dt(a.analyst.at) : ''}${a.analyst.reason ? ': ' + esc(a.analyst.reason) : ''}</div>`
+    : can('investigate') && inDomain('dlp') ? `${prefill ? `<div class="small muted" style="margin-bottom:6px">The AI recommends: ${esc(OUTCOME_LABEL[prefill])}. Accept it in one click; choosing the other needs a reason.</div>` : ''}
+      <label class="small" for="dlp-reason">Reason</label><input class="input" id="dlp-reason" maxlength="2000" placeholder="Why (required to overrule the AI's recommendation)">
+      <div class="inline" style="margin-top:8px;gap:8px">${btn('Close as benign', 'dlpDecide', [a.id, 'close_benign'], prefill === 'close_benign' ? 'primary' : '')}${btn('Escalate', 'dlpDecide', [a.id, 'escalate'], prefill === 'escalate' || !prefill ? 'primary' : '')}</div>`
+    : '<div class="small muted">Waiting for an analyst.</div>';
+  el.innerHTML = card(esc(a.rule), `<div class="grid g-2e">
+      <div><div class="small strong">Facts the decision rests on</div>${facts}</div>
+      <div>
+        <div class="small strong">Computed disposition</div><div style="margin:4px 0">${outcomeChip(a.computed.outcome)} ${chip(a.severity)}</div>${reasons(a.computed.reasons)}
+        ${a.never_auto.length ? `<div class="small" style="margin-top:6px">Never closed automatically: ${esc(a.never_auto.join('; '))}.</div>` : ''}
+        <div class="small strong" style="margin-top:12px">The AI's decision <span class="muted">(${esc(cap(a.stage))} stage)</span></div>
+        ${a.ai && a.ai.outcome ? `<div style="margin:4px 0">${outcomeChip(a.ai.outcome)}</div>${reasons(a.ai.reasons)}<div class="t-sub">${esc(a.ai.model || 'model')} · ${a.ai.effective_outcome ? 'within the guardrails it could ' + esc(OUTCOME_LABEL[a.ai.effective_outcome].toLowerCase()) : 'a person decides: the computed check does not agree, or the alert is never automatic'}</div>`
+          : `<div class="small muted">${a.ai ? 'The model answered without a usable, cited decision (' + esc(a.ai.source) + '): the computed disposition stands.' : 'Not decided by the model.'}</div>`}
+        <div class="small strong" style="margin-top:12px">Written by the sender <span class="muted">(shown as data; no rule reads it)</span></div>
+        <dl class="kv small"><dt>Subject</dt><dd>${esc(u.subject || '–')}</dd><dt>Files</dt><dd>${esc((u.file_names || []).join(', ') || '–')}</dd><dt>Destination</dt><dd>${esc(u.destination || '–')}</dd></dl>
+        <div class="small strong" style="margin-top:12px">Ruling</div>${form}
+        ${a.case_id ? `<div class="small" style="margin-top:8px">${caseLink(a.case_id, 'Open the case')}</div>` : ''}
+      </div></div>`, {sub: `${esc(cap(a.channel))} · ${dt(a.event_time)}`, right: a.deep_link ? `<a class="small" href="${esc(safeUrl(a.deep_link))}" target="_blank" rel="noopener noreferrer">Open in the tool</a>` : ''});
+  el.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+async function dlpDecide(id, outcome) {
+  await post(`/api/v1/dlp/alerts/${encodeURIComponent(id)}/decision`, {outcome, reason: ($('#dlp-reason') || {}).value || ''});
+  toast(outcome === 'escalate' ? 'Escalated: the case is open' : 'Closed as benign');
+  refreshStatus(); Dlp();
+}
+async function decTarget(type) {
+  const a = Number(($('#tg-a-' + CSS.escape(type)) || {}).value), n = Number(($('#tg-n-' + CSS.escape(type)) || {}).value);
+  if (!a || !n) { toast('Enter the agreement target and the minimum number of decided items', true); return; }
+  await api(`/api/v1/decisions/${encodeURIComponent(type)}/target`, {method: 'PUT', body: JSON.stringify({agreement_percent: a, min_sample: n})});
+  toast('Target set'); Dlp();
+}
+async function decStage(type, stage) {
+  const r = await post(`/api/v1/decisions/${encodeURIComponent(type)}/stage`, {stage, reason: ''});
+  toast(r.status === 'pending' ? 'Promotion proposed: a second lead approves it' : `Now at ${stage}`); Dlp();
+}
+async function decProposal(id, verb) { await post(`/api/v1/decisions/proposals/${id}/${verb}`, {reason: ''}); toast(verb === 'approve' ? 'Promotion approved' : 'Proposal rejected'); Dlp(); }
+
+Object.assign(window.VIEWS, {ciso: Ciso, controls: Controls, dlp: Dlp});
+Object.assign(ALLOWED, {dlpFilter, dlpPage, dlpRun, dlpOpen, dlpDecide, decTarget, decStage, decProposal});

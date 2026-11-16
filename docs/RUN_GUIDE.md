@@ -581,9 +581,9 @@ What you should see (checked end to end on Docker Desktop 29 / Compose 5, 2026-1
 split roles and verified TLS re-checked 2026-10-18): the API container turns *healthy* on `/health/ready`; `/health`
 signed in (anonymous callers get only `{"status": "ok"}`) reports `audit_chain: true` and the scheduler `running` in
 `service` mode; the
-scheduler's first pass runs the vulnerability job first, then incidents and phishing. `demo` can run while the
-scheduler is syncing (the two take turns on each stream) and gives the same figures as on a laptop (7 phishing and 3
-incident cases, 37 actions awaiting approval, 6 open vulnerabilities). Reports are stored in PostgreSQL
+scheduler's first pass runs the inventory job first, then vulnerability, incidents, phishing and data protection. `demo` can run while the
+scheduler is syncing (the two take turns on each stream) and gives the same figures as on a laptop (7 phishing, 3
+incident and 3 data-protection cases, 37 actions awaiting approval, 6 open vulnerabilities). Reports are stored in PostgreSQL
 (`[REPORT] daily_exposure: db:reports/...`; Compose sets `SOC_BLOB_STORE=database`), so a report the scheduler
 container built downloads through the API container; `docker compose exec platform-api python -m soc_platform blobs
 check` lists every stored file as readable; and everything survives `docker compose restart`.
