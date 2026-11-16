@@ -1,0 +1,420 @@
+// Agentic SOC console - core: auth, API client, router, shell, shared components.
+// No inline handlers anywhere: clicks are delegated through data-fn / data-go so the page runs under a strict CSP.
+'use strict';
+
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const safeUrl = u => /^https?:\/\//i.test(String(u || '')) ? String(u) : '#';
+const arg = (...a) => esc(JSON.stringify(a));
+const nf = n => (n == null || n === '') ? '–' : Number(n).toLocaleString();
+const pct = (x, d = 0) => x == null ? '–' : (x * 100).toFixed(d) + '%';
+const cap = s => { const t = String(s || '').replace(/_/g, ' ').trim(); return t.charAt(0).toUpperCase() + t.slice(1); };
+// risk dimensions in plain words ('other' is what the SIEM connectors report)
+const DIM_LABELS = {other: 'SIEM', privileged_access: 'privileged access', threat_intel: 'threat intel'};
+const dimLabel = d => DIM_LABELS[d] || String(d || '').replace(/_/g, ' ');
+const dt = s => s ? String(s).slice(0, 16).replace('T', ' ') : '–';
+const day = s => s ? String(s).slice(0, 10) : '–';
+
+let TOKEN = '';
+// the access token lives for this tab only (sessionStorage): it is gone when the tab closes, and a token left in
+// localStorage by an earlier version is removed
+try { TOKEN = sessionStorage.getItem('soc_token') || ''; localStorage.removeItem('soc_token'); } catch (e) { /* storage blocked */ }
+window.ME = null;
+
+// ---------------------------------------------------------------- feedback
+function toast(msg, err = false) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  t.className = 'toast' + (err ? ' err' : '');
+  t.textContent = String(msg);
+  t.hidden = false;
+  clearTimeout(window._tt);
+  window._tt = setTimeout(() => { t.hidden = true; }, err ? 8000 : 5000);
+}
+
+// ---------------------------------------------------------------- API
+async function api(path, opts = {}) {
+  const headers = {'Content-Type': 'application/json', ...(opts.headers || {})};
+  if (TOKEN) headers.Authorization = 'Bearer ' + TOKEN;
+  const r = await fetch(path, {...opts, headers});
+  if (r.status === 401 && TOKEN) { signOut(true); throw new Error('session expired'); }
+  if (!r.ok) {
+    const t = await r.text(); let d = t;
+    try { d = JSON.parse(t).detail || t; } catch (e) { /* not JSON */ }
+    toast((typeof d === 'string' ? d : (d && d.message) || JSON.stringify(d)).slice(0, 300), true);
+    throw new Error(t);
+  }
+  return !opts.raw && (r.headers.get('content-type') || '').includes('json') ? r.json() : r;
+}
+const post = (p, body) => api(p, {method: 'POST', body: body === undefined ? undefined : JSON.stringify(body)});
+const can = p => ((window.ME && window.ME.permissions) || []).includes(p);
+const inDomain = d => { const ds = (window.ME && window.ME.domains) || []; return ds.includes('*') || (d !== '*' && ds.includes(d)); };
+
+async function dl(path) {
+  const r = await api(path, {raw: true});     // a file: never parsed, even when it is JSON or JSON Lines
+  const b = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b);
+  a.download = ((r.headers.get('content-disposition') || '').split('filename=')[1] || 'download').replace(/"/g, '');
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('Downloaded ' + a.download);
+}
+
+// ---------------------------------------------------------------- icons (hand-drawn 24px line set)
+const I = {
+  overview: '<path d="M3 13h8V3H3zM13 21h8V11h-8zM13 3v6h8V3zM3 21h8v-6H3z"/>',
+  intel: '<path d="M12 3a6 6 0 0 0-6 6c0 2.2 1.2 3.6 2.4 4.8.8.8 1.1 1.6 1.1 2.7V18h5v-1.5c0-1.1.3-1.9 1.1-2.7C16.8 12.6 18 11.2 18 9a6 6 0 0 0-6-6zM10 21h4"/>',
+  cases: '<path d="M4 7h16v12H4zM9 7V5h6v2M4 12h16"/>',
+  approvals: '<path d="M9 12l2 2 4-4M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/>',
+  phishing: '<path d="M4 6h16v12H4zM4 7l8 6 8-6"/>',
+  vuln: '<path d="M12 3l8 4v5c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V7zM12 8v5M12 16h.01"/>',
+  cloud: '<path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.5 4.3 4.3 0 0 0 7 18z"/>',
+  coverage: '<path d="M4 4h4v4H4zM10 4h4v4h-4zM16 4h4v4h-4zM4 10h4v4H4zM10 10h4v4h-4zM4 16h4v4H4z"/>',
+  shadow: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/>',
+  supplier: '<path d="M3 21V9l6 3V9l6 3V6l6 3v12zM7 17h2M12 17h2M17 17h2"/>',
+  plug: '<path d="M9 2v5M15 2v5M7 7h10v4a5 5 0 0 1-10 0zM12 16v6"/>',
+  policy: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4"/>',
+  access: '<path d="M8 11V7a4 4 0 0 1 8 0v4M5 11h14v10H5zM12 15v2"/>',
+  audit: '<path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7"/>',
+  reports: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  ai: '<path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4zM18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9zM5 15l.6 1.4L7 17l-1.4.6L5 19l-.6-1.4L3 17l1.4-.6z"/>',
+  sun: '<path d="M12 4V2M12 22v-2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  refresh: '<path d="M20 11a8 8 0 0 0-14.9-3M4 5v4h4M4 13a8 8 0 0 0 14.9 3M20 19v-4h-4"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  play: '<path d="M7 5l12 7-12 7z"/>',
+  back: '<path d="M15 6l-6 6 6 6"/>',
+  filter: '<path d="M3 5h18l-7 8v6l-4 2v-8z"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
+};
+const icon = (n, cls = '') => `<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true">${I[n] || ''}</svg>`;
+
+// ---------------------------------------------------------------- shared components
+const chip = (s, extra = '') => `<span class="chip ${esc(String(s || '').toLowerCase())} ${extra}">${esc(cap(s))}</span>`;
+const kpi = (label, value, foot = '', alert = false) =>
+  `<div class="card kpi${alert ? ' alert' : ''}"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${foot ? `<div class="foot">${foot}</div>` : ''}</div>`;
+function card(title, body, o = {}) {
+  return `<section class="card ${o.cls || ''}"${o.id ? ` id="${esc(o.id)}"` : ''}>${title ? `<div class="card-h"><h2>${title}</h2>${o.sub ? `<span class="sub">${o.sub}</span>` : ''}${o.right ? `<div class="right">${o.right}</div>` : ''}</div>` : ''}
+    <div class="card-b${o.flush ? ' flush' : ''}">${body}</div></section>`;
+}
+function table(cols, rows, o = {}) {
+  if (!rows.length) return `<div class="empty">${esc(o.empty || 'Nothing to show yet.')}</div>`;
+  return `<div class="table-wrap"><table><thead><tr>${cols.map(c => `<th class="${c.num ? 'num' : ''}">${esc(c.h || c)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.join('')}</tbody></table></div>`;
+}
+const btn = (label, fn, args = [], cls = '', ic = '') =>
+  `<button class="btn ${cls}" data-fn="${esc(fn)}" data-args="${arg(...args)}">${ic ? icon(ic) : ''}${esc(label)}</button>`;
+const go = (href, label, cls = '') => `<a href="${esc(href)}" class="${cls}">${esc(label)}</a>`;
+const empty = t => `<div class="empty">${esc(t)}</div>`;
+const skeleton = () => `<div class="card"><div class="card-b">${'<div class="skeleton"></div>'.repeat(6)}</div></div>`;
+// an evidence reference: hover or focus shows what it cites (tool, when, what); a click scrolls to the evidence row
+const citeTip = e => [e.source, e.observed_at ? 'observed ' + dt(e.observed_at) : '', e.summary].filter(Boolean).join(' · ');
+const cite = x => {
+  const ev = (x.evidence || []).length ? x.evidence : (x.evidence_ids || []).map(ref => ({ref}));
+  return ev.map(e => `<abbr class="cite" tabindex="0" data-fn="jumpEv" data-args="${arg(e.ref)}"${e.summary ? ` data-tip="${esc(citeTip(e))}" aria-label="${esc(e.ref + ': ' + citeTip(e))}"` : ''}>${esc(e.ref)}</abbr>`).join('');
+};
+function jumpEv(ref) {
+  const row = document.querySelector(`.ev[data-ref="${CSS.escape(ref)}"]`);
+  if (!row) return;
+  row.scrollIntoView({behavior: 'smooth', block: 'center'});
+  row.classList.remove('hl'); void row.offsetWidth; row.classList.add('hl');
+}
+function page(title, sub, actions, body) {
+  return `<div class="page-head"><div><h1>${esc(title)}</h1>${sub ? `<p>${sub}</p>` : ''}</div>${actions ? `<div class="actions">${actions}</div>` : ''}</div>${body}`;
+}
+
+// charts (inline SVG coloured from theme tokens)
+function stackedBars(series, keys, h = 170) {
+  const n = series.length || 1, w = 720, pad = 22, bw = (w - pad) / n - 6;
+  const max = Math.max(1, ...series.map(d => keys.reduce((a, k) => a + (d[k] || 0), 0)));
+  let g = '';
+  for (let i = 0; i <= 2; i++) { const y = 8 + (h - 30) * i / 2; g += `<line x1="${pad}" x2="${w}" y1="${y}" y2="${y}" style="stroke:var(--border)"/>`; }
+  g += `<text x="0" y="12">${max}</text><text x="0" y="${h - 22}">0</text>`;
+  series.forEach((d, i) => {
+    let y = h - 22; const x = pad + i * (bw + 6);
+    keys.forEach(k => {
+      const v = d[k] || 0, bh = v / max * (h - 30);
+      if (v) g += `<rect x="${x}" y="${y - bh}" width="${bw}" height="${bh}" rx="2" style="fill:var(--c-${k})"><title>${esc(d.date)} · ${esc(k)}: ${v}</title></rect>`;
+      y -= bh;
+    });
+    if (i % 2 === 0 || n < 10) g += `<text x="${x}" y="${h - 6}">${esc(String(d.date).slice(5))}</text>`;
+  });
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="none" role="img" aria-label="daily volume">${g}</svg>
+    <div class="legend">${keys.map(k => `<span><i style="background:var(--c-${k})"></i>${esc(cap(k))}</span>`).join('')}</div>`;
+}
+function donut(counts, colors = {}) {
+  const e = Object.entries(counts || {}).filter(([, v]) => v > 0), total = e.reduce((a, [, v]) => a + v, 0);
+  if (!total) return empty('No data in this window');
+  const r = 46, c = 60, C = 2 * Math.PI * r; let off = 0, arcs = '';
+  e.forEach(([k, v]) => {
+    const len = v / total * C;
+    arcs += `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke-width="14" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-off}"
+      style="stroke:${colors[k] || `var(--c-${k}, var(--c-other))`}" transform="rotate(-90 ${c} ${c})"><title>${esc(cap(k))}: ${v}</title></circle>`;
+    off += len;
+  });
+  return `<div class="inline" style="gap:20px"><svg class="chart" width="120" height="120" viewBox="0 0 120 120">
+      <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke-width="14" style="stroke:var(--surface-3)"/>${arcs}
+      <text x="${c}" y="${c + 5}" text-anchor="middle" style="fill:var(--text);font-size:18px;font-weight:650">${total}</text></svg>
+    <div class="stack" style="gap:6px">${e.map(([k, v]) => `<div class="small"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:8px;background:${colors[k] || `var(--c-${k}, var(--c-other))`}"></i>${esc(cap(k))} <b>${v}</b></div>`).join('')}</div></div>`;
+}
+// colours by meaning, shared by every chart (severity, priority, SLA, verdict, domain)
+const CHART_COLOR = {P1: 'var(--c-critical)', P2: 'var(--c-high)', P3: 'var(--c-medium)', P4: 'var(--c-other)',
+  'past SLA': 'var(--c-critical)', 'within SLA': 'var(--c-phishing)', malicious: 'var(--c-critical)', suspicious: 'var(--c-high)',
+  spam: 'var(--c-medium)', safe: 'var(--c-low)', clicks: 'var(--c-high)', reports: 'var(--c-phishing)', overdue: 'var(--c-critical)',
+  'on time': 'var(--c-phishing)', actions: 'var(--c-vulnerability)'};
+const colorOf = (k, i = 0) => CHART_COLOR[k] || `var(--c-${k}, ${['var(--c-phishing)', 'var(--c-incident)', 'var(--c-vulnerability)', 'var(--c-other)'][i % 4]})`;
+// stacked horizontal bars: one row per label, segments per key, the total at the end
+function hbars(rows, keys, o = {}) {
+  const tot = r => keys.reduce((a, k) => a + (r.values[k] || 0), 0);
+  if (!rows.length || !rows.some(r => tot(r) > 0)) return empty(o.empty || 'No data in this window');
+  const max = Math.max(1, ...rows.map(tot));
+  const body = rows.map(r => `<div class="hbar-row"><div class="hbar-label" title="${esc(r.label)}">${esc(r.label).replace(/([._@])/g, '$1<wbr>')}</div>
+    <div class="hbar-track">${keys.map((k, i) => { const v = r.values[k] || 0; return v ? `<span style="width:${v / max * 100}%;background:${colorOf(k, i)}" title="${esc(cap(k))}: ${v}"></span>` : ''; }).join('')}</div>
+    <div class="hbar-total" title="${keys.map(k => `${esc(cap(k))}: ${r.values[k] || 0}`).join(' · ')}">${nf(tot(r))}${keys.length > 1 ? `<div class="hbar-split">${keys.map(k => nf(r.values[k] || 0)).join(' / ')}</div>` : ''}</div></div>`).join('');
+  const legend = keys.length > 1 ? `<div class="legend">${keys.map((k, i) => `<span><i style="background:${colorOf(k, i)}"></i>${esc(cap(k))}</span>`).join('')}<span class="muted">numbers: total, then ${keys.map(k => esc(k)).join(' / ')}</span></div>` : '';
+  return `<div class="hbars" role="img" aria-label="${esc(o.label || 'bar chart')}">${body}</div>${legend}`;
+}
+// vertical columns with whole-number gridlines (for example findings by age)
+function columns(items, o = {}) {
+  if (!items.some(x => x.value > 0)) return empty(o.empty || 'No data in this window');
+  const w = 360, h = 170, pad = 26, base = h - 24, max = Math.max(1, ...items.map(x => x.value));
+  const step = Math.max(1, [1, 2, 5, 10, 20, 25, 50, 100, 250, 500, 1000].find(s => max / s <= 4) || Math.ceil(max / 4));
+  const top = Math.ceil(max / step) * step, slot = (w - pad) / items.length, bw = slot * 0.56;
+  let g = '';
+  for (let v = 0; v <= top; v += step) { const y = base - v / top * (base - 14); g += `<line x1="${pad}" x2="${w}" y1="${y}" y2="${y}" style="stroke:var(--border)"/><text x="0" y="${y + 4}">${v}</text>`; }
+  items.forEach((x, i) => {
+    const bh = x.value / top * (base - 14), cx = pad + i * slot + (slot - bw) / 2;
+    if (x.value) g += `<rect x="${cx}" y="${base - bh}" width="${bw}" height="${bh}" rx="3" style="fill:${x.color || colorOf(o.key || 'actions', i)}"><title>${esc(x.label)}: ${x.value}</title></rect>
+      <text x="${cx + bw / 2}" y="${base - bh - 5}" text-anchor="middle" style="fill:var(--text);font-weight:600">${x.value}</text>`;
+    g += `<text x="${cx + bw / 2}" y="${h - 6}" text-anchor="middle">${esc(x.label)}</text>`;
+  });
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="${esc(o.label || 'column chart')}">${g}</svg>`;
+}
+const meter = (v, max = 100) => `<div class="bar"><span style="width:${Math.max(2, Math.min(100, v / max * 100))}%;background:${v >= 75 ? 'var(--c-critical)' : v >= 50 ? 'var(--c-high)' : v >= 25 ? 'var(--c-medium)' : 'var(--c-low)'}"></span></div>`;
+
+// ---------------------------------------------------------------- navigation model
+const NAV = [
+  ['Operate', [['overview', 'Overview', 'overview'], ['intelligence', 'Intelligence', 'intel', '*'], ['cases', 'Cases', 'cases'],
+    ['approvals', 'Approvals', 'approvals']]],
+  ['Domains', [['phishing', 'Phishing', 'phishing', 'phishing'], ['vulnerabilities', 'Vulnerabilities', 'vuln', 'vulnerability'],
+    ['cloud', 'Cloud posture', 'cloud', 'vulnerability']]],
+  ['Insight', [['coverage', 'ATT&CK coverage', 'coverage'], ['shadow-it', 'Shadow IT', 'shadow', 'incident'],
+    ['suppliers', 'Supplier risk', 'supplier', 'phishing']]],
+  ['Govern', [['watchlists', 'Watch lists', 'list'], ['tuning', 'Tuning', 'filter'], ['integrations', 'Integrations', 'plug'], ['policy', 'Automation policy', 'policy'], ['ai-usage', 'AI usage', 'ai'], ['reports', 'Reports', 'reports'],
+    ['access', 'Access', 'access'], ['audit', 'Audit log', 'audit']]],
+];
+const TITLES = {...Object.fromEntries(NAV.flatMap(([, items]) => items.map(([id, label]) => [id, label]))), story: 'Attack story', entity: 'Entity', search: 'Search'};
+
+function route() {
+  const parts = (location.hash.replace(/^#\/?/, '') || 'overview').split('/').map(decodeURIComponent);
+  return {name: parts[0], params: parts.slice(1)};
+}
+
+function shell() {
+  const me = window.ME;
+  const initials = (me.name || '?').split(/[@.\s]/).filter(Boolean).slice(0, 2).map(x => x[0].toUpperCase()).join('');
+  $('#app').innerHTML = `<div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">AS</div><div><div class="brand-name">Agentic SOC</div><div class="brand-sub">Security operations</div></div></div>
+      ${NAV.map(([g, items]) => `<div class="nav-group">${g}</div>` + items.filter(([, , , d]) => !d || inDomain(d)).map(([id, label, ic]) =>
+        `<a class="nav-item" href="#/${id}" data-nav="${id}">${icon(ic)}<span>${esc(label)}</span>${id === 'approvals' ? '<span class="count" id="nav-approvals" hidden></span>' : ''}</a>`).join('')).join('')}
+      <div class="sidebar-foot">Signed in as ${esc(me.auth_method === 'api_key' ? 'service account' : me.roles.join(', ') || 'no role')}<br>${esc(me.domains.includes('*') ? 'All domains' : me.domains.join(', '))}<br>All times UTC</div>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <div class="crumbs" id="crumbs"></div><div class="spacer"></div>
+        <input class="input search-box" id="global-q" type="search" data-enter="runSearch" aria-label="Search cases, people, hosts, CVEs" placeholder="Search cases, people, hosts, CVEs…">
+        <span class="status-pill halt" id="sched-status" hidden><span class="dot"></span><span id="sched-text">Scheduler stopped</span></span>
+        <span class="status-pill" id="kill-status" title="Automated action status"><span class="dot"></span>Automation active</span>
+        <button class="icon-btn" data-fn="toggleTheme" data-args="[]" title="Toggle light / dark" aria-label="Toggle theme" id="theme-btn"></button>
+        <div class="user" data-fn="toggleMenu" data-args="[]"><div class="avatar">${esc(initials)}</div><div class="who">${esc(me.name)}<small>${esc(me.roles.join(', '))}${me.mfa ? ' · MFA' : ''}</small></div>
+          <div class="menu" id="user-menu" hidden>
+            <div class="row-i">Permissions: ${esc(me.permissions.length)}</div>
+            <div class="row-i">Data scope: ${esc(me.domains.includes('*') ? 'all domains' : me.domains.join(', '))}</div>
+            <div class="row-i act" data-fn="goTo" data-args="${arg('#/access')}">Access &amp; roles</div>
+            <div class="row-i act" data-fn="signOut" data-args="[]">Sign out</div>
+          </div></div>
+      </header>
+      <main class="content" id="main"></main>
+    </div></div>`;
+  paintThemeButton();
+  refreshStatus();
+}
+
+async function refreshStatus() {
+  try {
+    const h = await api('/health');   // the status details need the signed-in user's token
+    const el = $('#kill-status');
+    if (el) { el.className = 'status-pill' + (h.kill_switch ? ' halt' : ''); el.innerHTML = `<span class="dot"></span>${h.kill_switch ? 'Automation halted' : 'Automation active'}`; }
+    const sch = $('#sched-status');   // a stopped scheduler cannot alert on its own: say so on every screen
+    if (sch) { sch.hidden = !(h.scheduler && ['stale', 'stuck'].includes(h.scheduler.state));
+      $('#sched-text').textContent = h.scheduler && h.scheduler.state === 'stuck' ? `Scheduler stuck (${h.scheduler.stuck_job})` : 'Scheduler stopped'; sch.title = h.scheduler && h.scheduler.last_run ? 'Last job run ' + h.scheduler.last_run.slice(0, 16).replace('T', ' ') + ' UTC' : ''; }
+    if (can('approve_action') || can('request_action')) {
+      const sm = await api('/api/v1/actions/summary?status=recommended,pending_approval');
+      const b = $('#nav-approvals'); if (b) { b.hidden = !sm.total; b.textContent = sm.total; }
+    }
+  } catch (e) { /* status is best-effort */ }
+}
+
+async function render() {
+  if (!window.ME) return;
+  const {name, params} = route();
+  refreshStatus();                 // badge, kill switch and scheduler state: another person or a job may have moved them
+  document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === name));
+  const q = $('#global-q'); if (q && name !== 'search') q.value = '';        // the box shows a query only on its results
+  const title = TITLES[name] || cap(name);
+  const parent = {story: 'cases', entity: 'cases', trace: 'audit'}[name] || name;
+  $('#crumbs').innerHTML = name === 'search' ? '<b>Search</b>' : params.length ? `<a href="#/${esc(parent)}">${esc(TITLES[parent] || title)}</a> <span class="muted">/</span> <b>${esc(name === 'story' ? 'Attack story' : name === 'entity' ? 'Entity 360' : name === 'trace' ? 'Trace' : 'Detail')}</b>` : `<b>${esc(title)}</b>`;
+  document.title = title + ' · Agentic SOC';
+  const view = (window.VIEWS || {})[name];
+  const main = $('#main');
+  GEN += 1;
+  main.innerHTML = skeleton();
+  if (!view) { main.innerHTML = empty('Page not found'); return; }
+  const scope = NAV.flatMap(([, items]) => items).find(([id]) => id === name);   // a screen outside the user's data scope
+  if (scope && scope[3] && !inDomain(scope[3])) {
+    main.innerHTML = page(title, '', '', empty(scope[3] === '*' ? 'This screen spans every domain, so it needs all-domain access. Your sign-in is limited to ' + window.ME.domains.join(', ') + '.'
+      : `This screen shows ${scope[3]} data, which is outside your data scope (${window.ME.domains.join(', ')}).`));
+    return;
+  }
+  try { await view(...params); } catch (e) { if (!main.innerHTML || main.querySelector('.skeleton')) main.innerHTML = empty('This page could not be loaded. ' + (e.message || '').slice(0, 160)); }
+  window.scrollTo(0, 0);
+}
+// Navigation generation: a slow page that finishes after the user moved on must not paint over the new page.
+let GEN = 0;
+const setMainG = (g, html) => { if (g === GEN && $('#main')) $('#main').innerHTML = html; };
+const setMain = html => setMainG(GEN, html);
+
+// ---------------------------------------------------------------- auth
+// Production sign-in: Entra ID authorization code flow with PKCE (SPA platform). The access token is for the
+// platform API (roles claim = SOC.<Role>[.<Domain>]); when it expires the user signs in again (Entra keeps the session).
+let AUTH = null;
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const entraBase = () => `https://login.microsoftonline.com/${encodeURIComponent(AUTH.tenant_id)}/oauth2/v2.0`;
+const redirectUri = () => location.origin + '/';
+async function authConfig() {
+  if (!AUTH) { try { AUTH = await (await fetch('/api/v1/auth/config')).json(); } catch (e) { AUTH = {mode: 'dev'}; } }
+  return AUTH;
+}
+async function signInEntra() {
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
+  const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
+  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  sessionStorage.setItem('soc_pkce', JSON.stringify({verifier, state, hash: location.hash || '#/overview'}));
+  const q = new URLSearchParams({client_id: AUTH.client_id, response_type: 'code', redirect_uri: redirectUri(),
+    response_mode: 'query', scope: AUTH.scope + ' openid profile', state, code_challenge: challenge,
+    code_challenge_method: 'S256'});
+  location.assign(`${entraBase()}/authorize?${q}`);
+}
+async function finishEntra() {
+  const p = new URLSearchParams(location.search);
+  if (!p.has('code') && !p.has('error')) return false;
+  let saved = {};
+  try { saved = JSON.parse(sessionStorage.getItem('soc_pkce') || '{}'); } catch (e) { /* ignore */ }
+  sessionStorage.removeItem('soc_pkce');
+  history.replaceState(null, '', '/' + (saved.hash || '#/overview'));
+  if (p.has('error') || p.get('state') !== saved.state) {
+    toast('Sign-in failed: ' + (p.get('error_description') || p.get('error') || 'state mismatch'), true);
+    return false;
+  }
+  const r = await fetch(`${entraBase()}/token`, {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({client_id: AUTH.client_id, grant_type: 'authorization_code', code: p.get('code'),
+      redirect_uri: redirectUri(), code_verifier: saved.verifier, scope: AUTH.scope})});
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok || !body.access_token) { toast('Sign-in failed: ' + (body.error_description || r.status), true); return false; }
+  TOKEN = body.access_token;
+  try { sessionStorage.setItem('soc_token', TOKEN); } catch (e) { /* ignore */ }
+  return true;
+}
+async function boot() {
+  await authConfig();
+  if (AUTH.mode === 'entra') await finishEntra();
+  if (!TOKEN) return signInScreen();
+  try { window.ME = await api('/api/v1/me'); } catch (e) { return signInScreen(); }
+  shell();
+  await render();
+}
+function signInScreen() {
+  window.ME = null;
+  if (AUTH && AUTH.mode === 'entra') {
+    $('#app').innerHTML = `<div class="auth"><section class="card auth-card"><div class="card-b">
+      <div class="brand" style="padding:0"><div class="brand-mark">AS</div><div><div class="brand-name">Agentic SOC</div><div class="brand-sub">Security operations platform</div></div></div>
+      <h1>Sign in</h1>
+      <button class="btn primary" data-fn="signInEntra" data-args="[]" style="justify-content:center;height:36px">Sign in with Microsoft</button>
+      <div class="foot">Single sign-on with your organisation account (Microsoft Entra ID). Your roles come from the platform's app roles.</div>
+      <button class="btn ghost sm" data-fn="toggleTheme" data-args="[]" id="theme-btn" style="align-self:flex-start"></button>
+    </div></section></div>`;
+    paintThemeButton();
+    return;
+  }
+  $('#app').innerHTML = `<div class="auth"><section class="card auth-card"><div class="card-b">
+    <div class="brand" style="padding:0"><div class="brand-mark">AS</div><div><div class="brand-name">Agentic SOC</div><div class="brand-sub">Security operations platform</div></div></div>
+    <h1>Sign in</h1>
+    <div class="field"><label for="si-user">Work email</label><input class="input" id="si-user" value="lena@acme-demo.com" autocomplete="username"></div>
+    <div class="field"><label for="si-role">Role</label><select id="si-role">${['lead', 'analyst', 'auditor', 'automation_admin', 'admin'].map(r => `<option value="${r}">${cap(r)}</option>`).join('')}</select></div>
+    <div class="field"><label for="si-scope">Data scope</label><select id="si-scope">${[['', 'All domains'], ['phishing', 'Phishing only'], ['incident', 'Incident only'], ['vulnerability', 'Vulnerability only']].map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
+    <button class="btn primary" data-fn="signIn" data-args="[]" style="justify-content:center;height:36px">Continue</button>
+    <div class="foot">Development sign-in. In production the console uses Microsoft Entra ID single sign-on with MFA; this form is only available when <code>SOC_AUTH_MODE=dev</code>.</div>
+    <button class="btn ghost sm" data-fn="toggleTheme" data-args="[]" id="theme-btn" style="align-self:flex-start"></button>
+  </div></section></div>`;
+  paintThemeButton();
+}
+async function signIn() {
+  const u = $('#si-user').value.trim(), role = $('#si-role').value, scope = $('#si-scope').value;
+  const r = await fetch(`/api/v1/dev/token?user=${encodeURIComponent(u)}&roles=${encodeURIComponent(role)}${scope ? '&domains=' + encodeURIComponent(scope) : ''}`);
+  if (!r.ok) { toast('Development sign-in is disabled on this server. Use Entra ID SSO.', true); return; }
+  TOKEN = (await r.json()).token;
+  try { sessionStorage.setItem('soc_token', TOKEN); } catch (e) { /* ignore */ }
+  if (!location.hash) location.hash = '#/overview';
+  boot();
+}
+async function signOut(expired = false) {
+  if (!expired && TOKEN) { try { await fetch('/api/v1/auth/logout', {method: 'POST', headers: {Authorization: 'Bearer ' + TOKEN}}); } catch (e) { /* ignore */ } }
+  TOKEN = '';
+  try { sessionStorage.removeItem('soc_token'); } catch (e) { /* ignore */ }
+  if (!expired && AUTH && AUTH.mode === 'entra') {       // end the Entra session too, then come back here
+    location.assign(`${entraBase()}/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri())}`);
+    return;
+  }
+  signInScreen();
+  if (expired) toast('Your session has expired. Please sign in again.');
+}
+
+// ---------------------------------------------------------------- theme & menus
+function toggleTheme() {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('soc_theme', next); } catch (e) { /* ignore */ }
+  paintThemeButton();
+}
+function paintThemeButton() {
+  const b = $('#theme-btn'); if (!b) return;
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  b.innerHTML = b.classList.contains('icon-btn') ? icon(dark ? 'sun' : 'moon') : (dark ? 'Switch to light' : 'Switch to dark');
+}
+function toggleMenu() { const m = $('#user-menu'); if (m) m.hidden = !m.hidden; }
+function goTo(h) { location.hash = h; }
+
+// ---------------------------------------------------------------- delegation
+function runSearch() { const q = ($('#global-q').value || '').trim(); if (q.length >= 2) location.hash = '#/search/' + encodeURIComponent(q); }
+const ALLOWED = {toggleTheme, toggleMenu, goTo, signIn, signInEntra, signOut, dl, runSearch, jumpEv, refreshPage: () => render()};
+document.addEventListener('click', ev => {
+  const menu = $('#user-menu');
+  if (menu && !menu.hidden && !ev.target.closest('.user')) menu.hidden = true;
+  const el = ev.target.closest('[data-fn]');
+  if (!el) return;
+  ev.preventDefault();
+  const fn = ALLOWED[el.dataset.fn];
+  if (!fn) return;
+  let args = [];
+  try { args = JSON.parse(el.dataset.args || '[]'); } catch (e) { return; }
+  if (el.tagName === 'BUTTON') { el.disabled = true; setTimeout(() => { el.disabled = false; }, 400); }
+  Promise.resolve().then(() => fn(...args)).catch(() => { /* reported via toast */ });
+});
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Enter' && ev.target.matches('input[data-enter]')) {
+    const fn = ALLOWED[ev.target.dataset.enter]; if (fn) fn();
+  }
+});
+window.addEventListener('hashchange', render);
+window.addEventListener('DOMContentLoaded', boot);

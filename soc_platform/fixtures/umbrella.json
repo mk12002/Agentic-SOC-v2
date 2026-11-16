@@ -1,0 +1,808 @@
+{
+ "routes": [
+  {
+   "method": "GET",
+   "path": "^/reports/v2/categories$",
+   "body": {
+    "data": [
+     {
+      "id": 65,
+      "label": "Command and Control",
+      "type": "security",
+      "integration": false,
+      "deprecated": false
+     },
+     {
+      "id": 66,
+      "label": "Malware",
+      "type": "security",
+      "integration": false,
+      "deprecated": false
+     },
+     {
+      "id": 68,
+      "label": "Phishing",
+      "type": "security",
+      "integration": false,
+      "deprecated": false
+     },
+     {
+      "id": 23,
+      "label": "File Storage",
+      "type": "content",
+      "integration": false,
+      "deprecated": false
+     },
+     {
+      "id": 196,
+      "label": "Generative AI",
+      "type": "application",
+      "integration": false,
+      "deprecated": false
+     }
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/reports/v2/activity/dns$",
+   "body": {
+    "data": [
+     {
+      "timestamp": "2026-09-20T09:05:12Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.15",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "JANE-LT01",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "jane.doe@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T09:07:40Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.15",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "JANE-LT01",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "jane.doe@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T09:11:03Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "blocked",
+      "internalip": "10.20.1.31",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "PRIYA-LT07",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "priya.nair@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "status": 200,
+   "params": {
+    "domains": "login.micros0ft-helpdesk.com"
+   }
+  },
+  {
+   "method": "GET",
+   "path": "^/reports/v2/activity/dns$",
+   "body": {
+    "data": [
+     {
+      "timestamp": "2026-09-20T09:05:12Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.15",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "JANE-LT01",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "jane.doe@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T09:07:40Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.15",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "JANE-LT01",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "jane.doe@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T09:11:03Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "blocked",
+      "internalip": "10.20.1.31",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "PRIYA-LT07",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "priya.nair@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "status": 200,
+   "params": {
+    "domains": "micros0ft-helpdesk.com"
+   }
+  },
+  {
+   "method": "GET",
+   "path": "^/reports/v2/activity/dns$",
+   "body": {
+    "data": []
+   },
+   "status": 200,
+   "params": {
+    "domains": "*"
+   }
+  },
+  {
+   "method": "GET",
+   "path": "^/reports/v2/activity/dns$",
+   "body": {
+    "data": [
+     {
+      "timestamp": "2026-09-20T09:05:12Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.15",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "JANE-LT01",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "jane.doe@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T09:07:40Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.15",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "JANE-LT01",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "jane.doe@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T09:30:00Z",
+      "domain": "outlook.office365.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.15",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Business Services",
+        "type": "content"
+       }
+      ],
+      "identities": [
+       {
+        "label": "JANE-LT01",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "jane.doe@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "status": 200,
+   "params": {
+    "ip": "10.20.1.15"
+   }
+  },
+  {
+   "method": "GET",
+   "path": "^/reports/v2/activity/dns$",
+   "body": {
+    "data": []
+   },
+   "status": 200,
+   "params": {
+    "ip": "*"
+   }
+  },
+  {
+   "method": "GET",
+   "path": "^/reports/v2/activity/dns$",
+   "body": {
+    "data": [
+     {
+      "timestamp": "2026-09-20T09:05:12Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.15",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "JANE-LT01",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "jane.doe@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T09:07:40Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.15",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "JANE-LT01",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "jane.doe@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T09:11:03Z",
+      "domain": "login.micros0ft-helpdesk.com",
+      "verdict": "blocked",
+      "internalip": "10.20.1.31",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Phishing",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "PRIYA-LT07",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "priya.nair@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T09:30:00Z",
+      "domain": "outlook.office365.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.15",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Business Services",
+        "type": "content"
+       }
+      ],
+      "identities": [
+       {
+        "label": "JANE-LT01",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "jane.doe@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T10:02:11Z",
+      "domain": "wetransfer.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.41",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "File Storage",
+        "type": "content"
+       }
+      ],
+      "identities": [
+       {
+        "label": "ARUN-LT05",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "arun.k@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T10:04:37Z",
+      "domain": "wetransfer.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.41",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "File Storage",
+        "type": "content"
+       }
+      ],
+      "identities": [
+       {
+        "label": "ARUN-LT05",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "arun.k@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T11:15:02Z",
+      "domain": "wetransfer.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.44",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "File Storage",
+        "type": "content"
+       }
+      ],
+      "identities": [
+       {
+        "label": "MEERA-LT06",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "meera.s@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T10:30:00Z",
+      "domain": "chat.deepseek.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.52",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Generative AI",
+        "type": "application"
+       }
+      ],
+      "identities": [
+       {
+        "label": "LI-DEV08",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "li.chen@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T10:31:12Z",
+      "domain": "chat.deepseek.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.52",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Generative AI",
+        "type": "application"
+       }
+      ],
+      "identities": [
+       {
+        "label": "LI-DEV08",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "li.chen@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T12:01:40Z",
+      "domain": "chat.deepseek.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.47",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Generative AI",
+        "type": "application"
+       }
+      ],
+      "identities": [
+       {
+        "label": "TOM-LT07",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "tom.w@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T13:20:05Z",
+      "domain": "nordvpn.com",
+      "verdict": "blocked",
+      "internalip": "10.20.1.52",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Personal VPN",
+        "type": "content"
+       },
+       {
+        "label": "Proxy/Anonymizer",
+        "type": "content"
+       }
+      ],
+      "identities": [
+       {
+        "label": "LI-DEV08",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "li.chen@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T13:21:44Z",
+      "domain": "mega.nz",
+      "verdict": "blocked",
+      "internalip": "10.20.1.52",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "File Storage",
+        "type": "content"
+       }
+      ],
+      "identities": [
+       {
+        "label": "LI-DEV08",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "li.chen@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T14:05:09Z",
+      "domain": "anydesk.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.44",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Remote Access",
+        "type": "content"
+       }
+      ],
+      "identities": [
+       {
+        "label": "MEERA-LT06",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "meera.s@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T14:40:31Z",
+      "domain": "teams.microsoft.com",
+      "verdict": "allowed",
+      "internalip": "10.20.1.47",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Business Services",
+        "type": "content"
+       }
+      ],
+      "identities": [
+       {
+        "label": "TOM-LT07",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "tom.w@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     },
+     {
+      "timestamp": "2026-09-20T15:02:18Z",
+      "domain": "update-flash-player.xyz",
+      "verdict": "blocked",
+      "internalip": "10.20.1.41",
+      "externalip": "203.0.113.10",
+      "querytype": "A",
+      "categories": [
+       {
+        "label": "Malware",
+        "type": "security"
+       },
+       {
+        "label": "Newly Seen Domains",
+        "type": "security"
+       }
+      ],
+      "identities": [
+       {
+        "label": "ARUN-LT05",
+        "type": {
+         "type": "roaming"
+        }
+       },
+       {
+        "label": "arun.k@acme-demo.com",
+        "type": {
+         "type": "directory_user"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/policies/v2/destinationlists/[^/]+/destinations$",
+   "body": {
+    "data": [
+     {
+      "id": "d-1",
+      "destination": "login.micros0ft-helpdesk.com"
+     }
+    ]
+   },
+   "status": 200
+  }
+ ]
+}

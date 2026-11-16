@@ -1,0 +1,21 @@
+# Core platform: governance, context store, connectors, API, reporting
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.1
+sqlalchemy>=2.0
+psycopg2-binary>=2.9.9
+httpx>=0.27
+pyjwt[crypto]>=2.8
+msal>=1.24
+rapidfuzz>=3.6
+pyyaml>=6.0
+jinja2>=3.1
+python-docx>=1.1
+python-pptx>=0.6.23
+python-multipart>=0.0.6
+setuptools>=84.1          # CVE fixes (PYSEC-2025-49, PYSEC-2026-3447, and the 84.1 advisory)
+pyzbar>=0.1.9             # QR-code decoding in reported mail
+Pillow>=13.0              # 12.x carries known advisories (pip-audit, 2026-11)
+ppdeep>=20200505          # fuzzy hashing (PH-T03)
+anthropic>=1.8          # optional LLM provider (SOC_LLM_PROVIDER=anthropic)

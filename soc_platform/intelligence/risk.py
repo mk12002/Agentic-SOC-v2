@@ -1,0 +1,302 @@
+"""Entity risk engine: one explainable, time-decayed risk score per user and per host, fused from every
+data stream in the shared context store (U07 identity-centric risk view, U06 exposure-informed triage).
+
+Every point of score is traceable to a specific event / finding / case with its source tool, so the
+score can be audited and argued with. No model is involved; the LLM layer narrates on top of this.
+"""
+
+from __future__ import annotations
+
+import math
+import os
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Any
+
+from sqlalchemy import event, func, select
+from sqlalchemy.orm import Session
+
+from soc_platform.core.context_store import ContextStore
+from soc_platform.core.models import Case, CaseEntity, Entity, utcnow
+
+SEV_W = {"critical": 40.0, "high": 25.0, "medium": 10.0, "low": 3.0, "informational": 0.0}
+HALF_LIFE_DAYS = 7.0
+# records of something that happened: their time is the event's. State records (people, hosts, indicators, findings,
+# cloud issues, tickets) are "seen" whenever a directory, scanner or look-up is synced - that is the wall clock
+EVENT_KINDS = ("alert", "signin", "email", "mail_event", "dns", "deception", "secret_access", "elevation")
+# Signals that describe a condition which is still true (an open exposure, an open incident): they count in full
+# until the condition ends, instead of decaying like activity does.
+STANDING_SIGNALS = frozenset({"kev_exposure", "priority_vulnerability", "internet_exposed_vulnerable", "open_incident"})
+# Amplifiers add weight because of other signals; each fades with the signals that triggered it (None = any).
+AMPLIFIER_TRIGGERS: dict[str, frozenset[str] | None] = {
+    "privileged_user_at_risk": frozenset({"identity_risk", "risky_signin", "phishing_identity_compromise"}),
+    "no_edr_coverage": None,
+}
+BANDS = [(80, "critical"), (60, "high"), (30, "medium"), (0, "low")]
+
+
+POINTS_SCALE = 60   # risk points at which the score reaches 63 (= 100 x (1 - 1/e))
+
+
+@dataclass
+class Factor:
+    signal: str
+    dimension: str
+    weight: float
+    decayed: float
+    source: str
+    ref: str
+    when: str | None
+    detail: str
+
+
+@dataclass
+class RiskProfile:
+    entity_id: str
+    kind: str
+    name: str
+    score: float
+    band: str
+    factors: list[Factor] = field(default_factory=list)
+
+    @property
+    def dimensions(self) -> list[str]:
+        return sorted({f.dimension for f in self.factors if f.decayed > 0})
+
+    def signals(self) -> set[str]:
+        return {f.signal for f in self.factors}
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"entity_id": self.entity_id, "kind": self.kind, "name": self.name, "score": self.score,
+                "band": self.band, "dimensions": self.dimensions,
+                # the points behind the score (score = 100 x (1 - e^(-points/60))): shown so the factors can be checked
+                "points": round(sum(f.decayed for f in self.factors), 1), "points_scale": POINTS_SCALE,
+                "factors": [f.__dict__ for f in sorted(self.factors, key=lambda x: -x.decayed)]}
+
+
+def _aware(dt: datetime | None) -> datetime:
+    dt = dt or utcnow()
+    return dt if dt.tzinfo else dt.replace(tzinfo=utcnow().tzinfo)
+
+
+class RiskEngine:
+    def __init__(self, session: Session, *, window_days: int = 30, as_of: datetime | None = None) -> None:
+        self.s = session
+        self.store = ContextStore(session)
+        self.window = timedelta(days=window_days)
+        self.as_of = as_of
+
+    def _now(self) -> datetime:
+        if self.as_of:
+            return _aware(self.as_of)
+        # Reference "now" = the latest observation in the store, so replayed/historic data decays sensibly. Read once
+        # per engine until data is written (a ranking profiles thousands of entities; it was one query each - but an
+        # engine kept across writes must see the new latest observation, or figures drift between screens).
+        memo = getattr(self, "_latest", None)
+        if memo is None or memo[0] != _GENERATION[0]:
+            # the newest *event*: with state records counted, "now" was simply the wall clock and dated activity aged
+            # out of the window - the sample estate lost its critical findings 30 days after its events
+            latest = self.s.execute(select(Entity.last_seen).where(Entity.kind.in_(EVENT_KINDS))
+                                    .order_by(Entity.last_seen.desc()).limit(1)).scalar() or \
+                self.s.execute(select(Entity.last_seen).order_by(Entity.last_seen.desc()).limit(1)).scalar()
+            memo = self._latest = (_GENERATION[0], _aware(latest))
+        return memo[1]
+
+    def _phish_time(self, case: Case, upn: str = "") -> datetime:
+        """When a phishing case's activity happened: this user's click, else the e-mail's own time - not when the
+        platform processed it (that dated a September click to the day it was analysed, so it never decayed)."""
+        from soc_platform.connectors.tools._common import parse_ts
+
+        per_user = ((case.assessment or {}).get("user_impact") or {}).get("per_user") or {}
+        click = parse_ts((per_user.get(upn) or {}).get("click_time")) if upn else None
+        if click is not None:
+            return _aware(click)
+        mail = self.s.execute(select(Entity.first_seen).join(CaseEntity, CaseEntity.entity_id == Entity.id)
+                              .where(CaseEntity.case_id == case.id, Entity.kind == "email")).scalars().first()
+        return _aware(mail or case.created_at)
+
+    def _decay(self, when: datetime | None, now: datetime) -> float:
+        age = max(0.0, (now - _aware(when)).total_seconds() / 86400) if when else 0.0
+        return 0.5 ** (age / HALF_LIFE_DAYS)
+
+    def profile(self, entity_id: str) -> RiskProfile | None:
+        ent = self.s.get(Entity, entity_id)
+        if ent is None or ent.kind not in {"asset", "identity"} or (ent.attributes or {}).get("deception"):
+            return None  # decoys (Canary devices) are sensors, not assets at risk
+        now = self._now()
+        since = now - self.window
+        factors: list[Factor] = []
+
+        def add(signal: str, dim: str, w: float, source: str, ref: str, when: datetime | None, detail: str, *,
+                factor: float | None = None) -> None:
+            # Activity decays from when it happened; an open exposure or a contextual amplifier passes its own factor
+            # (an exposure does not fade while it stays open; an amplifier fades with the activity that triggered it).
+            k = 1.0 if signal in STANDING_SIGNALS else self._decay(when, now) if factor is None else factor
+            factors.append(Factor(signal, dim, w, round(w * k, 2), source or "platform", ref,
+                                  _aware(when).isoformat() if when else None, detail))
+
+        def strongest(signals: frozenset[str] | None = None) -> float:
+            return max((f.decayed / f.weight for f in factors if f.weight and (signals is None or f.signal in signals)),
+                       default=0.0)
+
+        for ev in self.store.events_for(entity_id, since=since):
+            a = ev.attributes or {}
+            tool, sev = a.get("tool"), (a.get("severity") or "informational").lower()
+            if ev.kind == "deception":
+                add("deception_hit", "deception", 50, tool, ev.id, ev.first_seen, ev.display_name)
+            elif ev.kind == "alert":
+                dim = a.get("dimension") or "endpoint"
+                sig = "identity_risk" if dim == "identity" else "endpoint_alert" if dim == "endpoint" else f"{dim}_alert"
+                add(sig, dim, SEV_W.get(sev, 5), tool, ev.id, ev.first_seen, ev.display_name)
+            elif ev.kind == "signin" and (a.get("risk_level") or "none") in {"high", "medium"}:
+                add("risky_signin", "identity", 30 if a.get("risk_level") == "high" else 15, tool, ev.id,
+                    ev.first_seen, f"{ev.display_name} from {a.get('ip')} ({a.get('country')})")
+            elif ev.kind == "secret_access" and sev == "medium":
+                add("privileged_credential_access", "privileged_access", 15, tool, ev.id, ev.first_seen,
+                    ev.display_name)
+            elif ev.kind == "elevation" and str(a.get("outcome", "")).lower() in {"denied", "blocked"}:
+                add("elevation_denied", "privileged_access", 8, tool, ev.id, ev.first_seen, ev.display_name)
+            elif ev.kind == "dns" and sev == "high":
+                add("malicious_destination_reached", "dns", 12, tool, ev.id, ev.first_seen, ev.display_name)
+            elif ev.kind == "cloud_issue":
+                add("cloud_misconfiguration", "cloud", SEV_W.get(sev, 5) / 2, tool, ev.id, ev.first_seen,
+                    ev.display_name)
+
+        # Cases this entity is part of (phishing interaction, incidents)
+        # An entity can be linked to one case in several roles (recipient and clicker): count each case once.
+        roles: dict[str, set[str]] = {}
+        for ln in self.s.execute(select(CaseEntity).where(CaseEntity.entity_id == entity_id)).scalars():
+            roles.setdefault(ln.case_id, set()).add(ln.role)
+        compromised_via: list[Case] = []
+        for case_id, rs in roles.items():
+            case = self.s.get(Case, case_id)
+            if case is None or case.status == "closed" and case.verdict in {"false_positive", "benign", "safe"}:
+                continue
+            if case.domain == "phishing":
+                ui = (case.assessment or {}).get("user_impact") or {}
+                upn = self.store.keys_of(entity_id).get("upn", "")
+                if upn and upn in (ui.get("clicked") or []):
+                    add("phishing_click", "email", 20, "phishing", case.id, self._phish_time(case, upn),
+                        f"clicked a {case.verdict} email: {case.title}")
+                if upn and upn in (ui.get("identity_compromise") or []):
+                    compromised_via.append(case)
+                elif "recipient" in rs and case.verdict == "malicious":
+                    add("phishing_recipient", "email", 4, "phishing", case.id, self._phish_time(case),
+                        f"received {case.verdict} email: {case.title}")
+            elif case.domain == "incident" and case.status != "closed" and rs - {"alert"}:
+                add("open_incident", "incident", SEV_W.get(case.severity, 5) / 2, "incident", case.id,
+                    case.created_at, case.title)          # counts in full until the incident is closed
+        if compromised_via:
+            # one compromise, however many phishing cases point at it
+            upn = self.store.keys_of(entity_id).get("upn", "")
+            latest = max(compromised_via, key=lambda c: self._phish_time(c, upn))
+            add("phishing_identity_compromise", "identity", 30, "phishing", latest.id, self._phish_time(latest, upn),
+                "identity compromise indicators after phishing click"
+                + (f" (seen from {len(compromised_via)} phishing cases)" if len(compromised_via) > 1 else ""))
+
+        if ent.kind == "asset":
+            from soc_platform.domains.vulnerability.models import ConsolidatedFinding, VulnIntel
+
+            for f in self.s.execute(select(ConsolidatedFinding).where(
+                    ConsolidatedFinding.asset_id == entity_id,
+                    ConsolidatedFinding.status.in_(("open", "reopened")))).scalars():
+                vi = self.s.get(VulnIntel, f.cve)
+                if vi is not None and vi.kev:
+                    add("kev_exposure", "exposure", 15, ",".join(sorted(f.sources)), f.id, f.first_seen,
+                        f"{f.cve} (KEV) open")
+                elif f.priority_band in {"P1", "P2"}:
+                    add("priority_vulnerability", "exposure", 8 if f.priority_band == "P1" else 4,
+                        ",".join(sorted(f.sources)), f.id, f.first_seen, f"{f.cve} {f.priority_band}")
+                if f.internet_exposed:
+                    add("internet_exposed_vulnerable", "exposure", 5, "wiz", f.id, f.first_seen,
+                        f"{f.cve} on internet-exposed asset")
+            from soc_platform.core.asset_types import needs_endpoint_agent
+
+            has_edr = {"crowdstrike", "defender_endpoint"} & set((ent.attributes or {}).get("by_tool", {}))
+            if not has_edr and factors and needs_endpoint_agent(self.s, ent):
+                add("no_edr_coverage", "coverage", 5, "platform", entity_id, None, "no EDR telemetry for this host",
+                    factor=strongest(AMPLIFIER_TRIGGERS["no_edr_coverage"]))
+        if ent.kind == "identity":
+            priv = [r for r, o in self.store.neighbors(entity_id) if o.kind == "secret_access"]
+            trig = AMPLIFIER_TRIGGERS["privileged_user_at_risk"]
+            if priv and any(f.signal in trig for f in factors):
+                add("privileged_user_at_risk", "privileged_access", 10, "platform", entity_id, None,
+                    "account with privileged credential access shows compromise indicators", factor=strongest(trig))
+
+        raw = sum(f.decayed for f in factors)
+        # a saturating curve: every signal adds, each adds less as the total grows, and the score never passes 100
+        score = round(100 * (1 - math.exp(-raw / POINTS_SCALE)))   # whole points: the same figure on every surface
+        band = next(b for t, b in BANDS if score >= t)
+        return RiskProfile(entity_id, ent.kind, ent.display_name, score, band, factors)
+
+    def candidates(self) -> set[str]:
+        """Entities with at least one risk source (a relation to an event, a case link or an open finding). Every
+        other entity scores 0 and can raise no finding, so ranking and correlation profile only these."""
+        from soc_platform.core.models import CaseEntity, Relation
+        from soc_platform.domains.vulnerability.models import ConsolidatedFinding
+
+        return (set(self.s.execute(select(Relation.src_id)).scalars()) | set(self.s.execute(select(Relation.dst_id)).scalars())
+                | set(self.s.execute(select(CaseEntity.entity_id)).scalars())
+                | set(self.s.execute(select(ConsolidatedFinding.asset_id).where(
+                    ConsolidatedFinding.status.in_(("open", "reopened")))).scalars()))
+
+    def top(self, kind: str | None = None, limit: int = 10) -> list[RiskProfile]:
+        """Highest-risk users / hosts (profiles only entities with a risk source).
+
+        Ranking means a profile per user and host: seconds on a large tenant (9 s at 22,000 entities), far too slow to
+        repeat on every visit to the brief or the Intelligence screen. Risk is a pure function of the stored data
+        (even "now" is the latest observation), so the ranking is reused while the data it reads is unchanged: the
+        cache key is a fingerprint of those tables plus a counter every local write to them bumps, so a reused
+        ranking is the one a fresh computation would give. Other processes' writes change the fingerprint; the age
+        limit (SOC_RISK_CACHE_SECONDS, default 300) is a backstop."""
+        key = (_data_fingerprint(self.s), _GENERATION[0], kind, self.as_of, self.window)
+        hit = _TOP_CACHE.get(key)
+        if hit is not None and time.monotonic() - hit[0] < _cache_seconds():
+            return hit[1][:limit]
+        candidates = self.candidates()
+        q = select(Entity.id).where(Entity.kind.in_([kind] if kind else ["asset", "identity"]))
+        out = [p for eid in self.s.execute(q).scalars() if eid in candidates and (p := self.profile(eid)) and p.score > 0]
+        ranked = sorted(out, key=lambda p: (-p.score, p.entity_id))
+        if len(_TOP_CACHE) > 32:
+            _TOP_CACHE.clear()
+        _TOP_CACHE[key] = (time.monotonic(), ranked)
+        return ranked[:limit]
+
+
+_TOP_CACHE: dict[tuple, tuple[float, list[RiskProfile]]] = {}
+_GENERATION = [0]          # bumped by every flush in this process that touches a table risk reads
+
+
+def _cache_seconds() -> float:
+    try:
+        return float(os.environ.get("SOC_RISK_CACHE_SECONDS", "300"))
+    except ValueError:
+        return 300.0
+
+
+def _data_fingerprint(s: Session) -> tuple:
+    """Cheap aggregates over everything a risk profile reads (indexed maxima and counts, a few milliseconds)."""
+    from soc_platform.core.models import Relation
+    from soc_platform.domains.vulnerability.models import ConsolidatedFinding, VulnIntel
+
+    return (tuple(s.execute(select(func.count(), func.max(Entity.updated_at), func.max(Entity.last_seen))
+                            .select_from(Entity)).one()),
+            tuple(s.execute(select(func.count(), func.max(Relation.last_seen)).select_from(Relation)).one()),
+            s.execute(select(func.count()).select_from(CaseEntity)).scalar(),
+            tuple(s.execute(select(func.count(), func.max(Case.updated_at)).select_from(Case)).one()),
+            tuple(sorted((str(a), str(b), str(c), n) for a, b, c, n in s.execute(
+                select(ConsolidatedFinding.status, ConsolidatedFinding.priority_band, ConsolidatedFinding.internet_exposed,
+                       func.count()).group_by(ConsolidatedFinding.status, ConsolidatedFinding.priority_band,
+                                              ConsolidatedFinding.internet_exposed)).all())),
+            tuple(s.execute(select(func.count(), func.max(VulnIntel.fetched_at)).select_from(VulnIntel)).one()))
+
+
+@event.listens_for(Session, "after_flush")
+def _bump_generation(session: Session, _ctx) -> None:
+    from soc_platform.core.models import Relation
+    from soc_platform.domains.vulnerability.models import ConsolidatedFinding, VulnIntel
+
+    watched = (Entity, Relation, CaseEntity, Case, ConsolidatedFinding, VulnIntel)
+    if any(isinstance(o, watched) for o in (*session.new, *session.dirty, *session.deleted)):
+        _GENERATION[0] += 1

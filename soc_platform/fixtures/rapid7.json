@@ -1,0 +1,851 @@
+{
+ "routes": [
+  {
+   "method": "GET",
+   "path": "^/api/3/assets$",
+   "body": {
+    "resources": [
+     {
+      "id": 101,
+      "hostName": "web01.acme-demo.com",
+      "ip": "10.10.0.5",
+      "os": "Ubuntu 22.04 LTS",
+      "riskScore": 25000.0,
+      "addresses": [
+       {
+        "ip": "10.10.0.5"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 3,
+       "critical": 2
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": [
+       {
+        "name": "Production"
+       }
+      ]
+     },
+     {
+      "id": 102,
+      "hostName": "db01.acme-demo.com",
+      "ip": "10.10.0.6",
+      "os": "Windows Server 2019",
+      "riskScore": 25000.0,
+      "addresses": [
+       {
+        "ip": "10.10.0.6"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 1,
+       "critical": 0
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": [
+       {
+        "name": "Production"
+       }
+      ]
+     },
+     {
+      "id": 103,
+      "hostName": "fs01.acme-demo.com",
+      "ip": "10.10.0.20",
+      "os": "Windows Server 2022",
+      "riskScore": 120.0,
+      "addresses": [
+       {
+        "ip": "10.10.0.20"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 0,
+       "critical": 0
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": [
+       {
+        "name": "Production"
+       }
+      ]
+     },
+     {
+      "id": 110,
+      "hostName": "jane-lt01.acme-demo.com",
+      "ip": "10.20.1.15",
+      "os": "Windows 11 Enterprise",
+      "riskScore": 25000.0,
+      "addresses": [
+       {
+        "ip": "10.20.1.15",
+        "mac": "00-1A-2B-3C-4D-5E"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 1,
+       "critical": 0
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": []
+     }
+    ],
+    "page": {
+     "number": 0,
+     "size": 500,
+     "totalPages": 1,
+     "totalResources": 4
+    }
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/assets/101/vulnerabilities$",
+   "body": {
+    "resources": [
+     {
+      "id": "r7-cve-2021-44228",
+      "status": "vulnerable",
+      "since": "2026-08-15T00:00:00Z"
+     },
+     {
+      "id": "r7-cve-2023-38408",
+      "status": "vulnerable",
+      "since": "2026-08-15T00:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/assets/101$",
+   "body": {
+    "id": 101,
+    "hostName": "web01.acme-demo.com",
+    "ip": "10.10.0.5",
+    "os": "Ubuntu 22.04 LTS",
+    "riskScore": 25000.0,
+    "addresses": [
+     {
+      "ip": "10.10.0.5"
+     }
+    ],
+    "vulnerabilities": {
+     "total": 3,
+     "critical": 2
+    },
+    "history": [
+     {
+      "date": "2026-09-20T03:00:00Z"
+     }
+    ],
+    "tags": [
+     {
+      "name": "Production"
+     }
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/assets/102/vulnerabilities$",
+   "body": {
+    "resources": [
+     {
+      "id": "r7-cve-2022-41082",
+      "status": "vulnerable",
+      "since": "2026-08-15T00:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/assets/102$",
+   "body": {
+    "id": 102,
+    "hostName": "db01.acme-demo.com",
+    "ip": "10.10.0.6",
+    "os": "Windows Server 2019",
+    "riskScore": 25000.0,
+    "addresses": [
+     {
+      "ip": "10.10.0.6"
+     }
+    ],
+    "vulnerabilities": {
+     "total": 1,
+     "critical": 0
+    },
+    "history": [
+     {
+      "date": "2026-09-20T03:00:00Z"
+     }
+    ],
+    "tags": [
+     {
+      "name": "Production"
+     }
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/assets/103/vulnerabilities$",
+   "body": {
+    "resources": []
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/assets/103$",
+   "body": {
+    "id": 103,
+    "hostName": "fs01.acme-demo.com",
+    "ip": "10.10.0.20",
+    "os": "Windows Server 2022",
+    "riskScore": 120.0,
+    "addresses": [
+     {
+      "ip": "10.10.0.20"
+     }
+    ],
+    "vulnerabilities": {
+     "total": 0,
+     "critical": 0
+    },
+    "history": [
+     {
+      "date": "2026-09-20T03:00:00Z"
+     }
+    ],
+    "tags": [
+     {
+      "name": "Production"
+     }
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/assets/110/vulnerabilities$",
+   "body": {
+    "resources": [
+     {
+      "id": "r7-cve-2024-21412",
+      "status": "vulnerable",
+      "since": "2026-08-15T00:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/assets/110$",
+   "body": {
+    "id": 110,
+    "hostName": "jane-lt01.acme-demo.com",
+    "ip": "10.20.1.15",
+    "os": "Windows 11 Enterprise",
+    "riskScore": 25000.0,
+    "addresses": [
+     {
+      "ip": "10.20.1.15",
+      "mac": "00-1A-2B-3C-4D-5E"
+     }
+    ],
+    "vulnerabilities": {
+     "total": 1,
+     "critical": 0
+    },
+    "history": [
+     {
+      "date": "2026-09-20T03:00:00Z"
+     }
+    ],
+    "tags": []
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerabilities/r7-cve-2021-44228$",
+   "body": {
+    "id": "r7-cve-2021-44228",
+    "title": "Apache Log4j2 JNDI remote code execution (Log4Shell)",
+    "cves": [
+     "CVE-2021-44228"
+    ],
+    "cvss": {
+     "v3": {
+      "score": 10.0
+     }
+    },
+    "severity": "Critical",
+    "exploits": 2,
+    "malwareKits": 1
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerabilities/r7-cve-2021-44228/solutions$",
+   "body": {
+    "resources": [
+     "r7-sol-cve-2021-44228"
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/solutions/r7-sol-cve-2021-44228$",
+   "body": {
+    "id": "r7-sol-cve-2021-44228",
+    "type": "rollup",
+    "summary": {
+     "text": "Upgrade Apache Log4j 2.14.1",
+     "html": "<p>Upgrade Apache Log4j 2.14.1</p>"
+    }
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerabilities/r7-cve-2024-21412$",
+   "body": {
+    "id": "r7-cve-2024-21412",
+    "title": "Internet Shortcut Files security feature bypass",
+    "cves": [
+     "CVE-2024-21412"
+    ],
+    "cvss": {
+     "v3": {
+      "score": 8.1
+     }
+    },
+    "severity": "Severe",
+    "exploits": 2,
+    "malwareKits": 0
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerabilities/r7-cve-2024-21412/solutions$",
+   "body": {
+    "resources": [
+     "r7-sol-cve-2024-21412"
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/solutions/r7-sol-cve-2024-21412$",
+   "body": {
+    "id": "r7-sol-cve-2024-21412",
+    "type": "rollup",
+    "summary": {
+     "text": "Upgrade Microsoft Windows 11",
+     "html": "<p>Upgrade Microsoft Windows 11</p>"
+    }
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerabilities/r7-cve-2023-44487$",
+   "body": {
+    "id": "r7-cve-2023-44487",
+    "title": "HTTP/2 Rapid Reset denial of service",
+    "cves": [
+     "CVE-2023-44487"
+    ],
+    "cvss": {
+     "v3": {
+      "score": 7.5
+     }
+    },
+    "severity": "Severe",
+    "exploits": 2,
+    "malwareKits": 0
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerabilities/r7-cve-2023-44487/solutions$",
+   "body": {
+    "resources": [
+     "r7-sol-cve-2023-44487"
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/solutions/r7-sol-cve-2023-44487$",
+   "body": {
+    "id": "r7-sol-cve-2023-44487",
+    "type": "rollup",
+    "summary": {
+     "text": "Upgrade nginx 1.18.0",
+     "html": "<p>Upgrade nginx 1.18.0</p>"
+    }
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerabilities/r7-cve-2023-38408$",
+   "body": {
+    "id": "r7-cve-2023-38408",
+    "title": "OpenSSH ssh-agent PKCS#11 remote code execution",
+    "cves": [
+     "CVE-2023-38408"
+    ],
+    "cvss": {
+     "v3": {
+      "score": 9.8
+     }
+    },
+    "severity": "Critical",
+    "exploits": 0,
+    "malwareKits": 0
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerabilities/r7-cve-2023-38408/solutions$",
+   "body": {
+    "resources": [
+     "r7-sol-cve-2023-38408"
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/solutions/r7-sol-cve-2023-38408$",
+   "body": {
+    "id": "r7-sol-cve-2023-38408",
+    "type": "rollup",
+    "summary": {
+     "text": "Upgrade OpenSSH 8.9p1",
+     "html": "<p>Upgrade OpenSSH 8.9p1</p>"
+    }
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerabilities/r7-cve-2022-41082$",
+   "body": {
+    "id": "r7-cve-2022-41082",
+    "title": "Microsoft Exchange Server RCE (ProxyNotShell)",
+    "cves": [
+     "CVE-2022-41082"
+    ],
+    "cvss": {
+     "v3": {
+      "score": 8.0
+     }
+    },
+    "severity": "Severe",
+    "exploits": 2,
+    "malwareKits": 0
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerabilities/r7-cve-2022-41082/solutions$",
+   "body": {
+    "resources": [
+     "r7-sol-cve-2022-41082"
+    ]
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/solutions/r7-sol-cve-2022-41082$",
+   "body": {
+    "id": "r7-sol-cve-2022-41082",
+    "type": "rollup",
+    "summary": {
+     "text": "Upgrade Microsoft Windows Server 2019",
+     "html": "<p>Upgrade Microsoft Windows Server 2019</p>"
+    }
+   },
+   "status": 200
+  },
+  {
+   "method": "GET",
+   "path": "^/api/3/vulnerability_exceptions$",
+   "body": {
+    "resources": [
+     {
+      "id": 9001,
+      "state": "Approved",
+      "expires": "2026-12-31T00:00:00Z",
+      "scope": {
+       "type": "Asset",
+       "id": 101,
+       "vulnerability": "r7-cve-2023-38408"
+      },
+      "submit": {
+       "reason": "Compensating Control",
+       "comment": "Agent forwarding disabled fleet-wide",
+       "date": "2026-08-20T10:00:00Z"
+      },
+      "review": {
+       "comment": "Approved until the next maintenance window",
+       "date": "2026-08-21T09:00:00Z"
+      }
+     },
+     {
+      "id": 9002,
+      "state": "Approved",
+      "expires": "2026-09-01T00:00:00Z",
+      "scope": {
+       "type": "Asset",
+       "id": 110,
+       "vulnerability": "r7-cve-2024-21412"
+      },
+      "submit": {
+       "reason": "Acceptable Risk",
+       "comment": "Deferred to the quarterly patch cycle",
+       "date": "2026-07-01T10:00:00Z"
+      },
+      "review": {
+       "comment": "Approved for 60 days",
+       "date": "2026-07-02T09:00:00Z"
+      }
+     }
+    ],
+    "page": {
+     "number": 0,
+     "size": 500,
+     "totalPages": 1,
+     "totalResources": 2
+    }
+   },
+   "status": 200
+  },
+  {
+   "method": "POST",
+   "path": "^/api/3/assets/search$",
+   "body": {
+    "resources": [
+     {
+      "id": 101,
+      "hostName": "web01.acme-demo.com",
+      "ip": "10.10.0.5",
+      "os": "Ubuntu 22.04 LTS",
+      "riskScore": 25000.0,
+      "addresses": [
+       {
+        "ip": "10.10.0.5"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 3,
+       "critical": 2
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": [
+       {
+        "name": "Production"
+       }
+      ]
+     }
+    ]
+   },
+   "status": 200,
+   "body_contains": [
+    "\"cve\"",
+    "CVE-2021-44228"
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "^/api/3/assets/search$",
+   "body": {
+    "resources": [
+     {
+      "id": 110,
+      "hostName": "jane-lt01.acme-demo.com",
+      "ip": "10.20.1.15",
+      "os": "Windows 11 Enterprise",
+      "riskScore": 25000.0,
+      "addresses": [
+       {
+        "ip": "10.20.1.15",
+        "mac": "00-1A-2B-3C-4D-5E"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 1,
+       "critical": 0
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": []
+     }
+    ]
+   },
+   "status": 200,
+   "body_contains": [
+    "\"cve\"",
+    "CVE-2024-21412"
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "^/api/3/assets/search$",
+   "body": {
+    "resources": []
+   },
+   "status": 200,
+   "body_contains": [
+    "\"cve\"",
+    "CVE-2023-44487"
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "^/api/3/assets/search$",
+   "body": {
+    "resources": [
+     {
+      "id": 101,
+      "hostName": "web01.acme-demo.com",
+      "ip": "10.10.0.5",
+      "os": "Ubuntu 22.04 LTS",
+      "riskScore": 25000.0,
+      "addresses": [
+       {
+        "ip": "10.10.0.5"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 3,
+       "critical": 2
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": [
+       {
+        "name": "Production"
+       }
+      ]
+     }
+    ]
+   },
+   "status": 200,
+   "body_contains": [
+    "\"cve\"",
+    "CVE-2023-38408"
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "^/api/3/assets/search$",
+   "body": {
+    "resources": [
+     {
+      "id": 102,
+      "hostName": "db01.acme-demo.com",
+      "ip": "10.10.0.6",
+      "os": "Windows Server 2019",
+      "riskScore": 25000.0,
+      "addresses": [
+       {
+        "ip": "10.10.0.6"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 1,
+       "critical": 0
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": [
+       {
+        "name": "Production"
+       }
+      ]
+     }
+    ]
+   },
+   "status": 200,
+   "body_contains": [
+    "\"cve\"",
+    "CVE-2022-41082"
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "^/api/3/assets/search$",
+   "body": {
+    "resources": []
+   },
+   "status": 200,
+   "body_contains": "\"cve\""
+  },
+  {
+   "method": "POST",
+   "path": "^/api/3/assets/search$",
+   "body": {
+    "resources": [
+     {
+      "id": 101,
+      "hostName": "web01.acme-demo.com",
+      "ip": "10.10.0.5",
+      "os": "Ubuntu 22.04 LTS",
+      "riskScore": 25000.0,
+      "addresses": [
+       {
+        "ip": "10.10.0.5"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 3,
+       "critical": 2
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": [
+       {
+        "name": "Production"
+       }
+      ]
+     }
+    ]
+   },
+   "status": 200,
+   "body_contains": "web01"
+  },
+  {
+   "method": "POST",
+   "path": "^/api/3/assets/search$",
+   "body": {
+    "resources": [
+     {
+      "id": 102,
+      "hostName": "db01.acme-demo.com",
+      "ip": "10.10.0.6",
+      "os": "Windows Server 2019",
+      "riskScore": 25000.0,
+      "addresses": [
+       {
+        "ip": "10.10.0.6"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 1,
+       "critical": 0
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": [
+       {
+        "name": "Production"
+       }
+      ]
+     }
+    ]
+   },
+   "status": 200,
+   "body_contains": "db01"
+  },
+  {
+   "method": "POST",
+   "path": "^/api/3/assets/search$",
+   "body": {
+    "resources": [
+     {
+      "id": 110,
+      "hostName": "jane-lt01.acme-demo.com",
+      "ip": "10.20.1.15",
+      "os": "Windows 11 Enterprise",
+      "riskScore": 25000.0,
+      "addresses": [
+       {
+        "ip": "10.20.1.15",
+        "mac": "00-1A-2B-3C-4D-5E"
+       }
+      ],
+      "vulnerabilities": {
+       "total": 1,
+       "critical": 0
+      },
+      "history": [
+       {
+        "date": "2026-09-20T03:00:00Z"
+       }
+      ],
+      "tags": []
+     }
+    ]
+   },
+   "status": 200,
+   "body_contains": "jane"
+  },
+  {
+   "method": "POST",
+   "path": "^/api/3/assets/search$",
+   "body": {
+    "resources": []
+   },
+   "status": 200
+  }
+ ]
+}

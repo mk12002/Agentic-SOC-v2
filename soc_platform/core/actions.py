@@ -1,0 +1,461 @@
+"""Uniform action layer (section 5.3, IM-T06, IM-T07, NFR-01, NFR-03).
+
+An ``ActionSpec`` wraps one native-tool operation (Graph purge, CrowdStrike
+containment, Umbrella block...) with pre-conditions, a reverse action and an
+execution record. ``ActionService`` is the only path to execution: it applies
+the autonomy policy, enforces approvals and separation of duties, provides
+idempotency for replays/concurrent processing, and audits every transition.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from abc import ABC, abstractmethod
+from typing import Any
+
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from soc_platform.core.audit import AuditLog
+from soc_platform.core.auth import Perm, Principal, same_person
+from soc_platform.core.models import ActionRequest, utcnow
+from soc_platform.core.policy import PolicyDecision, PolicyEngine
+
+APPROVABLE = ("recommended", "pending_approval")
+TERMINAL_RETRYABLE = ("rejected", "failed", "rolled_back", "blocked", "superseded")
+
+
+class ActionSpec(ABC):
+    action_type: str = ""
+    description: str = ""
+    tool: str = ""
+    destructive: bool = False
+    reverse_type: str | None = None
+
+    def preconditions(self, params: dict[str, Any], targets: list[dict[str, Any]]) -> list[str]:
+        """Return a list of failed pre-condition descriptions (empty means OK)."""
+        return []
+
+    @abstractmethod
+    def execute(self, params: dict[str, Any], targets: list[dict[str, Any]]) -> dict[str, Any]:
+        """Perform the action. Raise on failure. Return an execution record."""
+
+    def reverse(self, params: dict[str, Any], targets: list[dict[str, Any]],
+                result: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+        """Params/targets for the reverse action, or None if not reversible."""
+        return None
+
+    @property
+    def reversible(self) -> bool:
+        return self.reverse_type is not None
+
+
+class ActionRegistry:
+    def __init__(self) -> None:
+        self._specs: dict[str, ActionSpec] = {}
+
+    def register(self, spec: ActionSpec) -> ActionSpec:
+        if not spec.action_type:
+            raise ValueError("ActionSpec.action_type required")
+        self._specs[spec.action_type] = spec
+        return spec
+
+    def get(self, action_type: str) -> ActionSpec:
+        try:
+            return self._specs[action_type]
+        except KeyError as exc:
+            raise KeyError(f"unknown action type {action_type!r}: no enabled connector can perform it now (the tool "
+                           "may be disabled, paused, misconfigured or in a read-only rollout stage)") from exc
+
+    def catalog(self) -> list[dict[str, Any]]:
+        return [
+            {"action_type": s.action_type, "description": s.description, "tool": s.tool,
+             "destructive": s.destructive, "reversible": s.reversible, "reverse_type": s.reverse_type,
+             "max_level": getattr(s, "max_level", None)}
+            for s in sorted(self._specs.values(), key=lambda x: x.action_type)
+        ]
+
+
+def idempotency_key(action_type: str, params: dict[str, Any], targets: list[dict[str, Any]],
+                    case_id: str | None) -> str:
+    body = json.dumps([action_type, params, targets, case_id], sort_keys=True, default=str)
+    return f"{action_type}:{hashlib.sha256(body.encode()).hexdigest()[:40]}"
+
+
+def _first_approver(req: ActionRequest) -> str | None:
+    """Who gave the first of two four-eyes approvals, or None (a kill-switch hold leaves ``policy:L4`` there)."""
+    if req.status != "pending_approval" or not (req.result or {}).get("awaiting_second_approval"):
+        return None
+    return req.approver if req.approver and not req.approver.startswith("policy:") else None
+
+
+class ActionService:
+    def __init__(self, session: Session, registry: ActionRegistry, policy: PolicyEngine) -> None:
+        self.s = session
+        self.registry = registry
+        self.policy = policy
+        self.audit = AuditLog(session)
+
+    # ------------------------------------------------------------------ request
+
+    def request(
+        self,
+        action_type: str,
+        *,
+        params: dict[str, Any] | None = None,
+        targets: list[dict[str, Any]] | None = None,
+        requested_by: Principal,
+        case_id: str | None = None,
+        domain: str = "platform",
+        rationale: str = "",
+        evidence_ids: list[str] | None = None,
+        key: str | None = None,
+        ceiling: tuple[int, str] | None = None,
+        reverse_of: str | None = None,
+    ) -> ActionRequest:
+        spec = self.registry.get(action_type)
+        params = params or {}
+        targets = targets or []
+        if not requested_by.is_agent and not requested_by.can(Perm.REQUEST_ACTION):
+            raise PermissionError("request_action permission required")
+        key = key or idempotency_key(action_type, params, targets, case_id)
+
+        existing = self._by_key(key)
+        if existing is not None:
+            if existing.status not in TERMINAL_RETRYABLE:
+                return existing  # IM-T07: replay / concurrent duplicate -> same request
+            existing.idempotency_key = f"{existing.idempotency_key}#superseded:{existing.id}"
+            self.s.flush()
+
+        shared = self._open_for_same_targets(action_type, targets, case_id)
+        if shared is not None:
+            # Same containment already awaiting a decision from another case: link, don't duplicate the approval.
+            res = dict(shared.result or {})
+            res["linked_cases"] = sorted({*res.get("linked_cases", []), case_id})
+            shared.result = res
+            self.s.flush()
+            self.audit.append(actor_type=requested_by.actor_type, actor_id=requested_by.id, event_type="action.linked",
+                              subject_type="action", subject_id=shared.id,
+                              payload={"case_id": case_id, "rationale": rationale})
+            return shared
+
+        failures = spec.preconditions(params, targets)
+        stage = (spec.max_level, spec.max_level_reason) if getattr(spec, "max_level", None) is not None else None
+        # the stricter of the tool's rollout stage and the caller's own ceiling (e.g. a case whose tools disagree)
+        ceiling = min((c for c in (stage, ceiling) if c is not None), key=lambda c: int(c[0]), default=None)
+        decision = self.policy.decide(action_type, targets, destructive=spec.destructive,
+                                      precondition_failures=failures, ceiling=ceiling)
+        req = ActionRequest(
+            action_type=action_type, params=params, targets=targets, case_id=case_id, domain=domain,
+            rationale=rationale, evidence_ids=list(evidence_ids or []), requested_by=requested_by.id,
+            requested_by_type=requested_by.actor_type, idempotency_key=key,
+            status=decision.outcome if decision.outcome != "execute" else "approved",
+            autonomy_level=int(decision.effective_level), policy_reasons=decision.reasons,
+            precondition_failures=failures, reverse_of=reverse_of,
+        )
+        req.result = {"high_impact": decision.high_impact, "four_eyes": decision.four_eyes}
+        try:
+            with self.s.begin_nested():
+                self.s.add(req)
+                self.s.flush()
+        except IntegrityError:
+            dup = self._by_key(key)
+            if dup is not None:
+                return dup
+            raise
+        self.audit.append(actor_type=requested_by.actor_type, actor_id=requested_by.id,
+                          event_type="action.requested", subject_type="action", subject_id=req.id,
+                          payload={"action_type": action_type, "targets": targets, "case_id": case_id,
+                                   "outcome": decision.outcome, "level": int(decision.effective_level),
+                                   "reasons": decision.reasons, "rationale": rationale,
+                                   "evidence_ids": list(evidence_ids or [])})
+
+        if decision.outcome == "execute":
+            req.approver = "policy:L4"
+            return self._execute(req, spec, actor=requested_by)
+
+        # A human who requests an action they are allowed to approve is giving explicit approval,
+        # unless four-eyes applies (then a different person must approve). "Allowed" is judged in the action's
+        # domain: a phishing-scoped analyst could otherwise self-approve a platform-wide action.
+        if (not requested_by.is_agent and req.status in APPROVABLE and not decision.four_eyes
+                and self._may_approve(requested_by.acting_in(domain), decision.high_impact)):
+            return self.approve(req.id, requested_by, note="requested and approved by analyst", _self_ok=True)
+        return req
+
+    # ------------------------------------------------------------------ decisions
+
+    def approve(self, request_id: str, approver: Principal, note: str = "", *, _self_ok: bool = False) -> ActionRequest:
+        req = self._get(request_id)
+        if req.status not in APPROVABLE:
+            raise ValueError(f"action {request_id} is {req.status}, not awaiting approval")
+        high_impact = bool(req.result.get("high_impact"))
+        if approver.is_agent:
+            raise PermissionError("agents cannot approve actions")
+        approver = approver.acting_in(req.domain)   # only roles whose scope covers this action's domain count
+        if not self._may_approve(approver, high_impact):
+            raise PermissionError("approve_high_impact permission required" if high_impact
+                                  else "approve_action permission required")
+        if same_person(req.requested_by, approver.id) and not _self_ok:
+            raise PermissionError("separation of duties: requester cannot approve their own action")
+        # Four-eyes means two people. A person who requests the action is the first; when an agent recommended it,
+        # two different people must approve it - the first approval is recorded and the action keeps waiting.
+        first = _first_approver(req)
+        if bool((req.result or {}).get("four_eyes")) and req.requested_by_type == "agent":
+            if first is None:
+                return self._first_approval(req, approver, note)
+            if first.lower() == approver.id.lower():
+                raise PermissionError("four-eyes: a second, different person must approve this action")
+        spec = self.registry.get(req.action_type)
+        # Pre-conditions are re-checked at execution time; state may have changed since the request.
+        failures = spec.preconditions(req.params, req.targets)
+        if failures:
+            req.status = "blocked"
+            req.precondition_failures = failures
+            self.audit.append(actor_type="human", actor_id=approver.id, event_type="action.blocked",
+                              subject_type="action", subject_id=req.id, payload={"failures": failures})
+            return req
+        cond = [ActionRequest.id == req.id, ActionRequest.status.in_(APPROVABLE)]
+        if first is not None:
+            cond.append(ActionRequest.approver == first)       # the first approval this decision builds on still holds
+        claimed = self.s.execute(
+            update(ActionRequest).where(*cond)
+            .values(status="approved", approver=approver.id, decision_note=note, decided_at=utcnow())
+        ).rowcount
+        if claimed != 1:
+            raise ValueError("action was decided concurrently")
+        self.s.refresh(req)
+        if first is not None:
+            req.result = {**(req.result or {}), "first_approver": first, "awaiting_second_approval": False}
+        self.audit.append(actor_type="human", actor_id=approver.id, event_type="action.approved",
+                          subject_type="action", subject_id=req.id, payload={"note": note})
+        return self._execute(req, spec, actor=approver)
+
+    def _first_approval(self, req: ActionRequest, approver: Principal, note: str) -> ActionRequest:
+        """The first of two approvals of a four-eyes action: recorded (approver column, status pending_approval),
+        audited, nothing executed. Conditional, so two people approving at once cannot both be 'first'."""
+        held = req.approver if (req.approver or "").startswith("policy:") else None
+        claimed = self.s.execute(
+            update(ActionRequest).where(ActionRequest.id == req.id, ActionRequest.status.in_(APPROVABLE),
+                                        ActionRequest.approver.is_(None) if held is None else ActionRequest.approver == held)
+            .values(status="pending_approval", approver=approver.id, decision_note=note)
+        ).rowcount
+        if claimed != 1:
+            raise ValueError("action was decided concurrently")
+        self.s.refresh(req)
+        req.result = {**(req.result or {}), "awaiting_second_approval": True}
+        self.audit.append(actor_type="human", actor_id=approver.id, event_type="action.first_approval",
+                          subject_type="action", subject_id=req.id, payload={"note": note})
+        return req
+
+    def reject(self, request_id: str, approver: Principal, note: str = "") -> ActionRequest:
+        req = self._get(request_id)
+        if req.status not in APPROVABLE:
+            raise ValueError(f"action {request_id} is {req.status}, not awaiting approval")
+        if approver.is_agent or not approver.acting_in(req.domain).can(Perm.APPROVE_ACTION):
+            raise PermissionError("approve_action permission required")
+        req.status, req.approver, req.decision_note, req.decided_at = "rejected", approver.id, note, utcnow()
+        self.audit.append(actor_type="human", actor_id=approver.id, event_type="action.rejected",
+                          subject_type="action", subject_id=req.id, payload={"note": note})
+        return req
+
+    def rollback(self, request_id: str, by: Principal, note: str = "") -> ActionRequest:
+        """Request the reverse of an executed action. It is an action like any other: the policy, its four-eyes rule,
+        the tool's rollout stage and pre-conditions apply (releasing an isolated host is as consequential as
+        isolating it). The original is marked ``rolled_back`` when the reverse executes."""
+        req = self._get(request_id)
+        if req.status != "executed":
+            raise ValueError("only executed actions can be rolled back")
+        if by.is_agent or not by.acting_in(req.domain).can(Perm.ROLLBACK_ACTION):
+            raise PermissionError("rollback_action permission required")
+        spec = self.registry.get(req.action_type)
+        rev = spec.reverse(req.params, req.targets, req.result) if spec.reversible else None
+        if rev is None or spec.reverse_type is None:
+            raise ValueError(f"{req.action_type} has no reverse action on this platform")
+        params, targets = rev
+        self.audit.append(actor_type="human", actor_id=by.id, event_type="action.rollback_requested",
+                          subject_type="action", subject_id=req.id, payload={"reverse_type": spec.reverse_type, "note": note})
+        return self.request(spec.reverse_type, params=params, targets=targets, requested_by=by, case_id=req.case_id,
+                            domain=req.domain, rationale=f"rollback of {req.id}: {note}", key=f"rollback:{req.id}",
+                            reverse_of=req.id)
+
+    # ------------------------------------------------------------------ internals
+
+    def _may_approve(self, p: Principal, high_impact: bool) -> bool:
+        return p.can(Perm.APPROVE_HIGH_IMPACT) if high_impact else p.can(Perm.APPROVE_ACTION)
+
+    def _execute(self, req: ActionRequest, spec: ActionSpec, *, actor: Principal) -> ActionRequest:
+        """Change the outside world, durably. The tool call never runs inside an open transaction:
+
+        1. ``approved -> executing`` and its audit record are committed first, so an action that reaches the tool is
+           always on record, and no row or audit-chain lock is held while the tool answers (it may take 30 s);
+        2. the tool is called;
+        3. the outcome and its audit record are committed.
+
+        A crash or failover between 1 and 3 leaves ``executing``; ``reconcile_stuck`` turns that into ``unverified``
+        for a person to check in the tool - it is never run again blindly (a containment is not idempotent). Inside
+        a caller's savepoint (a job's per-item isolation) nothing can be committed, so the action stays ``approved``
+        and runs right after the caller commits (``execute_pending``; the ``actions`` job is the safety net)."""
+        if self.s.in_nested_transaction():
+            pending = self.s.info.setdefault("soc_pending_actions", [])
+            if req.id not in pending:
+                pending.append(req.id)
+            return req
+        claimed = self.s.execute(
+            update(ActionRequest).where(ActionRequest.id == req.id, ActionRequest.status == "approved")
+            .values(status="executing", started_at=utcnow())
+        ).rowcount
+        if claimed != 1:
+            self.s.refresh(req)
+            return req
+        self.audit.append(actor_type=actor.actor_type, actor_id=actor.id, event_type="action.executing",
+                          subject_type="action", subject_id=req.id,
+                          payload={"action_type": req.action_type, "tool": spec.tool, "targets": req.targets,
+                                   "approver": req.approver})
+        self.s.commit()
+        try:
+            result = spec.execute(req.params, req.targets) or {}
+            status = "executed"
+        except Exception as exc:  # noqa: BLE001 - recorded on the action as 'failed', never swallowed
+            result = {"error": f"{type(exc).__name__}: {exc}"}
+            status = "failed"
+        self.s.execute(
+            update(ActionRequest).where(ActionRequest.id == req.id, ActionRequest.status == "executing")
+            .values(status=status, result={**(req.result or {}), **result}, executed_at=utcnow())
+        )
+        self.s.refresh(req)
+        self.audit.append(actor_type=actor.actor_type, actor_id=actor.id, event_type=f"action.{status}",
+                          subject_type="action", subject_id=req.id,
+                          payload={"action_type": req.action_type, "tool": spec.tool, "result": result,
+                                   "approver": req.approver})
+        if status == "executed" and req.reverse_of:
+            self.s.execute(update(ActionRequest).where(ActionRequest.id == req.reverse_of,
+                                                       ActionRequest.status == "executed").values(status="rolled_back"))
+        self.s.commit()
+        return req
+
+    def execute_pending(self, ids: list[str] | None = None, *, kill_switch: bool | None = None,
+                        limit: int = 100) -> list[ActionRequest]:
+        """Run approved actions that are waiting for execution: those deferred inside a savepoint (this session's
+        list, or ``ids``) and - with ``ids=None`` - any other ``approved`` action (a process that stopped before
+        running one). Call only with no savepoint open. An autonomous (policy-approved) action is held for a person
+        if the kill switch was turned on in the meantime; one whose tool is now paused or switched off is blocked."""
+        from soc_platform.core.auth import agent_principal
+
+        wanted = list(dict.fromkeys((ids or []) + list(self.s.info.pop("soc_pending_actions", []))))
+        q = select(ActionRequest).where(ActionRequest.status == "approved").order_by(ActionRequest.created_at)
+        if ids is not None:
+            q = q.where(ActionRequest.id.in_(wanted or [""]))
+        rows = list(self.s.execute(q.limit(limit)).scalars())
+        out = []
+        for req in rows:
+            autonomous = (req.approver or "").startswith("policy:")
+            if autonomous and (kill_switch if kill_switch is not None else self.policy.kill_switch):
+                req.status = "pending_approval"
+                self.audit.append(actor_type="system", actor_id="kill_switch", event_type="action.held_kill_switch",
+                                  subject_type="action", subject_id=req.id, payload={"action_type": req.action_type})
+                self.s.commit()
+                out.append(req)
+                continue
+            try:
+                spec = self.registry.get(req.action_type)
+            except KeyError as exc:
+                req.status, req.precondition_failures = "blocked", [str(exc)[:300]]
+                self.audit.append(actor_type="system", actor_id="actions", event_type="action.blocked",
+                                  subject_type="action", subject_id=req.id, payload={"failures": req.precondition_failures})
+                self.s.commit()
+                out.append(req)
+                continue
+            actor = (agent_principal(req.requested_by.removeprefix("agent:")) if autonomous
+                     else Principal(id=req.approver or "unknown", name=req.approver or "unknown"))
+            out.append(self._execute(req, spec, actor=actor))
+        return out
+
+    def reconcile_stuck(self, older_than_seconds: float) -> list[ActionRequest]:
+        """Actions left ``executing`` (the process died or the database failed over during the tool call): the tool
+        may or may not have acted. Mark them ``unverified`` and raise a finding for a person to check in the tool."""
+        from datetime import timedelta
+
+        cutoff = utcnow() - timedelta(seconds=older_than_seconds)
+        rows = list(self.s.execute(select(ActionRequest).where(
+            ActionRequest.status == "executing", ActionRequest.started_at < cutoff)).scalars())
+        for req in rows:
+            claimed = self.s.execute(update(ActionRequest).where(
+                ActionRequest.id == req.id, ActionRequest.status == "executing").values(status="unverified")).rowcount
+            if claimed != 1:
+                continue
+            self.s.refresh(req)
+            self.audit.append(actor_type="system", actor_id="actions", event_type="action.outcome_unknown",
+                              subject_type="action", subject_id=req.id,
+                              payload={"action_type": req.action_type, "targets": req.targets,
+                                       "started_at": req.started_at.isoformat() if req.started_at else None})
+            _raise_unverified(self.s, req)
+        return rows
+
+    def _get(self, request_id: str) -> ActionRequest:
+        req = self.s.get(ActionRequest, request_id)
+        if req is None:
+            raise KeyError(f"unknown action request {request_id}")
+        return req
+
+    PER_CASE_ACTIONS = frozenset({"ticket.create", "ticket.update", "notify.email", "email.reporter_feedback"})
+
+    def _open_for_same_targets(self, action_type: str, targets: list[dict[str, Any]],
+                               case_id: str | None) -> ActionRequest | None:
+        if action_type in self.PER_CASE_ACTIONS or not case_id or not targets:
+            return None
+        if not all(_target_sig(t) for t in targets):
+            return None
+        for r in self.s.execute(select(ActionRequest).where(
+                ActionRequest.action_type == action_type, ActionRequest.case_id != case_id,
+                ActionRequest.status.in_(("recommended", "pending_approval")))).scalars():
+            theirs = r.targets or []
+            if len(theirs) == len(targets) and all(any(_same_target(m, t) for t in theirs) for m in targets):
+                return r
+        return None
+
+    def _by_key(self, key: str) -> ActionRequest | None:
+        return self.s.execute(select(ActionRequest).where(ActionRequest.idempotency_key == key)).scalars().first()
+
+
+__all__ = ["ActionRegistry", "ActionService", "ActionSpec", "PolicyDecision", "idempotency_key"]
+
+
+def _raise_unverified(s: Session, req: ActionRequest) -> None:
+    """A finding a person sees: the action may have run in the tool, the platform cannot tell."""
+    from soc_platform.intelligence.models import Insight  # same pattern as break-glass (access.py)
+
+    key = f"action_unverified:{req.id}"
+    if s.execute(select(Insight.id).where(Insight.dedupe_key == key)).first() is not None:
+        return
+    s.add(Insight(rule="action_outcome_unknown", dedupe_key=key, severity="high", score=80.0,
+                  title=f"Action outcome unknown: {req.action_type}", domains=[req.domain] if req.domain else [],
+                  entity_ids=[], evidence=[{"action_id": req.id, "targets": req.targets}],
+                  narrative=(f"{req.action_type} was sent to the tool but its result was never recorded (the process "
+                             "stopped or the database failed over during the call). The tool may or may not have acted."),
+                  next_steps=["Check the target's state in the tool's own console",
+                              "Record what happened as a note on the case", "Request the action again only if it did not run"],
+                  requirement_refs=["NFR-03"]))
+    s.flush()
+
+
+_STRONG_TARGET_KEYS = ("crowdstrike_aid", "mde_device_id", "entra_object_id", "upn", "network_message_id", "wiz_id")
+
+
+def _target_sig(t: dict[str, Any]) -> set[str]:
+    """Identifiers that make two target descriptions the same object even when their display ids differ
+    (``jane-lt01`` vs ``jane-lt01.acme-demo.com``, or the same device seen by two EDRs)."""
+    sig = {f"{k}:{str(t[k]).lower()}" for k in _STRONG_TARGET_KEYS if t.get(k)}
+    ident = str(t.get("id") or t.get("value") or "").strip().lower()
+    if ident:
+        sig.add(f"host:{ident.split('.')[0]}" if t.get("type") == "asset" and "/" not in ident and "@" not in ident
+                else f"id:{ident}")
+    return sig
+
+
+def _same_target(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    if any(a.get(k) and b.get(k) and str(a[k]).lower() != str(b[k]).lower() for k in _STRONG_TARGET_KEYS):
+        return False  # different vendor ids = different objects, whatever their names say
+    return bool(_target_sig(a) & _target_sig(b))
+

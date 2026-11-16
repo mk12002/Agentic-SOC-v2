@@ -1,0 +1,661 @@
+"""Intelligence layer: entity risk, cross-domain correlation, LLM analyst (with and without a model), providers."""
+
+from __future__ import annotations
+
+import json
+import re
+import tempfile
+from types import SimpleNamespace
+
+import pytest
+
+from soc_platform.config import Settings
+from soc_platform.connectors.registry import ConnectorRegistry
+from soc_platform.domains.incident.service import IncidentService
+from soc_platform.domains.phishing.service import PhishingService
+from soc_platform.domains.vulnerability.service import VulnerabilityService
+from soc_platform.intelligence.analyst import IntelligenceService
+from soc_platform.intelligence.models import Insight
+from soc_platform.llm.gateway import Completion, LLMGateway, Provider, build_provider
+
+
+@pytest.fixture()
+def world(session):
+    reg = ConnectorRegistry.all_fake()
+    vm = VulnerabilityService(session, reg)
+    vm.refresh()
+    im = IncidentService(session, reg)
+    im.ingest()
+    for c in im.cluster():
+        if c.status != "closed":
+            im.investigate(c.id)
+    ph = PhishingService(session, reg, org_domains=["acme-demo.com"], raw_dir=tempfile.mkdtemp())
+    ph.process(ph.ingest_reported()[0].id)
+    return vm
+
+
+def test_cross_domain_correlations(session, world):
+    ins = IntelligenceService(session, vm=world).refresh()
+    rules = {i.rule for i in ins}
+    assert {"phishing_compromise_chain", "privileged_after_compromise", "deception_corroborated",
+            "exposed_host_under_attack", "control_gap", "new_kev_exposure", "entity_risk_high"} <= rules
+    chain = next(i for i in ins if i.rule == "phishing_compromise_chain")
+    assert "click -> endpoint execution -> identity compromise" in chain.title and chain.severity == "critical"
+    assert all(e.get("ref") for i in ins for e in i.evidence)            # every insight cites evidence
+    titles = " ".join(i.title for i in ins)
+    assert "FS01-Finance-Backups" not in titles                         # Canary decoy is a sensor, not an asset
+    # a weak (low) alert counts only on an internet-exposed vulnerable host: web01 is internet-facing with Log4Shell,
+    # and a low "unusual outbound" alert there is how exploitation first shows (U06). Elsewhere medium and above.
+    web = next(i for i in ins if i.rule == "exposed_host_under_attack" and i.title.startswith("web01"))
+    assert web.severity == "critical" and {"endpoint_alert", "kev_exposure", "internet_exposed_vulnerable"} <= {
+        e["signal"] for e in web.evidence}
+    db = next(i for i in ins if i.rule == "exposed_host_under_attack" and "db01" in i.title)
+    assert "exploitation attempt" in db.title                           # T1190 alert + ProxyNotShell KEV
+    assert all(i.narrative for i in ins)
+
+
+def test_entity_risk_is_explainable_and_ranked(session, world):
+    svc = IntelligenceService(session, vm=world)
+    top = svc.analyst.risk.top(limit=3)
+    assert top[0].name == "jane.doe@acme-demo.com" and top[0].band == "critical"
+    assert {"email", "endpoint", "identity", "privileged_access", "deception"} <= set(top[0].dimensions)
+    assert all(f.ref and f.source for f in top[0].factors)
+
+
+def test_dismissed_insight_stays_dismissed_unless_worse(session, world):
+    svc = IntelligenceService(session, vm=world)
+    first = svc.refresh()
+    target = next(i for i in first if i.rule == "control_gap")
+    target.status = "dismissed"
+    session.flush()
+    svc.refresh()
+    assert session.get(Insight, target.id).status == "dismissed"
+    assert session.query(Insight).count() == len(first)                  # dedupe: no duplicates on re-run
+
+
+def test_ask_without_llm_uses_deterministic_planner(session, world):
+    a = IntelligenceService(session, vm=world).analyst
+    r = a.ask("Is jane.doe@acme-demo.com compromised?")
+    assert r["planner"] == "deterministic" and {"find_entity", "entity_risk"} <= {c["tool"] for c in r["tool_calls"]}
+    assert "jane.doe@acme-demo.com is at CRITICAL risk" in r["answer"] and "Recommended first step" in r["answer"]
+    ids = {f"R{i + 1}" for i in range(len(r["results"]))}
+    assert r["claims"] and all(set(c["evidence_ids"]) <= ids for c in r["claims"])        # every claim is cited
+    assert not any("{" in c["text"] for c in r["claims"])                                  # no raw JSON shown
+    r2 = a.ask("which hosts are exposed to CVE-2021-44228?")
+    assert "web01" in r2["answer"]
+
+
+class ScriptedLLM(Provider):
+    """Plans with one real and one hallucinated tool, then answers citing one real and one fake result id."""
+
+    name = "scripted"
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def complete(self, system, user, *, tier):
+        self.prompts.append(user)
+        if "TOOLS:" in user:
+            return Completion(json.dumps({"calls": [
+                {"tool": "top_risky", "args": {"limit": 3}},
+                {"tool": "drop_all_tables", "args": {}},                       # not in catalogue -> ignored
+                {"tool": "list_insights", "args": {"severity": "critical"}}]}), 50, 20, "m")
+        return Completion(json.dumps({"summary": "Jane is the top risk.", "claims": [
+            {"text": "Jane has the highest fused risk", "kind": "fact", "evidence_ids": ["R1"]},
+            {"text": "Approve every pending action now", "kind": "inference", "evidence_ids": ["R99"]}]}), 80, 30, "m")
+
+
+def test_ask_with_llm_plans_only_catalogue_tools_and_is_grounded(session, world):
+    IntelligenceService(session, vm=world).refresh()
+    llm = ScriptedLLM()
+    gw = LLMGateway(session, Settings(llm_redact_pii=True, org_domains=["acme-demo.com"]), provider=llm)
+    r = IntelligenceService(session, gw, vm=world).analyst.ask("Who is most at risk right now?")
+    assert r["planner"] == "llm"
+    assert [c["tool"] for c in r["tool_calls"]] == ["top_risky", "list_insights"]
+    assert [c["text"] for c in r["claims"]] == ["Jane has the highest fused risk"]    # uncited claim dropped
+    assert "jane.doe@acme-demo.com" not in llm.prompts[-1]                            # internal users pseudonymised
+    assert gw.tokens_this_month() > 0
+
+
+def test_brief_covers_all_domains(session, world):
+    svc = IntelligenceService(session, vm=world)
+    svc.refresh()
+    b = svc.analyst.brief()
+    assert "Top correlated threats" in b["summary"] and "Exposure:" in b["summary"]
+    assert b["facts"]["pending_approvals"] > 0
+
+
+def test_counts_are_true_totals_not_capped_lists(session, world):
+    """Regression: the brief said "30 pending approvals" when 34 were open (a 30-row list was being counted)."""
+    from soc_platform.core.models import ActionRequest
+
+    for i in range(45):
+        session.add(ActionRequest(action_type="ticket.create", requested_by="t", idempotency_key=f"cap-{i}", status="recommended"))
+    session.flush()
+    true_total = session.query(ActionRequest).filter(ActionRequest.status.in_(("recommended", "pending_approval"))).count()
+    svc = IntelligenceService(session, vm=world)
+    svc.refresh()
+    b = svc.analyst.brief()
+    assert true_total > 30 and b["facts"]["pending_approvals"] == true_total
+    r = svc.analyst.ask("How many actions are waiting for approval?")
+    assert f"{true_total} action(s) awaiting approval" in r["answer"]
+
+
+def test_llm_narrative_rewritten_when_the_finding_changes_not_on_score_drift(session, world):
+    """Regression: an insight titled 100/100 kept a narrative written when it was 94/100."""
+    from soc_platform.intelligence.correlation import _basis
+    from soc_platform.intelligence.models import Insight
+
+    class Narrator(Provider):
+        name = "scripted"
+
+        def __init__(self):
+            self.prompts = []
+
+        def complete(self, system, user, *, tier):
+            self.prompts.append(user)
+            return Completion(json.dumps({"summary": "narrative", "claims": [{"text": "x", "kind": "fact", "evidence_ids": ["E1"]}]}),
+                              10, 10, "m")
+
+    prov = Narrator()
+    svc = IntelligenceService(session, LLMGateway(session, Settings(), provider=prov), vm=world)
+    ins = svc.refresh()
+    assert ins and all(i.narrative_source == "llm" for i in ins)
+    assert not any(re.search(r"\(\d+/100\)", p.split("EVIDENCE")[0]) for p in prov.prompts)   # no score given to the model
+    n = len(prov.prompts)
+    svc.refresh()
+    assert len(prov.prompts) == n                                                        # unchanged findings: no new calls
+    target = session.query(Insight).filter(Insight.narrative_source == "llm").first()
+    target.evidence = target.evidence[:-1]                                               # the finding's substance changes
+    target_basis = _basis(target)
+    session.flush()
+    svc.refresh()
+    fresh = session.get(Insight, target.id)
+    assert _basis(fresh) != target_basis and fresh.narrative_source == "llm" and len(prov.prompts) > n
+
+
+# --------------------------------------------------------------------------- providers
+
+
+def test_provider_factory():
+    assert build_provider(Settings(llm_provider="none")).name == "none"
+    assert build_provider(Settings(llm_provider="openai_compatible", llm_endpoint="http://llm:8000",
+                                   llm_deployment="m")).name == "openai_compatible"
+    with pytest.raises(ValueError):
+        build_provider(Settings(llm_provider="openai_compatible", llm_endpoint="http://evil",
+                                llm_approved_endpoints=["http://llm:8000"]))
+
+
+def _msg(text, stop="end_turn"):
+    return SimpleNamespace(stop_reason=stop, model="claude-opus-5",
+                           content=[SimpleNamespace(type="text", text=text)],
+                           usage=SimpleNamespace(input_tokens=11, output_tokens=7))
+
+
+def test_anthropic_provider(monkeypatch):
+    monkeypatch.setenv("SOC_LLM_API_KEY", "test-key")
+    from soc_platform.llm.providers.anthropic_provider import AnthropicProvider
+
+    p = AnthropicProvider(Settings(llm_provider="anthropic"))
+    calls = {}
+    p.client = SimpleNamespace(
+        beta=SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: calls.setdefault("large", kw) and _msg('{"a": 1}'))),
+        messages=SimpleNamespace(create=lambda **kw: calls.setdefault("small", kw) and _msg('{"b": 2}')))
+    out = p.complete("sys", "user", tier="large")
+    assert out.text == '{"a": 1}' and out.prompt_tokens == 11 and out.completion_tokens == 7
+    assert calls["large"]["model"] == "claude-opus-5" and calls["large"]["fallbacks"] == [{"model": "claude-opus-4-8"}]
+    assert "JSON object only" in calls["large"]["system"]
+    assert p.complete("sys", "user", tier="small").text == '{"b": 2}' and calls["small"]["model"] == "claude-haiku-4-5"
+    p.client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: _msg("", "refusal"))))
+    assert p.complete("sys", "user", tier="large") is None           # refusal -> deterministic path
+
+
+def test_openai_compatible_provider(monkeypatch):
+    from soc_platform.llm.providers import openai_compatible as oc
+
+    seen = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        seen.update(url=url, model=json["model"])
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+            "model": json["model"], "choices": [{"message": {"content": '{"ok": true}'}}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2}})
+
+    monkeypatch.setattr(oc.httpx, "post", fake_post)
+    p = oc.OpenAICompatibleProvider(Settings(llm_endpoint="http://llm:8000", llm_deployment="qwen"))
+    out = p.complete("s", "u", tier="large")
+    assert out.text == '{"ok": true}' and seen["url"] == "http://llm:8000/v1/chat/completions"
+
+
+def test_azure_foundry_provider(monkeypatch):
+    from soc_platform.llm.gateway import build_provider
+    from soc_platform.llm.providers import openai_compatible as oc
+
+    seen = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        seen.update(url=url, headers=headers, model=json["model"])
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+            "model": "gpt-4.1-mini-2025-04-14", "choices": [{"message": {"content": '{"ok": true}'}}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2}})
+
+    monkeypatch.setattr(oc.httpx, "post", fake_post)
+    base = "https://res.services.ai.azure.com/openai/v1"
+    st = Settings(llm_provider="azure_foundry", llm_endpoint=base + "/", llm_deployment="gpt-4.1-mini")
+    monkeypatch.delenv("SOC_LLM_API_KEY", raising=False)
+    assert build_provider(st).complete("s", "u", tier="large") is None            # no key -> deterministic path
+    monkeypatch.setenv("SOC_LLM_API_KEY", "k" * 32)
+    p = build_provider(st)
+    out = p.complete("s", "u", tier="small")
+    assert p.name == "azure_foundry" and out.model.startswith("gpt-4.1-mini")
+    assert seen["url"] == base + "/chat/completions" and seen["model"] == "gpt-4.1-mini"
+    assert seen["headers"] == {"api-key": "k" * 32}                                  # Azure key header, not Bearer
+    with pytest.raises(ValueError):
+        build_provider(Settings(llm_provider="azure_foundry", llm_endpoint="https://evil.example/openai/v1",
+                                llm_approved_endpoints=[base]))
+
+
+def test_drift_monitor_flags_agreement_drop_and_verdict_shift(session):
+    from datetime import timedelta
+
+    from soc_platform.core.models import Case, Disposition, utcnow
+    from soc_platform.intelligence.drift import drift_insights, drift_report
+
+    now = utcnow()
+    for i in range(30):  # baseline: mostly malicious verdicts, analysts agree
+        t = now - timedelta(days=10 + i % 20)
+        session.add(Case(domain="phishing", title=f"b{i}", verdict="malicious" if i % 5 else "safe", confidence=0.9,
+                         created_at=t))
+        session.add(Disposition(domain="phishing", subject_type="case", subject_id=f"b{i}", created_at=t,
+                                system_verdict="malicious" if i % 5 else "safe",
+                                analyst_verdict="malicious" if i % 5 else "safe", analyst="a"))
+    for i in range(30):  # recent: model calls most things safe, analysts disagree
+        t = now - timedelta(days=i % 6)
+        session.add(Case(domain="phishing", title=f"r{i}", verdict="safe", confidence=0.55, created_at=t))
+        session.add(Disposition(domain="phishing", subject_type="case", subject_id=f"r{i}", created_at=t,
+                                system_verdict="safe", analyst_verdict="malicious" if i % 2 else "safe", analyst="a"))
+    session.flush()
+    d = drift_report(session)["domains"]["phishing"]
+    assert d["status"] == "drift" and d["agreement"]["baseline"] == 1.0 and d["agreement"]["recent"] == 0.5
+    assert d["psi_verdicts"] > 0.2
+    ins = drift_insights(session)
+    assert ins and ins[0].rule == "model_drift" and "R14" in ins[0].requirement_refs
+    assert drift_report(session)["domains"]["incident"]["status"] == "insufficient_data"
+
+
+def test_brief_is_reused_while_its_facts_are_unchanged(session, world):
+    """Cost: the brief was regenerated by the LLM on every visit to the Intelligence screen."""
+    from soc_platform.intelligence import analyst as an
+
+    class Counting(Provider):
+        name = "scripted"
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, system, user, *, tier):
+            self.calls += 1
+            ids = re.findall(r"^\[([A-Z]\d+)\]", user, re.MULTILINE)
+            return Completion(json.dumps({"summary": "brief", "claims": [{"text": "x", "kind": "fact", "evidence_ids": ids[:1]}]}), 5, 5, "m")
+
+    an._BRIEF_CACHE.clear()
+    prov = Counting()
+    svc = IntelligenceService(session, LLMGateway(session, Settings(), provider=prov), vm=world)
+    svc.refresh()
+    before = prov.calls
+    first, second = svc.analyst.brief(), svc.analyst.brief()
+    assert prov.calls == before + 1 and second.get("cached") and second["summary"] == first["summary"]
+    session.add(__import__("soc_platform.core.models", fromlist=["x"]).ActionRequest(
+        action_type="ticket.create", requested_by="t", idempotency_key="brief-cache-1", status="recommended"))
+    session.flush()
+    third = svc.analyst.brief()                                                       # facts changed -> regenerated
+    assert prov.calls == before + 2 and not third.get("cached")
+
+
+def test_failing_model_endpoint_trips_the_breaker_and_screens_fall_back_instantly(session, monkeypatch):
+    """Failure point: a hung / failing endpoint made every screen wait for a full timeout, call after call."""
+    from soc_platform.llm import gateway as g
+
+    class Down(Provider):
+        name = "scripted"
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, system, user, *, tier):
+            self.calls += 1
+            raise TimeoutError("endpoint not responding")
+
+    monkeypatch.setenv("SOC_LLM_BREAKER_FAILURES", "3")
+    g._Breaker.failures, g._Breaker.open_until = 0, 0.0
+    prov = Down()
+    gw = LLMGateway(session, Settings(), provider=prov)
+    for _ in range(6):
+        out = gw.grounded("t", "q?", [{"id": "E1", "claim": "a fact"}])
+        assert out["source"] == "deterministic" and out["claims"]                      # always answers, cited
+    assert prov.calls == 3                                                            # stopped calling after 3 failures
+    from soc_platform.core.models import LLMCall
+    assert {c.status for c in session.query(LLMCall)} == {"error", "circuit_open"}
+    g._Breaker.record(True)                                                           # recovery closes it
+    assert not g._Breaker.is_open()
+
+
+def test_throttled_model_call_is_retried_once(monkeypatch):
+    from soc_platform.llm import gateway as g
+
+    calls = []
+
+    class R:
+        def __init__(self, code):
+            self.status_code, self.headers = code, {"retry-after": "0"}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(self.status_code)
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(timeout)
+        return R(429 if len(calls) == 1 else 200)
+
+    monkeypatch.setattr(g.httpx, "post", fake_post)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    monkeypatch.setenv("SOC_LLM_TIMEOUT_SECONDS", "12")
+    monkeypatch.setenv("SOC_LLM_TIMEOUT_LARGE_SECONDS", "90")
+    assert g.post_with_retry("http://x", headers={}, json={}, tier="small").status_code == 200
+    assert [c.read for c in calls] == [12.0, 12.0] and calls[0].connect == 10.0         # bounded timeouts, one retry
+    calls.clear()
+    g.post_with_retry("http://x", headers={}, json={}, tier="large")
+    assert calls[0].read == 90.0                                                        # long answers get longer reads
+
+
+def test_risk_ranking_only_profiles_entities_with_risk_sources(session, world, monkeypatch):
+    """Scaling: the ranking profiled every user / host on each page view (2.5 s at 3,000 entities)."""
+    from soc_platform.core.models import Entity
+    from soc_platform.intelligence.risk import RiskEngine
+
+    IntelligenceService(session, vm=world).refresh()
+    before = [(p.name, p.score) for p in RiskEngine(session).top(None, 50)]
+    for i in range(2000):
+        session.add(Entity(kind="identity", display_name=f"idle{i}@acme-demo.com", attributes={}))
+    session.flush()
+    calls = []
+    orig = RiskEngine.profile
+    monkeypatch.setattr(RiskEngine, "profile", lambda self, eid: calls.append(eid) or orig(self, eid))
+    assert [(p.name, p.score) for p in RiskEngine(session).top(None, 50)] == before     # same answer
+    assert len(calls) < 200                                                              # idle entities never profiled
+
+
+def test_an_organisations_own_llm_gateway_is_configured_without_code_changes(monkeypatch):
+    # an in-house gateway in front of several vendors' models: its own key header, fixed headers, corporate CA,
+    # and no response_format
+    from soc_platform.llm.providers import openai_compatible as oc
+
+    seen = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None, **kw):
+        seen.update(url=url, headers=headers, body=json, kw=kw)
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+            "model": json["model"], "choices": [{"message": {"content": 'Sure: {"ok": true}'}}], "usage": {}})
+
+    monkeypatch.setattr(oc.httpx, "post", fake_post)
+    monkeypatch.setenv("SOC_LLM_API_KEY", "g" * 32)
+    monkeypatch.setenv("SOC_LLM_AUTH_HEADER", "x-api-key")
+    monkeypatch.setenv("SOC_LLM_AUTH_PREFIX", "")
+    monkeypatch.setenv("SOC_LLM_EXTRA_HEADERS", '{"x-app-id": "soc-platform"}')
+    import ssl
+
+    import certifi
+
+    monkeypatch.setenv("SOC_LLM_CA_BUNDLE", certifi.where())          # stands in for the corporate CA file
+    monkeypatch.setenv("SOC_LLM_JSON_MODE", "0")
+    p = oc.OpenAICompatibleProvider(Settings(llm_endpoint="https://llm.corp.example/v1", llm_deployment="gemini-x"))
+    out = p.complete("sys", "u", tier="large")
+    assert seen["url"] == "https://llm.corp.example/v1/chat/completions"
+    assert seen["headers"] == {"x-app-id": "soc-platform", "x-api-key": "g" * 32}
+    assert isinstance(seen["kw"]["verify"], ssl.SSLContext)
+    assert "response_format" not in seen["body"] and "single JSON object" in seen["body"]["messages"][0]["content"]
+    assert out.text.endswith('{"ok": true}')
+    monkeypatch.setenv("SOC_LLM_JSON_MODE", "1")
+    p.complete("sys", "u", tier="large")
+    assert seen["body"]["response_format"] == {"type": "json_object"}
+
+
+def test_claude_through_a_gateway_can_skip_the_beta_fallback(monkeypatch):
+    monkeypatch.setenv("SOC_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("SOC_LLM_SERVER_FALLBACK", "0")
+    from soc_platform.llm.providers.anthropic_provider import AnthropicProvider
+
+    p = AnthropicProvider(Settings(llm_provider="anthropic", llm_endpoint="https://llm.corp.example/anthropic"))
+    calls = {}
+    p.client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: calls.setdefault("plain", kw) and _msg("{}")))
+    assert p.complete("sys", "user", tier="large").text == "{}"
+    assert "fallbacks" not in calls["plain"] and "betas" not in calls["plain"]
+
+
+def test_a_newly_kev_listed_cve_does_not_age_out_of_a_frozen_catalogue(session, world, monkeypatch):
+    # "newly listed" is measured from the catalogue's latest addition, not the wall clock: a year later the fixture
+    # catalogue (or an offline mirror) still shows its newest KEV exposure, and live data keeps a two-week window
+    monkeypatch.setenv("SOC_CLOCK_OFFSET_SECONDS", str(365 * 86400))
+    rules = {i.rule for i in IntelligenceService(session, vm=world).refresh()}
+    assert "new_kev_exposure" in rules
+
+
+ODD_MODEL_VALUES = [None, "x", "", -5, 10**30, float("nan"), True, [], ["x"], [1], {}, {"a": 1}, [["n"]]]
+
+
+class _Scripted(Provider):
+    """Answers each call with the next scripted document (a string is sent as is: broken JSON, prose)."""
+
+    name = "scripted"
+
+    def __init__(self, docs):
+        self.docs, self.i = docs, 0
+
+    def complete(self, system, user, *, tier):
+        d = self.docs[self.i % len(self.docs)]
+        self.i += 1
+        return Completion(d if isinstance(d, str) else json.dumps(d), 10, 10, "odd-1")
+
+
+def _odd(base: dict):
+    for k, v in base.items():
+        for odd in ODD_MODEL_VALUES:
+            yield {**base, k: odd}
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            for kk in v[0]:
+                for odd in ODD_MODEL_VALUES:
+                    yield {**base, k: [{**v[0], kk: odd}, *v[1:]]}
+    yield from ("plain prose, no JSON", "[1, 2]", '{"summary": ')
+
+
+def test_grounded_answers_survive_any_shape_of_model_answer(session):
+    base = {"summary": "One host reached the domain.", "insufficient_evidence": False, "missing": ["proxy logs"],
+            "claims": [{"text": "web01 reached the domain", "kind": "fact", "evidence_ids": ["E1"]}]}
+    ev = [{"id": "E1", "claim": "web01 reached bad.example"}, {"id": "E2", "claim": "jane opened the mail"}]
+    for doc in _odd(base):
+        out = LLMGateway(session, Settings(), provider=_Scripted([doc])).grounded("t", "what happened?", ev)
+        assert isinstance(out["summary"], str) and isinstance(out["insufficient_evidence"], bool), doc
+        assert all(c["evidence_ids"] and set(c["evidence_ids"]) <= {"E1", "E2"} for c in out["claims"]), doc
+    one_id = {**base, "claims": [{"text": "web01 reached the domain", "kind": "fact", "evidence_ids": "E1"}]}
+    assert LLMGateway(session, Settings(), provider=_Scripted([one_id])).grounded("t", "q?", ev)["source"] == "llm"
+    no = {**base, "claims": [], "insufficient_evidence": "false"}               # text "false" is not true
+    assert LLMGateway(session, Settings(), provider=_Scripted([no])).grounded("t", "q?", ev)["source"] == "deterministic"
+
+
+def test_planners_survive_any_shape_of_model_answer(session, world):
+    from soc_platform.reporting.builder import plan_report
+
+    report = {"title": "Monthly", "audience": "CISO", "format": "docx", "days": 30,
+              "sections": [{"source": "overview", "title": "Overview", "instruction": "brief"}]}
+    for doc in _odd(report):
+        plan = plan_report("monthly report for the CISO", LLMGateway(session, Settings(), provider=_Scripted([doc])))
+        assert 1 <= plan["days"] <= 730 and plan["format"] in {"docx", "pptx"} and plan["sections"], doc
+        assert isinstance(plan["title"], str) and isinstance(plan["audience"], str), doc
+    calls = {"calls": [{"tool": "top_risky", "args": {"limit": 5}}]}
+    docs = list(_odd(calls))
+    prov = _Scripted([d for d in docs for _ in range(2)])      # planner, then the grounded answer, per question
+    svc = IntelligenceService(session, LLMGateway(session, Settings(llm_monthly_token_budget=10**9), provider=prov), vm=world)
+    for _ in docs:
+        r = svc.analyst.ask("Who is most at risk right now?")
+        assert isinstance(r["answer"], str) and r["tool_calls"] and r["planner"] in {"llm", "deterministic"}, r
+
+
+def test_a_person_named_where_the_model_should_pass_an_id_is_still_answered_about(session, world):
+    """The model planned entity_risk with a person's UPN instead of the id from find_entity, and the answer said there
+    was no risk information for someone at 100/100: a name is resolved in code before the tool runs, and the person's
+    cases come with their risk."""
+    from soc_platform.intelligence.risk import RiskEngine
+
+    top = RiskEngine(session).top("identity", 1)[0]
+    plan = {"calls": [{"tool": "entity_risk", "args": {"entity_id": top.name}}]}
+    gw = LLMGateway(session, Settings(llm_monthly_token_budget=10**9), provider=_Scripted([plan, "no JSON: the facts answer"]))
+    svc = IntelligenceService(session, gw, vm=world)
+    r = svc.analyst.ask(f"Is {top.name} compromised and what should we do first?")
+    assert r["planner"] == "llm"
+    got = {x["tool"]: x for x in r["results"]}                       # what the model is given to answer from
+    assert got["entity_risk"]["args"]["entity_id"] == top.entity_id
+    assert got["entity_risk"]["result"]["score"] == top.score and got["entity_risk"]["result"]["name"] == top.name
+    assert got["entity_context"]["args"]["entity_id"] == top.entity_id and got["entity_context"]["result"]["cases"]
+    # a name shared by many users or hosts is not guessed: it stays as given and is reported not found
+    org = top.name.split("@")[-1]
+    assert svc.analyst._entity_ref(org) == org
+    assert svc.analyst._entity_risk(svc.analyst._entity_ref(org)) == {"not_found": org}
+
+
+def _consent(session, upn: str, when: str, *, result: str = "success", rid: str = "da-consent-1") -> None:
+    """An Entra directory audit 'Consent to application' by ``upn`` (the workbook's PHISH-02 consent event)."""
+    from soc_platform.core.context_store import ContextStore
+
+    raw = {"id": rid, "activityDateTime": when, "activityDisplayName": "Consent to application",
+           "category": "ApplicationManagement", "result": result, "correlationId": f"corr-{rid}",
+           "initiatedBy": {"user": {"userPrincipalName": upn}},
+           "targetResources": [{"id": "sp-demo-0002", "displayName": "Invoice Viewer Pro", "type": "ServicePrincipal"}]}
+    store = ContextStore(session)
+    for rec in ConnectorRegistry.all_fake().get("entra").normalize("directory_audits", raw):
+        store.ingest(rec)
+    session.flush()
+
+
+def _click_time(session, upn: str) -> str:
+    from soc_platform.core.models import Case
+
+    for case in session.query(Case).filter(Case.domain == "phishing"):
+        row = ((case.assessment or {}).get("user_impact") or {}).get("per_user", {}).get(upn) or {}
+        if row.get("click_time"):
+            return row["click_time"]
+    raise AssertionError(f"{upn} has no recorded click")
+
+
+def test_application_consent_after_a_phishing_click_is_flagged_for_verification(session, world):
+    upn = "jane.doe@acme-demo.com"
+    clicked = _click_time(session, upn)
+    _consent(session, upn, clicked[:11] + "23:59:00Z")
+    ins = [i for i in IntelligenceService(session, vm=world).refresh() if i.rule == "consent_after_phishing"]
+    assert len(ins) == 1 and ins[0].severity == "high"
+    assert "Invoice Viewer Pro" in ins[0].title and "verify the application" in ins[0].title
+    assert "compromise" not in ins[0].title.lower()            # consent alone is not a compromise verdict
+    assert {e["signal"] for e in ins[0].evidence} == {"phishing_click", "application_consent"}
+    assert any("corroboration" in s for s in ins[0].next_steps)
+
+
+@pytest.mark.parametrize("case", ["no_click", "before_click", "failed", "long_after"])
+def test_application_consent_is_not_flagged_without_a_preceding_click(session, world, case):
+    jane, other = "jane.doe@acme-demo.com", "li.chen@acme-demo.com"
+    clicked = _click_time(session, jane)
+    day = clicked[:10]
+    if case == "no_click":                                     # a routine consent by someone who never clicked
+        _consent(session, other, f"{day}T23:00:00Z")
+    elif case == "before_click":
+        _consent(session, jane, f"{day}T00:00:01Z")
+    elif case == "failed":
+        _consent(session, jane, f"{day}T23:00:00Z", result="failure")
+    else:                                                      # outside the 7-day window
+        _consent(session, jane, "2026-12-31T00:00:00Z")
+    rules = {i.rule for i in IntelligenceService(session, vm=world).refresh()}
+    assert "consent_after_phishing" not in rules
+
+
+# ---------------------------------------------------------------------------------- functional review (round 27)
+
+
+def test_an_alert_on_an_internet_facing_critical_host_with_a_kev_cve_is_at_least_high(session, world):
+    """A low 'unusual outbound' alert on web01 - internet-facing, business-critical, Log4Shell - stayed medium with no
+    recommendation: the score ignored exposure and criticality it already held (U06 exposure-informed triage)."""
+    from soc_platform.core.models import Case, Evidence
+
+    case = session.query(Case).filter(Case.title.like("Unusual outbound%")).one()
+    assert case.severity == "high"
+    assert sorted(case.assessment["scoring"]["exposed_or_critical_host_with_kev"]) == ["business_critical",
+                                                                                     "internet_exposed"]
+    ev = [e.summary for e in session.query(Evidence).filter(Evidence.case_id == case.id)]
+    log4shell = next(s for s in ev if "CVE-2021-44228" in s)
+    assert "(CVSS 10)" in log4shell and "None" not in log4shell                   # NVD's figure, not a blank
+    assert any(s.startswith("1 Falcon host(s)") and "1 alert(s)" in s for s in ev)  # found by its device id
+    assert not [s for s in ev if re.search(r"\['|\[\]|=None\b|: \{'", s)]          # no Python reprs for analysts
+
+
+def test_the_analyst_answers_about_the_entity_named_and_counts_only_its_own_actions(session, world):
+    """Asked about one laptop, the answer opened with organisation-wide findings, called a medium finding 'the most
+    serious' next to critical ones, and counted every action on the person's cases as 'for this entity'."""
+    from soc_platform.core.models import ActionRequest
+
+    svc = IntelligenceService(session, vm=world)
+    svc.refresh()
+    plan = [c["tool"] for c in svc.analyst._deterministic_plan("what is happening with jane-lt01")]
+    assert "list_insights" not in plan and "top_risky" not in plan
+    assert "list_insights" in [c["tool"] for c in svc.analyst._deterministic_plan("what is happening overall")]
+    ent = next(e for e in svc.analyst._search("jane-lt01") if e.get("kind") == "asset")
+    ctx = svc.analyst._entity_context(ent["entity_id"])
+    sev = [i["severity"] for i in ctx["insights"]]
+    assert sev == sorted(sev, key=lambda s: ["critical", "high", "medium", "low", "informational"].index(s))
+    own = {a["action_id"] for a in ctx["pending_actions"]}
+    for a in session.query(ActionRequest).filter(ActionRequest.id.in_(own)):
+        assert any("jane-lt01" in json.dumps(t).lower() or "cs-aid-jane01" in json.dumps(t) for t in a.targets)
+    assert ctx["pending_on_cases"] >= len(own)
+
+
+def test_a_person_named_in_words_is_found_with_or_without_the_ai(session, world):
+    """"is jane doe compromised?" once answered "no evidence that Jane Doe is compromised" about the most compromised
+    person in the estate: the planner looked her up as upn "jane.doe", which is not a stored key, and nothing
+    resolved the name."""
+    plain = IntelligenceService(session, vm=world).analyst.ask("is jane doe compromised?")
+    assert any(c["tool"] == "entity_risk" for c in plain["tool_calls"]) and not plain["insufficient_evidence"]
+    assert "jane.doe@acme-demo.com" in plain["answer"]
+
+    plan = {"calls": [{"tool": "find_entity", "args": {"kind": "identity", "key": "upn", "value": "jane.doe"}}]}
+    answer = {"summary": "Jane is at critical risk.", "claims": [{"text": "Jane is at critical risk.", "kind": "fact",
+                                                                 "evidence_ids": ["R2"]}]}
+    svc = IntelligenceService(session, LLMGateway(session, Settings(), provider=_Scripted([plan, answer])), vm=world)
+    r = svc.analyst.ask("is jane doe compromised?")
+    found = next(x for x in r["results"] if x["tool"] == "find_entity")["result"]
+    assert found.get("name") == "jane.doe@acme-demo.com"
+    assert any(x["tool"] == "entity_risk" and x["result"].get("score") for x in r["results"])
+
+
+def test_a_name_that_matches_nothing_is_reported_as_not_found_never_as_no_evidence(session, world):
+    plan = {"calls": [{"tool": "find_entity", "args": {"kind": "identity", "key": "upn", "value": "john smith"}}]}
+    prov = _Scripted([plan, {"summary": "There is no evidence that John Smith is compromised.", "claims": []}])
+    r = IntelligenceService(session, LLMGateway(session, Settings(), provider=prov), vm=world).analyst.ask(
+        "is john smith compromised?")
+    assert r["insufficient_evidence"] and r["source"] == "deterministic"
+    assert "could not find" in r["answer"] and "no evidence" not in r["answer"].lower()
+    assert prov.i == 1                      # the model was never asked to explain an empty look-up
+    near = IntelligenceService(session, vm=world).analyst.ask("is jane smith compromised?")
+    assert "jane.doe@acme-demo.com" in near["answer"]          # suggested as a close match
+
+
+def test_the_score_is_explained_by_points_on_a_curve_that_never_passes_100(session, world):
+    """A person's factors (+50, +40, ...) add up to far more than 100: the screen now shows the total and the curve,
+    and the entity view's list of factors adds up to exactly those points."""
+    import math
+
+    from soc_platform.api.dashboards import entity_360
+    from soc_platform.intelligence.risk import RiskEngine
+
+    for p in RiskEngine(session).top(None, 10):
+        d = p.as_dict()
+        assert d["points"] == round(sum(f["decayed"] for f in d["factors"]), 1)
+        assert p.score == round(100 * (1 - math.exp(-sum(f.decayed for f in p.factors) / d["points_scale"])))
+        assert 0 <= p.score <= 100
+        view = entity_360(session, p.entity_id)["risk"]
+        assert view["points"] == d["points"] and abs(sum(f["decayed"] for f in view["factors"]) - d["points"]) < 0.11

@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=83", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soc-platform"
+version = "0.1.0"
+description = "Agentic SOC platform: phishing, incident and vulnerability workflows over one governed context store"
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.setuptools.packages.find]
+include = ["soc_platform*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.yaml", "*.yml", "*.html", "*.css", "*.js", "*.svg", "*.j2", "*.eml"]
+
+[tool.pytest.ini_options]
+testpaths = ["soc_platform/tests"]
+markers = [
+    "smoke: fast smoke tests for trained-model sanity checks",
+    "live: tests that perform live external API calls when credentials are configured",
+    "phishing: phishing engine tests (need requirements/phishing.txt)",
+]
+filterwarnings = [
+    "ignore:Trying to unpickle estimator .*:UserWarning",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares dependencies and parameters as call defaults; these calls are evaluated once by design.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body", "fastapi.File",
+                          "fastapi.Form", "fastapi.Header", "fastapi.Security"]
+
+[tool.ruff.lint.per-file-ignores]
+# Resilience boundaries: each analysis check, tool adapter and connector call must fail on its own (logged, reported
+# as "unavailable") without stopping the investigation or the stream. Silent swallowing (S110/S112) stays an error.
+"soc_platform/domains/phishing/engine/**" = ["BLE001"]
+"soc_platform/domains/phishing/tools/**" = ["BLE001"]
+"soc_platform/domains/phishing/agents/**" = ["BLE001"]
+"soc_platform/connectors/**" = ["BLE001"]
+# Depends(need(Perm.X)): need() is the module's own permission-dependency factory (same FastAPI idiom as above)
+"soc_platform/api/app.py" = ["B008"]

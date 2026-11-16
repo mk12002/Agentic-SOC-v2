@@ -1,0 +1,218 @@
+# Agentic SOC Platform
+
+AI-assisted investigation and automation layer for a Security Operations Centre, built against the
+*SOC – AI & Automation Consolidated Requirements*. One platform serves three workflows over a shared,
+governed context store, with a cross-domain intelligence layer on top.
+
+![Overview](docs/screenshots/01-overview.png)
+
+| Module | What it does | Requirements |
+|---|---|---|
+| **Phishing / reported email** | Ingests user-reported mail, decomposes it (incl. QR codes), analyses it with the 7-agent ML swarm and a deterministic analyser, reconciles with Defender/Avanan, scopes the campaign tenant-wide, finds who clicked and whether any endpoint or identity was compromised, monitors supplier email risk, recommends gated remediation, answers the reporter, auto-closes clear benign reports with QA sampling | PH-F01…F16, PH-T01…T09, U16, U18 |
+| **Incident management** | Ingests alerts from every tool, clusters them into incidents, enriches every entity in parallel across 8 dimensions, scores severity deterministically (exposure-informed), maps MITRE ATT&CK with evidence, recommends ranked guarded actions, recalls similar incidents, writes the shift handover | IM-F01…F16, IM-T01…T11, U04–U06, U13–U15 |
+| **Vulnerability management** | Pulls findings from Rapid7, CrowdStrike, Wiz and Defender, resolves the same host across tools, deduplicates, prioritises (CVSS + EPSS + KEV + exposure + criticality), routes to owners, tracks plans, syncs ITSM tickets both ways, validates remediation (catches false closures), manages exceptions, runs Wiz misconfigurations through the same lifecycle, generates reports | VM-F01…F18, VM-T01…T13, U01–U03, U12 |
+| **Intelligence layer** | Explainable per-user/host risk across all streams, 13 correlation rules, analyst assistant with cited answers, situation brief, ATT&CK coverage, shadow IT, drift monitoring | U02, U04, U06–U12, U16, U18, R14 |
+| **Attack story** | The whole attack across every tool on one page: ATT&CK kill chain (observed / blocked / checked / blind), cited timeline, benign explanations tested, gaps, blast radius, phased response plan with one-step governed approval; optional evidence-bound LLM deep analysis | U08, U13, U14 |
+| **Report builder** | Seven preconfigured standard reports (board deck, CISO brief, VM, phishing, post-incident, control assurance, SOC daily) and any other report described in words; figures computed in code, LLM narrative must cite them; scoped, audited, encrypted at rest | U01, U15, VM-F13 |
+
+**Operating principle (NFR-01):** AI gathers and correlates; the analyst decides. Every action is policy-gated
+(autonomy levels L0–L4, default *recommend*), nothing destructive runs autonomously, every conclusion cites its
+evidence, every figure is computed in code, and every step lands in an append-only hash-chained audit log.
+
+Nothing is tied to the sample data: the generalisation test renames the whole estate into another organisation
+and requires identical results with no original name in any output ([details](docs/FEATURES.md#8-works-on-any-organisation-not-just-the-sample-data)).
+
+**Full feature tour with screenshots: [docs/FEATURES.md](docs/FEATURES.md)** ·
+**Proof that each feature works: [docs/FEATURE_VERIFICATION.md](docs/FEATURE_VERIFICATION.md)**
+
+![Attack story](docs/screenshots/24-attack-story.png)
+
+---
+
+## Quick start (local, no credentials needed)
+
+Every connector has a **fake mode** that replays vendor-shaped fixture data through the same code as the live API,
+so the whole platform runs end to end on a laptop.
+
+You need Python 3.11-3.13 and [Git LFS](https://git-lfs.com) (the phishing models are stored with it - install it
+**before** cloning, or run `git lfs pull` afterwards).
+
+```bash
+git clone https://github.com/mk12002/agentic_soc.git && cd agentic_soc
+python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements/platform.txt -r requirements/dev.txt -r requirements/phishing.txt
+pip install -e .
+cp .env.example .env                           # then set SOC_DEV_JWT_SECRET to a long random string
+```
+
+The platform reads its settings **only from the environment** - it never opens `.env` by itself. Load it into the
+shell you start the platform from, then build the demo and start the server **in that same shell**:
+
+```bash
+set -a; . ./.env; set +a                       # bash / zsh  (PowerShell: . .\scripts\load_env.ps1)
+python -m soc_platform reset-demo --yes        # empty database + all three workflows on the sample estate
+python -m soc_platform serve                   # API + console on http://127.0.0.1:8080
+```
+
+From Windows Command Prompt, `scripts\serve_with_env.cmd reset` does all three steps. The first lines `serve`
+prints must say `sign-in: development sign-in on`; if they say `OFF`, `.env` was not loaded in that shell.
+
+Open the console, choose a role and **Continue** (development sign-in; production uses Entra ID SSO). Then run the
+pipelines from *Cases* and *Vulnerabilities*, or follow the scripted walkthrough in
+[docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md). The console opens in light mode; the moon icon switches to dark.
+
+The phishing ML swarm (content text classifier, URL/header/attachment/TI/behaviour models; sandbox with a detonation
+host) runs automatically when `requirements/phishing.txt` is installed and the models are present
+(`SOC_PHISHING_ENGINE=auto`; `0` = rule-based analyser only). Without it everything works on the rule-based analyser.
+
+### Docker
+
+```bash
+cp .env.example .env    # set POSTGRES_PASSWORD, SOC_DATA_KEY, and Entra settings (or SOC_DEV_JWT_SECRET for dev)
+docker compose -f deploy/docker-compose.yml --env-file .env up -d --build            # production: api + scheduler + postgres (TLS, split roles)
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.demo.yml --env-file .env up -d --build   # demo (dev sign-in, fixtures)
+docker compose -f deploy/docker-compose.yml --env-file .env --profile engine up -d   # + phishing ML microservices
+```
+
+One host is a single point of failure by design (right for a demo or a pilot). For production with no single point
+of failure - two or more API and scheduler replicas across nodes and zones, highly available PostgreSQL holding every
+piece of state - use the Kubernetes package (`kubectl apply -k deploy/kubernetes/overlays/azure` or `.../onprem`); see
+[docs/HIGH_AVAILABILITY.md](docs/HIGH_AVAILABILITY.md).
+
+Requirements: Python 3.11 to 3.13 (tested on both; the container image uses 3.11), SQLite (dev) or PostgreSQL 14+ (prod). The console is plain HTML/JS/CSS served by the
+API - no Node build step, no external CDNs - and works in current Chrome, Edge, Firefox and Safari.
+
+## Console
+
+| Area | Screens |
+|---|---|
+| Operate | Overview · Intelligence (brief, cited Q&A, correlated findings, risk) · Cases (owner, Mine / Unassigned, notes, attack story, entity 360) · Approvals · global search in the top bar |
+| Domains | Phishing (+ supplier risk) · Vulnerabilities · Cloud posture |
+| Insight | ATT&CK coverage · Shadow IT · Supplier risk |
+| Govern | Integrations (connector health, stages, preflight, configuration with approval, freshness, notifications, jobs) · Automation policy (levels, kill switch, proposals) · Watch lists (block / exception lists uploaded as Excel or CSV, flagged on every case that involves a listed item) · Tuning (a lead asks in words to cut noise, raise attention, label an exercise, set phishing auto-close, adjust vulnerability priority weights and SLAs, or mark an action analysts keep rejecting; a checked draft rule, previewed on past data, approved by a second lead; suggestions from analysts' decisions) · AI usage (budgets, per-person limits, model choice per feature by name, model check, recent model calls) · Reports (standard reports, "describe a report", exports, compliance pack, the organisation's report style: templates, logo, brand, writing guide) · Access · Audit log (retention and protection stated, exports in JSON Lines / JSON / CSV / Excel / Word, with a trace of everything each request or job did) |
+
+## Connecting real tools (plug and play)
+
+Connectors live in `soc_platform/connectors/tools/`; each declares its streams, lookups, actions and settings in a
+manifest. To go live with a tool, put its credentials in the vault (`<NAME>_FILE`) or environment, then on the
+**Integrations** screen *Configure* it (settings and rollout stage: Recording, Read-only, Recommend, Automate) and
+propose: a preflight checks sign-in, every permission, parsing, freshness and volume, another person approves, and it
+is in force within seconds - no file edit, no restart. One misconfigured tool is isolated; the rest keep working.
+Per-tool setup and permissions: [docs/CONNECTORS.md](docs/CONNECTORS.md); deploying into a client environment
+(real tools, Entra sign-in, the client's own LLM): [docs/CLIENT_DEPLOYMENT_GUIDE.md](docs/CLIENT_DEPLOYMENT_GUIDE.md).
+
+| Category | Connectors |
+|---|---|
+| EDR | CrowdStrike Falcon, Microsoft Defender for Endpoint |
+| Email | Defender for Office 365 (+ reporting mailbox, Exchange admin API), Avanan |
+| Identity | Microsoft Entra ID / Identity Protection, Microsoft Defender for Identity |
+| DNS / web | Cisco Umbrella |
+| Deception | Thinkst Canary |
+| Privileged access | Delinea Secret Server, Delinea Privilege Manager |
+| Exposure / cloud | Rapid7 InsightVM/Nexpose, Wiz, CrowdStrike Spotlight, Defender TVM |
+| Vulnerability intel | NIST NVD, FIRST EPSS, CISA KEV |
+| Threat intel | VirusTotal, AbuseIPDB, OTX, URLhaus, ThreatFox, MalwareBazaar, GreyNoise, Shodan (fused) |
+| ITSM / CMDB | ServiceNow (tickets + CMDB), Jira, CSV / cloud-subscription ownership mapping, and an ownership mapping uploaded in the console (Excel / CSV) for cloud resources the CMDB does not hold |
+| SIEM | Microsoft Sentinel, generic webhook (`POST /api/v1/ingest/alerts`) |
+
+**Adding a tool:** `python -m soc_platform connector new <name> --category <cat> --tool "Vendor Product"` writes a
+connector that already follows the platform's rules, its fixtures, its paging test and a switched-off config entry;
+adapt it to the vendor's API, then `python -m soc_platform connector check <name>`. Third-party packages can register
+connectors through the `soc_platform.connectors` entry-point group. `python -m soc_platform config check` validates the
+configuration (every problem with its fix).
+
+LLM providers (`SOC_LLM_PROVIDER`): `azure_foundry` (Azure AI Foundry / Azure OpenAI v1 API - verified live with
+gpt-4.1-mini), `azure_openai` (deployments API), `anthropic` (Claude via the official SDK), or `openai_compatible`
+(OpenAI or a self-hosted vLLM / Ollama endpoint). All go through the same governance: approved-endpoint allow-list
+(fail closed), pseudonymisation, prompt/response log, model pinning, token budget, citation grounding, and numeric
+fidelity (a statement stating a figure absent from its evidence is removed). Live tests: `SOC_LIVE_LLM=1 pytest
+soc_platform/tests/test_live_llm.py`.
+Without an LLM every feature still works, with deterministic, cited answers.
+
+## Security
+
+| Control | Summary |
+|---|---|
+| Identity | Entra ID SSO (RS256/JWKS); step-up MFA for approvals, policy, kill switch and access management; service-account API keys (hashed, expiring, can never approve); sealed break-glass access (audited + alerted); token and session revocation |
+| Authorisation | RBAC (analyst, lead, admin, automation admin, auditor) + domain scoping + separation of duties (no self-approval of four-eyes actions, policies, exceptions or grants) |
+| Automation safety | Autonomy L0–L4, destructive never autonomous, VIP / blast-radius / four-eyes gates, durable kill switch, idempotent actions with rollback |
+| Data | Raw payloads, emails and generated reports encrypted at rest (Fernet, rotation); retention with legal hold; PII pseudonymised before any LLM call |
+| LLM | Approved-endpoint allow-list (fail closed), pinned model, token budget, prompts logged; every statement must cite evidence or is removed; report figures and story steps never come from the model |
+| Audit | Append-only hash-chained audit log with verification and export; append-only access log; compliance evidence pack |
+| Web | Strict CSP, security headers, HSTS, per-client rate limiting, stream-level body cap, input validation |
+| Sandbox | Fail-closed hardened detonation, no Docker socket in the base deployment, CAPEv2 for Windows payloads |
+| Code | bandit 0 high / 0 medium, pip-audit clean, no secrets in git |
+
+Details, threat model and operator responsibilities: [docs/SECURITY.md](docs/SECURITY.md).
+
+## Tests
+
+```bash
+pytest soc_platform/tests                            # platform: core, connectors, 3 domains, API, security, scale, demo walkthrough, consistency
+pytest soc_platform/domains/phishing/tests/unit      # phishing ML engine (needs requirements/phishing.txt)
+python scripts/eval_phishing.py                      # labelled corpus accuracy
+python scripts/eval_resolution_at_scale.py 400 7     # asset resolution stress test
+python scripts/eval_identity_resolution.py 300 5     # identity resolution stress test
+python scripts/verify_features.py --browser          # every feature -> its tests, evaluations, browser tour -> docs/FEATURE_VERIFICATION.md
+python scripts/rename_estate.py out/                 # the sample estate as another organisation (generalisation / client demo)
+python scripts/build_estate_variant.py out/ --seed 23 --scale 2   # a different organisation with different volumes
+python scripts/measure_llm_usage.py                  # tokens per component with your configured model
+```
+
+Results: [docs/TEST_REPORT.md](docs/TEST_REPORT.md).
+
+## Documentation
+
+| Document | For |
+|---|---|
+| [docs/RUN_GUIDE.md](docs/RUN_GUIDE.md) | Run the complete system: setup, configuration, loading the sample data, ingesting live during a demo, resetting, Docker, troubleshooting |
+| [docs/ENGINEERING.md](docs/ENGINEERING.md) | Every engineering choice: architecture, stack, connector SDK, entity resolution, data model, domains, intelligence, action layer, LLM gateway, security, reliability, performance, testing, deployment, decision log |
+| [docs/PRESENTER_GUIDE.md](docs/PRESENTER_GUIDE.md) | Everything needed to present, demo and defend the platform: walkthroughs, formulas, guardrails, hard questions, limits |
+| [docs/LIVE_DEMO_20MIN.md](docs/LIVE_DEMO_20MIN.md) | A timed 20-23 minute live demo: the order, what to click and say per segment, what to cut when running long, the ten likely questions |
+| [docs/LIVE_DEMO_NOTES.md](docs/LIVE_DEMO_NOTES.md) | Presenter's notes for a live demo: every page and section, what it computes, the demo's values, likely questions |
+| [docs/FEATURES.md](docs/FEATURES.md) | Complete feature list with screenshots |
+| [docs/LLM_TOKENS_AND_COST.md](docs/LLM_TOKENS_AND_COST.md) | Measured tokens per component, unit costs, monthly cost by SOC size, budget sizing |
+| [docs/FAILURE_MODES.md](docs/FAILURE_MODES.md) | What can fail in production, how it is detected, how the platform behaves |
+| [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | 25-minute client walkthrough, what a demo proves |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, data flow, design decisions |
+| [docs/CONNECTORS.md](docs/CONNECTORS.md) | Per-tool setup, scopes, configuration (generated from the code) |
+| [docs/client_review/](docs/client_review/README.md) | Review pack for the client's security and architecture teams: solution architecture, tool integrations, data flow and protection, AI / LLM security, risk and governance, deployment and validation (Word edition: `python scripts/build_review_pack.py`) |
+| [docs/DATA_HANDOFF_RECONCILIATION.md](docs/DATA_HANDOFF_RECONCILIATION.md) | The platform against the client's data handoff workbook: connector scope, every payload type and field, correlation rules, acceptance scenarios, generation rules, open items |
+| [docs/INFRASTRUCTURE_AND_COSTS.md](docs/INFRASTRUCTURE_AND_COSTS.md) | Infrastructure for stakeholders: where every tool lives, how data is ingested, normalised, stored and retained, measured storage and capacity, the 13 correlation rules, on-premises versus cloud, Azure and LLM costs with sources |
+| [docs/HIGH_AVAILABILITY.md](docs/HIGH_AVAILABILITY.md) | No single point of failure: every component's redundancy and failure behaviour, Azure and on-prem reference deployments, the Kubernetes package, connection budget, backups, recovery targets and the failover drill |
+| [docs/ARCHITECTURE_COMPONENTS.md](docs/ARCHITECTURE_COMPONENTS.md) | Component architecture: every client service, container, module, table group and connector endpoint in one diagram, and every flow step by step |
+| [docs/ARCHITECTURE_WALKTHROUGH.md](docs/ARCHITECTURE_WALKTHROUGH.md) | What to say for each part of the platform and dev-VM technical diagrams, the six flows, and likely review questions |
+| [docs/DEV_VM_SETUP.md](docs/DEV_VM_SETUP.md) | The internal development / demo VM: size, outbound allow-list, secrets, CI gates, decommissioning |
+| [docs/CLIENT_DEPLOYMENT_GUIDE.md](docs/CLIENT_DEPLOYMENT_GUIDE.md) | Moving from the demo into the client's environment: hosting, Entra sign-in, connecting every tool, the client's in-house LLM, action rollout, go-live checklist |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Running, jobs, monitoring, access, break-glass, keys, retention, backups |
+| [docs/SECURITY.md](docs/SECURITY.md) | Threat model, controls, fixes, operator responsibilities |
+| [docs/REQUIREMENTS_TRACEABILITY.md](docs/REQUIREMENTS_TRACEABILITY.md) | Every requirement ID → code, test, status |
+| [docs/TEST_REPORT.md](docs/TEST_REPORT.md) | Test and evaluation results |
+| [docs/FEATURE_VERIFICATION.md](docs/FEATURE_VERIFICATION.md) | Each feature mapped to the tests that prove it, with results |
+| [Gap_Analysis_and_Build_Plan.md](Gap_Analysis_and_Build_Plan.md) | Original gap analysis and build tracker |
+
+## Repository layout
+
+```
+soc_platform/
+  core/          schema, context store, entity + identity resolution, policy, actions, audit, auth, access,
+                 crypto, retention, cases, enrichment
+  connectors/    SDK (rate limits, backoff, checkpoints, reconciliation), registry, tools/ (21 connectors)
+  llm/           governed LLM gateway (redaction, budget, prompt log, grounding)
+  domains/       phishing/ (workflow, supplier risk, engine/ = 7-agent ML system) · incident/ · vulnerability/ (+ misconfig)
+  intelligence/  risk, correlation, analyst, drift, ATT&CK coverage, shadow IT
+  reporting/     docx / pptx reports, compliance evidence pack
+  api/           FastAPI service, dashboards, console (static/)
+  jobs.py        durable scheduled jobs
+  fixtures/      vendor-shaped fixture data for every connector
+  tests/         platform test suite
+artifacts/phishing/   trained models (Git LFS), corpus emails     config/   deploy/   scripts/   docs/
+```
+
+## Third-party data
+
+The phishing content model (`artifacts/phishing/models/content_agent/`) was trained with
+`scripts/train_content_model.py` on public data: the phishing corpus by Jose Nazario
+(https://monkey.org/~jose/phishing/, CC BY 4.0), the SpamAssassin public corpus
+(https://spamassassin.apache.org/old/publiccorpus/, non-live testing terms) and the "Safe Email" rows of
+zefang-liu/phishing-email-dataset (LGPL-3.0). The data itself is not in this repository.
