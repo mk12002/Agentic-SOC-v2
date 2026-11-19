@@ -11,6 +11,8 @@ Every action type has an explicit autonomy level recorded in a versioned policy:
 Hard gates cap the effective level regardless of configuration:
   * kill switch            -> nothing runs autonomously
   * destructive actions    -> never L4
+  * four-eyes actions      -> never L4 (two people decide: nothing runs on its own)
+  * containment            -> always four-eyes and never L4, whatever the document says (CONTAINMENT)
   * VIP / critical targets -> never L4, high-impact approval required
   * blast radius           -> above ``max_targets`` needs high-impact approval;
                               above ``hard_limit`` the request is blocked
@@ -31,6 +33,7 @@ from sqlalchemy.orm import Session
 
 from soc_platform.core.audit import AuditLog
 from soc_platform.core.auth import Perm, Principal, same_person
+from soc_platform.core.db import claim
 from soc_platform.core.models import PolicyVersion, utcnow
 
 
@@ -51,6 +54,11 @@ def _yes(v: Any) -> bool:
 
 
 # Go-live posture recommended in section 5.2: L1-L2 everywhere; promote per action on evidence.
+# Containment is decided by people, four-eyes, always (CLAUDE.md §0.4): no policy version can make these autonomous
+# or single-approver - a document that tries is refused, and the engine holds the line even for one stored earlier.
+CONTAINMENT = frozenset({"endpoint.isolate", "identity.disable_account", "identity.reset_password",
+                         "identity.confirm_compromised", "pam.rotate_secret"})
+
 DEFAULT_POLICY: dict[str, Any] = {
     "default_level": 2,
     "default_max_targets": 25,
@@ -69,6 +77,8 @@ DEFAULT_POLICY: dict[str, Any] = {
         "identity.revoke_sessions": {"level": 2, "max_targets": 10},
         "identity.disable_account": {"level": 2, "max_targets": 3, "four_eyes": True},
         "identity.reset_password": {"level": 2, "max_targets": 10, "four_eyes": True},
+        "identity.require_mfa": {"level": 2, "max_targets": 10},
+        "identity.release_mfa": {"level": 2, "max_targets": 10},
         # Endpoint
         "endpoint.isolate": {"level": 2, "max_targets": 5, "four_eyes": True},
         "endpoint.release": {"level": 2, "four_eyes": True},  # undoes a four-eyes isolation
@@ -197,9 +207,12 @@ class PolicyEngine:
         if len(targets) > v.max_targets:
             high_impact = True
             cap(Level.L3_APPROVE, f"blast radius {len(targets)} exceeds {v.max_targets}: lead approval required")
-        if v.four_eyes:
+        four_eyes = v.four_eyes or action_type in CONTAINMENT
+        if action_type in CONTAINMENT:
+            cap(Level.L3_APPROVE, "containment: decided by people, four-eyes, always")
+        if four_eyes:
             high_impact = True
-            reasons.append("four-eyes: two different people must approve")
+            cap(Level.L3_APPROVE, "four-eyes: two different people must approve")
 
         outcome = {
             Level.L0_OBSERVE: "observed",
@@ -208,7 +221,7 @@ class PolicyEngine:
             Level.L3_APPROVE: "pending_approval",
             Level.L4_AUTONOMOUS: "execute",
         }[level]
-        return PolicyDecision(v.level, level, outcome, reasons, high_impact=high_impact, four_eyes=v.four_eyes)
+        return PolicyDecision(v.level, level, outcome, reasons, high_impact=high_impact, four_eyes=four_eyes)
 
 
 class PolicyStore:
@@ -250,11 +263,11 @@ class PolicyStore:
             raise ValueError("policy version is not awaiting approval")
         if same_person(row.proposed_by, by.id):
             raise PermissionError("separation of duties: proposer cannot approve their own policy change")
-        for old in self.s.execute(select(PolicyVersion).where(PolicyVersion.status == "active")).scalars():
+        if not claim(self.s, row, ("proposed",), status="active", approved_by=by.id, activated_at=utcnow()):
+            raise ValueError("policy version was decided by someone else at the same moment")
+        for old in self.s.execute(select(PolicyVersion).where(PolicyVersion.status == "active",
+                                                              PolicyVersion.id != row.id)).scalars():
             old.status = "superseded"
-        row.status = "active"
-        row.approved_by = by.id
-        row.activated_at = utcnow()
         self.audit.append(actor_type=by.actor_type, actor_id=by.id, event_type="policy.activated",
                           subject_type="policy", subject_id=str(row.id), payload={"proposed_by": row.proposed_by})
         return row
@@ -299,6 +312,11 @@ def policy_problems(doc: Any) -> list[str]:
                 out.append(f"actions.{name}.{k} must be a whole number between 1 and 1000000")
         if "four_eyes" in cfg and not isinstance(cfg["four_eyes"], bool):
             out.append(f"actions.{name}.four_eyes must be true or false")
+        if name in CONTAINMENT and (cfg.get("four_eyes") is False or (_whole(cfg.get("level"), 4, 4))):
+            out.append(f"actions.{name}: containment is decided by two people - it cannot be autonomous (level 4) "
+                       "or single-approver (four_eyes false)")
+        elif cfg.get("four_eyes") is True and _whole(cfg.get("level"), 4, 4):
+            out.append(f"actions.{name}: a four-eyes action cannot be autonomous (level 4)")
     vip = doc.get("vip", {})
     if not isinstance(vip, dict):
         out.append("vip must hold identities / assets / asset_tags lists")

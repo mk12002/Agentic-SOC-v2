@@ -90,6 +90,7 @@ const I = {
   back: '<path d="M15 6l-6 6 6 6"/>',
   filter: '<path d="M3 5h18l-7 8v6l-4 2v-8z"/>',
   list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
+  panel: '<path d="M3 4h18v16H3zM9 4v16M16 9l-3 3 3 3"/>',
 };
 const icon = (n, cls = '') => `<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true">${I[n] || ''}</svg>`;
 
@@ -198,13 +199,13 @@ const meter = (v, max = 100) => `<div class="bar"><span style="width:${Math.max(
 
 // ---------------------------------------------------------------- navigation model
 const NAV = [
-  ['Operate', [['overview', 'Overview', 'overview'], ['ciso', 'Dome Score', 'gauge', '*'], ['intelligence', 'Intelligence', 'intel', '*'], ['cases', 'Cases', 'cases'],
+  ['Operate', [['overview', 'Overview', 'overview'], ['ciso', 'Dome Score', 'gauge', '*'], ['pilot', 'Pilot scorecard', 'reports', '*'], ['intelligence', 'Intelligence', 'intel', '*'], ['cases', 'Cases', 'cases'],
     ['approvals', 'Approvals', 'approvals']]],
   ['Domains', [['phishing', 'Phishing', 'phishing', 'phishing'], ['dlp', 'Data protection', 'lock', 'dlp'], ['vulnerabilities', 'Vulnerabilities', 'vuln', 'vulnerability'],
     ['cloud', 'Cloud posture', 'cloud', 'vulnerability']]],
   ['Insight', [['controls', 'Dome Graph · coverage', 'pulse'], ['config', 'Dome Connect · changes', 'policy'], ['coverage', 'ATT&CK coverage', 'coverage'], ['shadow-it', 'Shadow IT', 'shadow', 'incident'],
     ['suppliers', 'Supplier risk', 'supplier', 'phishing']]],
-  ['Govern', [['watchlists', 'Watch lists', 'list'], ['tuning', 'Tuning', 'filter'], ['integrations', 'Integrations', 'plug'], ['policy', 'Automation policy', 'policy'], ['ai-usage', 'AI usage', 'ai'], ['reports', 'Reports', 'reports'],
+  ['Govern', [['comply', 'Dome Comply', 'audit', '*'], ['watchlists', 'Watch lists', 'list'], ['tuning', 'Tuning', 'filter'], ['integrations', 'Integrations', 'plug'], ['policy', 'Automation policy', 'policy'], ['ai-usage', 'AI usage', 'ai'], ['reports', 'Reports', 'reports'],
     ['access', 'Access', 'access'], ['audit', 'Audit log', 'audit']]],
 ];
 const TITLES = {...Object.fromEntries(NAV.flatMap(([, items]) => items.map(([id, label]) => [id, label]))), story: 'Attack story', entity: 'Entity', search: 'Search'};
@@ -220,11 +221,15 @@ function route() {
 function shell() {
   const me = window.ME;
   const initials = (me.name || '?').split(/[@.\s]/).filter(Boolean).slice(0, 2).map(x => x[0].toUpperCase()).join('');
-  $('#app').innerHTML = `<div class="shell">
-    <aside class="sidebar">
-      <div class="brand"><div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17a9 9 0 0 1 18 0z" fill="currentColor"/><path d="M2 19h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div><div><div class="brand-name">CyberDome</div><div class="brand-sub">One view of every security tool</div></div></div>
-      ${NAV.map(([g, items]) => [g, items.filter(([id, , , d]) => offered(id) && (!d || inDomain(d)))]).filter(([, items]) => items.length).map(([g, items]) => `<div class="nav-group">${g}</div>` + items.map(([id, label, ic]) =>
-        `<a class="nav-item" href="#/${id}" data-nav="${id}">${icon(ic)}<span>${esc(label)}</span>${id === 'approvals' ? '<span class="count" id="nav-approvals" hidden></span>' : ''}</a>`).join('')).join('')}
+  const folded = sidebarFolded();
+  $('#app').innerHTML = `<div class="shell${folded ? ' collapsed' : ''}">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17a9 9 0 0 1 18 0z" fill="currentColor"/><path d="M2 19h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div><div class="brand-text"><div class="brand-name">CyberDome</div><div class="brand-sub">One view of every security tool</div></div>
+        <button class="icon-btn side-toggle" id="side-toggle" data-fn="toggleSidebar" data-args="[]" aria-controls="side-nav" aria-expanded="${folded ? 'false' : 'true'}" aria-label="${folded ? 'Expand the menu' : 'Collapse the menu'}" title="${folded ? 'Expand the menu' : 'Collapse the menu'}">${icon('panel')}</button></div>
+      <nav class="side-nav" id="side-nav" aria-label="Main">
+      ${NAV.map(([g, items]) => [g, items.filter(([id, , , d]) => offered(id) && (!d || inDomain(d)))]).filter(([, items]) => items.length).map(([g, items]) => `<div class="nav-group"><span>${g}</span></div>` + items.map(([id, label, ic]) =>
+        `<a class="nav-item" href="#/${id}" data-nav="${id}" title="${esc(label)}" aria-label="${esc(label)}">${icon(ic)}<span class="nav-label">${esc(label)}</span>${id === 'approvals' ? '<span class="count" id="nav-approvals" hidden></span>' : ''}</a>`).join('')).join('')}
+      </nav>
       <div class="sidebar-foot">Signed in as ${esc(me.auth_method === 'api_key' ? 'service account' : me.roles.join(', ') || 'no role')}<br>${esc(me.domains.includes('*') ? 'All domains' : me.domains.join(', '))}<br>All times UTC</div>
     </aside>
     <div class="main">
@@ -360,7 +365,7 @@ function signInScreen() {
     <h1>Sign in</h1>
     <div class="field"><label for="si-user">Work email</label><input class="input" id="si-user" value="lena@acme-demo.com" autocomplete="username"></div>
     <div class="field"><label for="si-role">Role</label><select id="si-role">${['lead', 'analyst', 'auditor', 'automation_admin', 'admin'].map(r => `<option value="${r}">${cap(r)}</option>`).join('')}</select></div>
-    <div class="field"><label for="si-scope">Data scope</label><select id="si-scope">${[['', 'All domains'], ['phishing', 'Phishing only'], ['incident', 'Incident only'], ['vulnerability', 'Vulnerability only'], ['dlp', 'Data protection only']].map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
+    <div class="field"><label for="si-scope">Data scope</label><select id="si-scope">${[['', 'All domains'], ['phishing', 'Phishing only'], ['incident', 'Incident only'], ['vulnerability', 'Vulnerability only'], ['dlp', 'Data protection only']].filter(([v]) => (AUTH || {}).product_scope !== 'nam' || !['phishing', 'vulnerability'].includes(v)).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
     <button class="btn primary" data-fn="signIn" data-args="[]" style="justify-content:center;height:36px">Continue</button>
     <div class="foot">Development sign-in. In production the console uses Microsoft Entra ID single sign-on with MFA; this form is only available when <code>SOC_AUTH_MODE=dev</code>.</div>
     <button class="btn ghost sm" data-fn="toggleTheme" data-args="[]" id="theme-btn" style="align-self:flex-start"></button>
@@ -400,11 +405,25 @@ function paintThemeButton() {
   b.innerHTML = b.classList.contains('icon-btn') ? icon(dark ? 'sun' : 'moon') : (dark ? 'Switch to light' : 'Switch to dark');
 }
 function toggleMenu() { const m = $('#user-menu'); if (m) m.hidden = !m.hidden; }
+// The side menu folds to an icon rail (wide screens) or to its header alone (narrow ones); the choice is remembered
+// in this browser. Without a remembered choice it starts open on a wide screen and folded on a narrow one.
+function sidebarFolded() {
+  let v = null;
+  try { v = localStorage.getItem('soc_sidebar'); } catch (e) { /* storage unavailable: use the default */ }
+  return v ? v === 'folded' : window.matchMedia('(max-width: 860px)').matches;
+}
+function toggleSidebar() {
+  const shell = document.querySelector('.shell'); if (!shell) return;
+  const folded = shell.classList.toggle('collapsed');
+  try { localStorage.setItem('soc_sidebar', folded ? 'folded' : 'open'); } catch (e) { /* not remembered: still toggles */ }
+  const b = $('#side-toggle');
+  if (b) { const t = folded ? 'Expand the menu' : 'Collapse the menu'; b.setAttribute('aria-expanded', folded ? 'false' : 'true'); b.setAttribute('aria-label', t); b.title = t; }
+}
 function goTo(h) { location.hash = h; }
 
 // ---------------------------------------------------------------- delegation
 function runSearch() { const q = ($('#global-q').value || '').trim(); if (q.length >= 2) location.hash = '#/search/' + encodeURIComponent(q); }
-const ALLOWED = {toggleTheme, toggleMenu, goTo, signIn, signInEntra, signOut, dl, runSearch, jumpEv, refreshPage: () => render()};
+const ALLOWED = {toggleTheme, toggleMenu, toggleSidebar, goTo, signIn, signInEntra, signOut, dl, runSearch, jumpEv, refreshPage: () => render()};
 document.addEventListener('click', ev => {
   const menu = $('#user-menu');
   if (menu && !menu.hidden && !ev.target.closest('.user')) menu.hidden = true;

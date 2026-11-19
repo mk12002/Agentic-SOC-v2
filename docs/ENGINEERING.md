@@ -1,83 +1,82 @@
-# Engineering reference - architecture, design and every technical decision
+# Engineering reference - CyberDome for NAM: architecture, design and every technical decision
 
-This document explains how the Agentic SOC platform is built and why. It covers:
-- architecture, runtime and deployment
-- every subsystem, its data model and algorithms
-- security, reliability, performance and testing
-- a log of the engineering decisions, with the alternatives considered
+This document explains how CyberDome for NAM is built and why: the platform core it runs on (connectors, entity
+resolution, cases, actions, the LLM gateway, governance) and the NAM modules built on it (section 9A). It covers
+architecture, runtime and deployment; every subsystem, its data model and algorithms; security, reliability,
+performance and testing; and a log of the engineering decisions, with the alternatives considered.
 
 Every statement was checked against the code at the time of writing. File references are relative to the repository
-root.
-
-Companion documents: [ARCHITECTURE.md](ARCHITECTURE.md) (diagram-level overview), [SECURITY.md](SECURITY.md),
-[FAILURE_MODES.md](FAILURE_MODES.md), [OPERATIONS.md](OPERATIONS.md), [RUN_GUIDE.md](RUN_GUIDE.md),
-[TEST_REPORT.md](TEST_REPORT.md), [LLM_TOKENS_AND_COST.md](LLM_TOKENS_AND_COST.md).
+root. Companion documents: [ARCHITECTURE.md](ARCHITECTURE.md) (diagram-level overview and flows),
+[FEATURES.md](FEATURES.md) (what each screen does), [AI_AND_AUTONOMY.md](AI_AND_AUTONOMY.md), [SECURITY.md](SECURITY.md),
+[FAILURE_MODES.md](FAILURE_MODES.md), [OPERATIONS.md](OPERATIONS.md), [TEST_REPORT.md](TEST_REPORT.md).
 
 ---
 
 ## Contents
 
-1. [What the system is, and the constraints that shaped it](#1-what-the-system-is-and-the-constraints-that-shaped-it)
-2. [Architecture](#2-architecture)
-3. [Technology stack and why](#3-technology-stack-and-why)
-4. [Code organisation](#4-code-organisation)
-5. [Connector SDK](#5-connector-sdk)
-6. [Canonical schema and the context store](#6-canonical-schema-and-the-context-store)
-7. [Entity resolution](#7-entity-resolution)
-8. [Data model and persistence](#8-data-model-and-persistence)
-9. [The three workflow domains](#9-the-three-workflow-domains)
-10. [Intelligence layer](#10-intelligence-layer)
-11. [Action layer and autonomy policy](#11-action-layer-and-autonomy-policy)
-12. [LLM gateway](#12-llm-gateway)
-13. [Security architecture](#13-security-architecture)
-14. [Reliability: jobs, scheduler, idempotency, self-check](#14-reliability)
-15. [Consistency and correctness mechanisms](#15-consistency-and-correctness-mechanisms)
-16. [Performance and scale](#16-performance-and-scale)
-17. [API design](#17-api-design)
-18. [Frontend](#18-frontend)
-19. [Reporting](#19-reporting)
-20. [Configuration and secrets](#20-configuration-and-secrets)
-21. [The phishing ML engine](#21-the-phishing-ml-engine-trained-models-per-e-mail-component)
-22. [Testing strategy](#22-testing-strategy)
-23. [Code quality tooling](#23-code-quality-tooling)
-24. [Deployment and operations](#24-deployment-and-operations)
-25. [Decision log](#25-decision-log)
-26. [Known limitations and trade-offs](#26-known-limitations-and-trade-offs)
-27. [Glossary](#27-glossary)
+- [1. What the system is, and the constraints that shaped it](#1-what-the-system-is-and-the-constraints-that-shaped-it)
+- [2. Architecture](#2-architecture)
+- [3. Technology stack and why](#3-technology-stack-and-why)
+- [4. Code organisation](#4-code-organisation)
+- [5. Connector SDK](#5-connector-sdk)
+- [6. Canonical schema and the context store](#6-canonical-schema-and-the-context-store)
+- [7. Entity resolution](#7-entity-resolution)
+- [8. Data model and persistence](#8-data-model-and-persistence)
+- [9. Workflow domains of the platform core](#9-workflow-domains-of-the-platform-core)
+- [9A. The CyberDome modules (NAM build)](#9a-the-cyberdome-modules-nam-build)
+- [10. Intelligence layer](#10-intelligence-layer)
+- [11. Action layer and autonomy policy](#11-action-layer-and-autonomy-policy)
+- [12. LLM gateway](#12-llm-gateway)
+- [13. Security architecture](#13-security-architecture)
+- [14. Reliability](#14-reliability)
+- [15. Consistency and correctness mechanisms](#15-consistency-and-correctness-mechanisms)
+- [16. Performance and scale](#16-performance-and-scale)
+- [17. API design](#17-api-design)
+- [18. Frontend](#18-frontend)
+- [19. Reporting](#19-reporting)
+- [20. Configuration and secrets](#20-configuration-and-secrets)
+- [22. Testing strategy](#22-testing-strategy)
+- [23. Code quality tooling](#23-code-quality-tooling)
+- [24. Deployment and operations](#24-deployment-and-operations)
+- [25. Decision log](#25-decision-log)
+- [26. Known limitations and trade-offs](#26-known-limitations-and-trade-offs)
+- [27. Glossary](#27-glossary)
 
 ---
 
 ## 1. What the system is, and the constraints that shaped it
 
-**Purpose.** One investigation and automation layer over the security tools an organisation already runs. It pulls
-from 21 tools through their APIs and resolves every host and person to a single identity across them. On that
-shared picture it runs three SOC workflows:
-- reported phishing
-- incident management
-- vulnerability management
+**Purpose.** CyberDome is an AI-first layer above the security tools of an Indian asset manager (NAM): Forcepoint DLP,
+Silverfort, Trend Micro, Trellix ePO, the directory / CMDB export, and later Arcon, Cloudflare and NAM's SIEM and SOAR.
+It reads those tools, resolves every device and person to one record across them, and on that picture:
 
-A cross-domain intelligence layer correlates across the workflows.
+- shows which devices miss a control and which tools are unhealthy (Dome Connect, Dome Graph);
+- triages DLP incidents with a computed disposition and an AI whose authority is earned decision type by decision
+  type (Dome Agents);
+- joins one person's signals from several tools into one case (cross-tool cases);
+- scores the security posture with a published, adjustable formula and explains why it moved (Dome Score);
+- maps evidence to SEBI CSCRF, DPDP and CERT-In and runs the reportability workflow (Dome Comply);
+- measures the pilot against its baseline (pilot scorecard).
 
-**Scale of the code base:**
+It recommends actions; a person approves them by default, and containment always needs two people.
 
-| Part | Lines |
-|---|---|
-| Platform (`soc_platform/`, excluding tests and the ML engine) | ~16,800 Python |
-| Platform tests (`soc_platform/tests/`) | ~5,600 |
-| Web console (`soc_platform/api/static/*.js`) | ~920 JavaScript, plus CSS |
-| Optional phishing ML engine (`soc_platform/domains/phishing/engine/`) | ~24,100 Python, with its own tests |
+**The code base** is the platform core (connectors, schema, resolution, cases, actions, policy, audit, LLM gateway,
+reporting) plus the NAM modules. The core's inherited modules (phishing and its ML engine, vulnerability management,
+cloud posture, shadow IT, supplier risk, ATT&CK coverage) are switched off in the NAM scope, not deleted (9A.1).
 
-**The constraints that drove the design** (from the requirements, the sections referenced in docstrings as NFR-xx, R-xx):
+**The constraints that drove the design:**
 
 | Constraint | Design consequence |
 |---|---|
-| The AI must not decide; analysts approve (NFR-01, R04) | Every figure, verdict, score and priority is computed in code. The LLM only writes narrative, from evidence it is given. Every change to a tool is an action request, gated by a versioned autonomy policy that defaults to *recommend*. |
-| Every conclusion must be explainable and auditable (NFR-04) | Evidence rows with ids; citations validated; an append-only, hash-chained audit log; per-factor risk explanations. |
-| Works with the client's existing tools, which may change (NFR-14, R06, R15) | A connector SDK with a uniform interface; a canonical schema; a plug-in registry (modules or Python entry points). |
-| Personal data protection (NFR-08, NFR-10, R10) | Encryption at rest of raw payloads; pseudonymisation before any LLM call; retention with legal hold; approved LLM endpoints only. |
-| Least privilege and separation of duties (NFR-09) | Roles, domain scoping, step-up MFA, human-only permissions, four-eyes, no self-approval. |
-| Must degrade, not fail (NFR-05, NFR-13) | Per-source timeouts; partial results reported by name; circuit breaker for the LLM; retries and dead letters for jobs; a platform self-check. |
-| Demonstrable before any tenant access | Every connector has a *fake* mode that feeds vendor-shaped fixtures through the same parsing code as *live* mode. |
+| Figures, scores and severity are computed; the AI explains (CLAUDE.md hard rule 7, §0.4) | Every figure, score and severity is computed in code; the model writes narrative from evidence it must cite. Dispositions and reversible actions only may be decided by the AI, under the earned-autonomy ladder (9A.6) |
+| Text an insider can write must not steer a decision | Decisions read structured facts; message text, subjects and file names are fenced as data and read by no rule (9A.4) |
+| Containment is decided by people, four-eyes, always | `policy.CONTAINMENT`, enforced by the engine whatever a policy document says (11.2) |
+| Every conclusion explainable and auditable | Numbered evidence (F#, I#, P#), citations validated, an append-only hash-chained audit log, every AI decision stored with model, prompt version and evidence hash |
+| Phase discipline: read first, act later | Connector stages `fake` → `record` → `read` → `recommend` → `automate`; Phase 1-2 tools run at `read` / `recommend` |
+| Personal data (PAN, Aadhaar, investor records) stays in India | The model runs in NAM's environment or an Indian region, or is off; pseudonymisation before every prompt; raw vendor logs stay in the deployment's region |
+| NAM's tool versions and APIs are not yet known | Every NAM connector runs in fake mode on placeholder paths and shapes, each path a setting; only `fetch_page` / `_live` change when the vendor's documentation is in hand |
+| Must degrade, not fail | Per-source timeouts, partial results named, LLM circuit breaker, job retries and dead letters, a platform self-check; with every tool down every screen still answers |
+| Demonstrable before tenant access | Every connector has a fake mode feeding vendor-shaped fixtures through the same parsing code as live mode |
 
 ---
 
@@ -361,27 +360,26 @@ same code:
   rules, its fixtures, its paging test and a switched-off config entry; `connector check` runs it through the shared
   conformance suite. The coverage test reads `PAGING_TESTED` from every `test_connector_<name>.py`.
 
-### 5.6 The 21 connectors
+### 5.6 NAM's connectors
 
-The Entra connector also reads each person's **Azure role assignments** (Owner, Contributor, User Access
-Administrator... on subscriptions or resource groups, directly or through a group) from Azure Resource Manager,
-through a `RoutingTransport` that gives `management.azure.com` its own token audience. The subscriptions come from
-`azure_subscriptions`, or every subscription the app can read (Reader role). If ARM cannot be read, the identity
-lookup still succeeds and says so.
+| Connector | Category | Streams | Actions | State |
+|---|---|---|---|---|
+| `directory_export` | directory | `devices`, `users` (AD-joined devices, people, DLP policy-group membership) - the baseline | none | fake mode, placeholder file shape |
+| `forcepoint_dlp` | dlp | `dlp_incidents` (events, from the newest change), `endpoints` (agent inventory, in full), `health` (certificates, sync and deployment jobs, the directory import); configuration export (rules) | none - rule changes are made by an engineer | fake mode, placeholder API |
+| `silverfort` | identity | `risk_events` (risky authentications, kind `auth_risk`); configuration export (policies) | `identity.revoke_sessions`, `identity.require_mfa` / `identity.release_mfa` (reversible; L2) | fake mode, placeholder API |
+| `trend_micro` | edr | `endpoints` (agent inventory), `alerts` (`edr_alert`) | `endpoint.isolate` / `endpoint.release` (containment: four-eyes) | fake mode, placeholder API |
+| `trellix_epo` | encryption | `systems` (devices and encryption state), `health`; configuration export (policies) | none | fake mode, placeholder API |
+| `generic_siem` | siem | alerts pushed by NAM's SIEM (webhook) | none | product unknown |
+| `servicenow`, `jira` | itsm | tickets | `ticket.create` / `ticket.update` | inherited, unchanged |
+| `cmdb_csv` | itsm | the ownership mapping file | none | inherited, unchanged |
 
-CrowdStrike Falcon, Defender for Endpoint, Defender for Office 365 (+ Exchange via Graph), Avanan (HEC Smart API;
-falls back to the shared mailbox), Entra ID (+ Identity Protection), Defender for Identity (alerts and domain logon
-events through Graph), Cisco Umbrella, Thinkst Canary, Delinea Secret
-Server, Delinea Privilege Manager, Rapid7 InsightVM (API v3 or CSV export; plus its vulnerability exceptions), Wiz (GraphQL), NVD, FIRST EPSS,
-CISA KEV, threat-intel fusion, ServiceNow, Jira, CMDB CSV, Microsoft Sentinel, and the generic SIEM webhook.
-- **Threat-intel fusion** covers VirusTotal, AbuseIPDB, OTX, URLhaus, ThreatFox, MalwareBazaar, GreyNoise and
-  Shodan, with per-source attribution.
-- **The generic SIEM webhook** takes `POST /api/v1/ingest/alerts` with a configurable field map.
-
-What each pulls and does is tabled in PRESENTER_GUIDE.md §15.1; how each lines up with the organisation's data
-handoff workbook (every payload type and field) is in DATA_HANDOFF_RECONCILIATION.md.
-
----
+The five new connectors share `connectors/tools/_paged.py`: every endpoint path is a `<stream>_path` setting, the
+page shape `{"items", "next_page_token"}` is a placeholder and `confidence="Unknown"`. `test_connector_nam_stack.py`
+checks paging and resume, one device across four tools resolving to one record, and that none of them adds a
+look-up, an action or an alert kind other workflows read beyond the planned ones. New record kinds: `dlp_incident`,
+`auth_risk` (deliberately not `signin`, which the incident and risk code read in Entra's shape), `tool_health`,
+`edr_alert`; new dimensions `data_protection` and `web`. Not yet built: Arcon (privileged access; `delinea.py` is the
+pattern), Cloudflare, the SIEM and SOAR products.
 
 ## 6. Canonical schema and the context store
 
@@ -550,62 +548,11 @@ runs. In-memory databases use `StaticPool` so every session sees the same data.
 
 ---
 
-## 9. The three workflow domains
+## 9. Workflow domains of the platform core
 
-### 9.1 Phishing (`domains/phishing/`)
+In the NAM scope the incident domain runs (it receives the SIEM's alerts and holds the cross-tool cases); the
+inherited phishing and vulnerability domains are switched off (9A.1).
 
-**Pipeline** (`PhishingService.process`):
-1. **Intake.** From the Defender reporting mailbox (original MIME fetched intact, so headers are preserved), Avanan
-   events, or upload (`POST /api/v1/phishing/submit`).
-   - The message is stored encrypted under its SHA-256 (`write_protected`: an atomic temp file + `os.replace`, with a
-     short retry for Windows' transient replace lock under concurrency).
-   - `source_ref` is unique, so a re-report returns the existing case. **Idempotent.**
-2. **Decompose** (`agents/decompose.py`, pure stdlib):
-   - headers, SPF/DKIM/DMARC, and the received path with the origin IP (the first non-private hop)
-   - bodies, and all URLs, including hidden-link mismatches (link text ≠ target)
-   - attachments (SHA-256, ssdeep-style fuzzy hash, risky extension, macro hints)
-   - QR codes in images (pyzbar)
-
-   **Hardened:** header access goes through `_hdr`/`_hdr_all`/`_part_meta`/`_headers`, which fall back to the raw
-   header when Python's structured parser raises. It does raise, with `IndexError`, on a display name containing a
-   raw newline; fuzzing found this stdlib bug. Undecodable payloads fall back to raw bytes. Arbitrary bytes never
-   crash the parser (a fuzzing property).
-3. **Analyse** (`agents/analyzer.py`). `HeuristicAnalyzer` is a sum of named, weighted signals:
-   - authentication failures
-   - look-alike sender/URL domains (edit distance, homoglyphs, brand embedding)
-   - link tricks, credential lures, urgency, bank-detail change
-   - risky attachments, threat-intel hits
-
-   Strong authentication or an internal authenticated sender subtract weight. The score is clamped to 0-1.
-   **Verdicts:**
-   - malicious if ≥ 0.70, or ≥ 0.50 with malicious intel
-   - suspicious if ≥ 0.35
-   - spam if bulk or urgency without phishing signals
-   - otherwise safe
-
-   **The trained ML engine runs alongside it by default** (§21): `CompositeAnalyzer` asks both and fuses the two
-   opinions. The heuristic is the fallback when the engine is not installed or fails.
-4. **Enrich.** Threat-intel fusion on up to 12 indicators (sorted, so the same e-mail always checks the same
-   ones). The indicators, and the 8 sources for each, are queried in parallel. A failed lookup is logged and the
-   source reported as unavailable, never as clean.
-5. **Investigate** (`agents/investigation.py`). The vendor lookups run **in parallel**, with results merged in a
-   fixed order so the evidence is identical run to run (§16.2).
-   - **Campaign.** Defender advanced hunting for similar messages (similarity threshold 0.5) gives recipients and
-     variants.
-   - **Control reconciliation.** Defender vs Avanan verdicts; a disagreement is a finding.
-   - **User impact.** Clicks (`UrlClickEvents`, blocked or not), post-delivery actions, endpoint activity after the
-     click, and identity compromise indicators (risky sign-ins, new MFA method, inbox rules).
-6. **Case:** evidence (E#), MITRE mapping, cited explanation, recommendations through the policy.
-7. **Auto-close.** Clear-safe and clear-spam at confidence ≥ 0.7 close with reporter feedback. 10 % are sampled for
-   QA, chosen by a stable hash so the sample does not change between runs. Auto-closed mail gets a deterministic
-   explanation and spends no LLM tokens (`SOC_LLM_EXPLAIN_AUTO_CLOSED=0`).
-8. **Supplier monitor** (`supplier.py`), against `config/suppliers.yaml`:
-   - account compromise: bad mail that *authenticates* as the supplier
-   - payment diversion
-   - impersonation (look-alike domain)
-   - spoofing (claims the domain, fails authentication)
-
-   Criticality amplifies severity; a click amplifies it further.
 
 ### 9.2 Incident (`domains/incident/service.py`)
 
@@ -633,7 +580,7 @@ runs. In-memory databases use `StaticPool` so every session sees the same data.
    sign-in → T1078, secret copied → T1555...).
 6. **Recommendations**, ranked and policy-gated; similar past incidents by signature; handover report.
 
-### 9.2.1 Deferred explanations (incident and phishing jobs)
+### 9.2.1 Deferred explanations (incident and cross-tool jobs)
 
 The written explanation is the only part of an investigation that needs the model, and it is the slowest part
 (§16.1). Nothing else depends on it: verdict, severity, confidence, MITRE mapping, evidence numbering and
@@ -656,45 +603,6 @@ so a batch's explanations are generated in parallel instead of one after another
 one incident, upload one e-mail) still narrate inline. Tested: decisions are identical before and after
 narration, calls overlap, evidence ids match, and nothing is left pending (`test_incident.py`,
 `test_phishing.py`).
-
-### 9.3 Vulnerability (`domains/vulnerability/`)
-
-1. **Consolidate** Rapid7, CrowdStrike Spotlight, Defender TVM and Wiz findings, after entity resolution, into one
-   `vm_findings` row per (asset, CVE) with every source listed.
-2. **Enrich:** NVD CVSS (the connector pages explicitly: NVD returns an empty page for single-CVE lookups
-   otherwise, which a live test caught), EPSS, KEV, internet exposure (Wiz), criticality and owner (CMDB/ServiceNow).
-3. **Priority score:** 0.30 × CVSS/10 + 0.25 × EPSS + 0.20 × KEV + 0.10 × internet-exposed + 0.15 × criticality
-   weight (critical 1.0 / high 0.75 / medium 0.4 / low 0.1).
-   - **Bands:** P1 if ≥ 0.65 *or* KEV + internet-exposed; P2 ≥ 0.45; P3 ≥ 0.25; else P4.
-   - **SLA:** 7 / 15 / 30 / 90 days from first seen. KEV always takes the P1 SLA. CISA's due date is informational
-     only.
-   - These are the defaults: a vulnerability lead can change the five weights (they add up to 100) and the SLA days on *Tuning*, previewed on the open findings and approved by a second lead. A KEV-listed finding on an internet-facing asset stays P1, and every KEV-listed finding keeps the P1 SLA, whatever the weights.
-4. **Campaign per CVE:**
-   - states: draft → notifying → in_progress → validating → closed
-   - per-team action plans: awaiting_notification → notified → acknowledged → in_progress → done/blocked
-   - notifications and tickets are action requests, so they go through approval
-   - creating a campaign for a CVE that already has an active one returns it (idempotent)
-5. **Weekly follow-up** (the job runs daily; the cadence is per plan, `SOC_VM_FOLLOWUP_DAYS`, default 7): each open
-   plan hears from the SOC at most once a week - an escalation draft when it is unacknowledged 3+ days after
-   notification, past its committed date or past SLA (a plan's first escalation goes out at once; level 2+ is
-   "stalled"), otherwise a routine weekly status check with the open-finding count, which does not count as an
-   escalation. The first version escalated the same plan every day. Two-way ticket sync. A ticket marked done while a
-   scanner still sees the vulnerability is a **false closure**, reopened and counted.
-6. **Validation:** re-query each scanner. The result per source is `still_present` / `not_present` /
-   `unverifiable: <error>`, and a fix is never accepted on an unverifiable answer.
-7. **Exceptions and risk register.** An exception needs a justification, a compensating control and an expiry, and
-   is approved by a different person; expiry reopens the finding. The **risk register is kept current** after every
-   vulnerability refresh (`refresh_risk_register`): open P1 CVEs are proposed as entries (a lead approves them);
-   existing entries get their affected-asset count and owners updated; an entry is marked *remediated* once nothing
-   is open and sent back to *proposed* for a lead to review if the vulnerability returns. Each change is audited
-   (`vm.risk_register_updated`).
-8. **Cloud misconfigurations** (`misconfig.py`): Wiz issues consolidated per (resource × rule), owner by CMDB or
-   subscription, SLA by severity (tightened for toxic combinations on internet-exposed resources), routed, then
-   fixed and validated against Wiz.
-9. **Natural-language query:** keyword-to-filter mapping (status, priority, KEV, internet exposure, CVE, asset,
-   team). The generated filter is shown with the answer. It is never SQL.
-
----
 
 ### 9.4 Shared case work: ownership, notes and search
 
@@ -723,6 +631,194 @@ narration, calls overlap, evidence ids match, and nothing is left pending (`test
   Matching is case-insensitive substring with `LIKE ... ESCAPE '\'`; the user's `%`, `_` and `\` are escaped, so
   input is always literal (tested with `%` and `_`, which must not match everything). Each search is audited with
   its length only.
+
+## 9A. The CyberDome modules (NAM build)
+
+The NAM build adds a data-protection workflow, a coverage and health picture, a posture score, cross-tool cases,
+compliance evidence and a pilot scorecard on top of the platform core. Each module follows one order: fixtures and
+fake mode, computed behaviour with tests, the model's part with its fallback, the screen, then the docs (CLAUDE.md
+§0.3). Layering is unchanged: API → intelligence → domains → core → connectors.
+
+### 9A.1 Product scope (`core/scope.py`)
+
+`SOC_PRODUCT_SCOPE` (`nam` by default in this build, or `full`) decides what a deployment offers. Out of scope means
+**switched off, not deleted**:
+
+| Surface | How it is switched off |
+|---|---|
+| Connectors | `ConnectorRegistry` filters manifests by `scope.connector_in_scope` (in `__init__` and `all_fake`); `config_schema.check_entry` ignores an entry for an installed but out-of-scope tool, while a name no installed connector has is still an error (`name in discover()`) |
+| Jobs | `jobs.active()` lists the scope's jobs; `due()` and the scheduler use it; `FULL_ONLY_JOBS` = vulnerability, phishing, follow_up, daily_report |
+| Routes | middleware answers 404 for `FULL_ONLY_ROUTES` (phishing, vm, attack coverage, shadow IT) |
+| Screens | `/me` returns `product.hidden_screens`; the console's `offered(id)` hides menu items, domain tabs and buttons |
+| Report sections | `builder.sources()` and `_offered()` drop `FULL_ONLY_SOURCES`; NAM keywords and audience defaults steer the planner |
+| The phishing ML engine | `engine_enabled()` is False outside `full` - it never loads |
+
+`NAM_CONNECTORS` = forcepoint_dlp, silverfort, trend_micro, trellix_epo, directory_export, servicenow, jira,
+cmdb_csv, generic_siem. The inherited test suite runs in `full` (conftest); `test_scope.py` checks `nam`.
+
+### 9A.2 Controls and coverage (`core/controls.py`, `intelligence/control_coverage.py`) - Dome Graph
+
+* **Snapshot.** `controls.snapshot()` builds what each tool's newest read lists: per tool, the devices it lists and
+  when it last read them. Whether a tool *still lists* a device is read from the sync time (`SourceRecord.fetched_at`):
+  a device the newest full read no longer lists, by `SOC_INVENTORY_STALE_HOURS`, stops counting. Inventory records
+  are dated by the vendor's own last-seen time, as every inventory connector is. A device merely *named* in a tool's
+  event does not count as listed by that tool.
+* **Baseline first.** The `inventory` job is first in `jobs.JOBS`, and `demo` calls the same sync first: when a
+  laptop is first created from an event (name and address only) before the directory is read, the directory record
+  cannot be matched with confidence, waits in the review queue, and the device drops out of the baseline - found by
+  running the demo.
+* **Controls per device.** EDR agent (every device), DLP agent reporting and disk encryption (workstations). Each
+  state is `ok`, `missing`, `silent` (no report for `SOC_AGENT_SILENT_HOURS`, measured from the newest check-in that
+  tool reported for any device - never from the wall clock), `off` (encryption) or `unknown`. A control whose tool is
+  not connected is *not measured*, never *missing*.
+* **Coverage** = devices of the baseline with every expected control in place and reporting / devices of the
+  baseline. Devices short of a control are ranked by the personal-data DLP alerts on them and their main user (that
+  figure only within `dlp` scope). Devices a tool sees that the baseline does not, and users in no DLP policy group,
+  are listed separately.
+
+### 9A.3 Tool health (`intelligence/tool_health.py`) - Dome Connect
+
+Findings from what each tool reports about itself, on its `health` stream: certificates (days left counted from the
+tool's own newest report; warning at `SOC_CERT_WARN_DAYS`, critical at `SOC_CERT_CRITICAL_DAYS`, expired always
+critical), sync and deployment jobs (failed, or late against their own interval), the directory import (people left
+out of every policy), silent agents, and unplanned configuration changes (from 9A.8). Each finding carries the next
+step (a ticket, an agent re-push). A tool that reports none of this is "not reported" - never "healthy". The
+capability matrix (which tool reports health, which exports configuration) is shown on screen, not assumed.
+
+### 9A.4 Data protection (`domains/dlp/`) - Dome Agents
+
+* **Intake.** `DlpService.ingest` reads the directory, sign-in risk, agent and encryption inventories and the DLP
+  incidents (`CONTEXT_STREAMS`, including Trend Micro's `alerts`). One `DlpAlert` per incident (`source_ref` unique).
+* **Facts, not text.** `_facts` builds the numbered evidence (F1 ...) every decision cites: severity, channel, the
+  tool's action, policy and rule, classifiers (name, matches, type, OCR origin), personal-data classes (PAN, Aadhaar,
+  account numbers... from classifier names), the largest match count and `bulk`, the destination class (internal,
+  partner, sanctioned, personal mail, removable media, external, unknown - from the organisation's own lists), the
+  user (department, privileged from the directory), identity risk (Silverfort, 24 h around the alert) and the device
+  (controls short, known to an inventory). The subject and file names are kept apart as `untrusted`. The destination
+  domain is kept only when it is a real host name (round 39).
+* **Computed disposition** (`dispose`): a published decision table - escalate, close as benign, or needs a person -
+  with its reasons. Severity is the tool's own, raised only by what other tools corroborate. The never-automatic list
+  (high / critical, privileged sender, block watch list, a device with a known-exploited flaw, a deception hit)
+  reuses `tuning.guard`.
+* **Cases.** An escalation opens or joins a data-protection case (domain `dlp`). Batches are committed as they are
+  judged (`process_committing`), so a backfill of thousands never holds one transaction.
+* **The AI's decision** (`ai_decide_committing`, after the job's commit - no write lock across model calls; capped by
+  `SOC_DLP_AI_MAX_PER_RUN`): the model gets the facts (and the investigator's findings) with the untrusted text
+  fenced; its JSON is read with `model_choice` / `model_ids`; without a valid outcome and citation it is discarded.
+  Stored in `ai_decisions` keyed by (item, evidence hash) with model, prompt version, output and stage.
+
+### 9A.5 The AI investigator (`domains/dlp/investigator.py`)
+
+A fixed menu of seven read-only look-ups over what the platform already holds (sign-in history, the sender's other
+DLP alerts, who else sent to the destination, alerts and deception hits on the device, privileged-access events, open
+cases, watch lists). The model plans at most 5 look-ups in 2 rounds within `SOC_DLP_INVESTIGATION_SECONDS`; a name not
+on the menu is dropped; without a usable plan the platform runs its own. Findings are numbered I1 ...; they enter
+`evidence_hash` (so a new investigation makes the AI decide again) but no rule reads them - investigation is not
+disposition.
+
+### 9A.6 Earned autonomy (`core/decisions.py`)
+
+* Decision types are narrow: `dlp.email`, `dlp.web`, `dlp.removable_media`, `dlp.other`. Stages: `shadow` (stored
+  beside the computed and the analyst's), `recommend` (pre-filled; overruling needs a reason), `decide` (**refused in
+  code** in this version - `AVAILABLE_STAGES`).
+* Targets (agreement 50-100 %, minimum sample ≥ 20) are set by a lead; there is no default. Promotion is proposed by
+  one lead, refused unless the measured agreement meets the target, and approved by a second (measured again then).
+  Demotion takes one lead, or none: `check_drift` demotes when agreement falls below target, or the outcome mix shifts
+  (PSI > 0.25), over the newest decided items since the promotion.
+* **Strict time order on Windows.** The clock advances in ~15 ms steps, so rulings and stage changes in one tick
+  were ordered at random. `_after(now, other)` returns `now`, or `other` + 1 µs when the clock has not moved past it:
+  a stage change is later than every ruling before it, a ruling later than the stage change, a decision later than
+  the item's previous one.
+* Every transition (approve / reject) is an exactly-once claim (`core/db.claim`).
+
+### 9A.7 DLP rule changes (`domains/dlp/tuning.py`)
+
+Five fixed shapes: `exclude_destination`, `raise_threshold`, `exclude_ocr` (narrow what fires), `use_edm`,
+`use_fingerprint` (classification quality: hide nothing themselves). Suggestions from analysts' rulings (a rule
+closed as benign four times in five over 30 days); classification findings from the classifier type and OCR origin
+the tool reports. Preview over 90 days; refused if it would have hidden an escalated alert, personal data in bulk, a
+high / critical alert or one on the never-automatic list, or nothing. Second lead approves; an engineer records it
+as made (`manage_connectors`); verified from the newest configuration snapshot (exclusion listed, threshold, OCR off,
+the replaced classifier gone and an EDM / fingerprint classifier present) and the alerts since. The platform never
+calls the DLP tool to change a rule.
+
+### 9A.8 Configuration snapshots (`intelligence/config_snapshots.py`) - Dome Score / Dome Connect
+
+`PagedConnector.config_items()` reads a tool's configuration export in full, outside `SyncRunner` - nothing of it
+enters the context store. The daily job keeps a snapshot only when something changed; the diff compares items by id,
+field by field. A change is *planned* when it is a recorded change's after-change snapshot or inside an open change
+window; otherwise *unplanned* (tool health, 7 days). A recorded change reports the Dome Score before and after.
+
+### 9A.9 Dome Score (`intelligence/posture.py`, `posture_weights.py`)
+
+* Five domains (identity, privileged access, endpoint, data protection, web), each scored from computed factors
+  (coverage shares, health findings, open cases); a domain no connected tool measures is "not measured" and left out
+  of the weighted mean, as is a measured domain with weight 0. Whole-score penalties (open critical cases, critical
+  health findings) apply after.
+* The weights are a **document**: weights 0-100 per domain and penalties (points, cap); `clean()` refuses unknown
+  parts, non-integers, non-finite values, booleans and an all-zero document. Preview, propose with a reason,
+  approve by a second lead with all-domain scope (`same_person` refuses the proposer), every step audited. Only
+  `posture()["weights"]` is read; `posture(config=...)` previews.
+* Each day's score is stored with its weights version (`posture_snapshots`). **Levers**: every reduction with the
+  points it would regain (a domain factor by its domain's share of the measured weight; a penalty in full) - an upper
+  bound. **Movement**: today against the oldest stored day of 30, per domain, naming a weights change when there was
+  one. Arithmetic on the formula's own factors; the model never produces a figure.
+
+### 9A.10 The CISO view (`intelligence/ciso.py`)
+
+One document read by the Dome Score screen, the CyberDome reports (board monthly deck, CISO weekly brief) and the
+plain-words brief: posture with levers and movement, coverage, tool health, the DLP week, people to look at, the
+autonomy ladder, recent changes, cases, governance (audit chain as last verified, approvals waiting, kill switch) and
+the regulatory picture. The brief is written by rule on every load; the model writes it only when a person asks
+(`posture.explain`), from P-numbered evidence it must cite.
+
+### 9A.11 Cross-tool cases (`intelligence/crosstool.py`)
+
+* Signals per person, from structured facts only: the DLP alert's facts (identity risk, device controls short,
+  privileged user) and Trend Micro `edr_alert` events (their own kind, so the incident pipeline is unchanged).
+* Rules X1 (risky sign-in then data sent out), X2 (data sent from a device with a control off), X3 (an endpoint
+  alert on that device), X4 (a privileged person sending personal data). A case needs two or more distinct tools;
+  2 tools → high, 3+ → critical (`severity_for`).
+* One open case per person (`crosstool_cases`), in domain `incident`; a re-run with nothing new changes nothing; a
+  new signal joins the open case. `reassess_open` and `/incidents/{id}/investigate` leave these cases alone (a re-run
+  once added unrelated actions).
+* Recommends `identity.revoke_sessions` and `identity.require_mfa` (Silverfort) and, only at 3+ tools,
+  `endpoint.isolate` (Trend Micro; containment: four-eyes always). Nothing runs by default. Narration is deferred
+  (`crosstool.summary`). The risk engine's `EDR_TOOLS` lists every EDR connector (it once called a Trend Micro laptop
+  "without EDR").
+
+### 9A.12 Dome Comply (`reporting/regimes.py`, `reporting/breach.py`)
+
+* The control catalogue (SEBI CSCRF, DPDP, CERT-In) is **versioned data** (`compliance_catalogues`), a DRAFT until
+  NAM's compliance team validates it, changed by two people. `check_catalogue` bounds it: ids from a fixed character
+  set, texts ≤ 4,000 characters (titles 300), nesting ≤ 6, finite numbers, 1-500 controls, 400 KB, tests only from the
+  fixed list.
+* Evidence tests (11 NAM tests plus the platform's `platform:` tests from `build_evidence`) answer pass / fail / no
+  evidence; the share of controls with current evidence is shown and the rest named. The platform never says
+  "compliant".
+* A breach assessment opens for every DLP case with personal data (`compliance_assessments`). A lead decides
+  reportability in person (strict boolean, a reason); once reportable it stands. Clocks are copied from the catalogue
+  with their source and stay "to verify"; a clock without hours shows "deadline not set". Decision and each recorded
+  submission compare-and-swap a revision. The AI drafts from the case's structured facts (F-numbered, cited) or the
+  draft is written by rule; the platform sends nothing.
+* The audit pack (zip): controls and evidence (JSON, CSV), assessments, the catalogue, the full audit trail and a
+  Word summary.
+
+### 9A.13 Pilot scorecard (`reporting/pilot.py`)
+
+KPIs measured over the 7 days up to the newest DLP alert: DLP alerts reaching an analyst, alerts per day, outages
+found by users first (outage log, a known tool within 400 days), the model's share of decisions and cost per alert,
+AI agreement per decision type, QA re-checks reported apart. Baselines captured with one click from the current
+measurement; targets set by a lead (stored as `ValueInput` with the `pilot.` prefix) - none preset.
+
+### 9A.14 Exactly-once decisions and manual runs
+
+* `core/db.claim(session, row, statuses, **values)`: `UPDATE ... WHERE id = ? AND status IN (...)`, True when this
+  caller made the change. Used by every governed approval (weights, catalogue, DLP rule changes, decision-type
+  promotions, the autonomy policy, tuning rules). Checking a status in Python and then writing it let two people
+  approving at once both succeed (round 39).
+* `jobs.held(name)`: a manual run (`POST /dlp/run`, `/crosstool/run`) holds the job's renewed lease, so the click
+  and the scheduled job never run at once; 409 while busy.
 
 ## 10. Intelligence layer
 
@@ -770,35 +866,6 @@ Insights are upserted by dedupe key; a narrative is rewritten only when the evid
 saves tokens. Operational insights come from elsewhere: job dead-letter, break-glass used, platform integrity, LLM
 budget. A failing rule is logged and the other rules still run.
 
-### 10.3 Attack story (`intelligence/story.py`)
-
-1. **Scope** the principal users and hosts, plus related cases one hop away.
-2. **Classify** each stored event onto an ATT&CK tactic, including phishing milestones.
-3. **Group** events of the same stage within 15 minutes into steps. Confidence is high when 2+ tools corroborate or
-   the detection is critical.
-4. **Gaps:** for each tactic with no evidence, the enabled tools that could have seen it, or a *blind spot*.
-5. **Test benign hypotheses** against specific evidence: rejected / unlikely / plausible / cannot assess.
-6. **Blast radius.**
-7. **Phased plan:** contain, preserve, eradicate, recover, communicate. Duplicates across related cases are merged.
-8. **Assessment:**
-   - *confirmed*: 3+ stages reached, a deep stage, 3+ tools, no plausible benign explanation
-   - *likely*: a deep stage or 2+ stages
-   - *attempt blocked*: every step blocked
-   - otherwise *suspicious*
-9. **Fingerprint:** a hash of the evidence. The same attack gives the same story from any related case, and deep
-   analysis is cached per fingerprint.
-
-It is rebuilt on demand and never stored. An event not in the store cannot appear.
-
-### 10.4 Deep analysis (`intelligence/deep_analysis.py`)
-
-- The LLM receives only story evidence ids (S/G/H/B/P/X) and must return fixed JSON.
-- Uncited statements, invented ids and figures not in the cited evidence are dropped and counted. Statuses and
-  confidence come from fixed vocabularies.
-- Priorities may reference only real pending actions (`P#`) or "manual".
-- Disagreement with the deterministic assessment is flagged.
-- Results are cached on the case by fingerprint.
-
 ### 10.5 Analyst Q&A and brief (`intelligence/analyst.py`)
 
 - **The planner** chooses tools from a fixed read-only catalogue: find_entity, search_entities, entity_risk,
@@ -819,18 +886,6 @@ It is rebuilt on demand and never stored. An event not in the store cannot appea
   lease. `reset-demo` narrates up front, so the first scheduler pass after `serve` has no model work.
 - **Counts are true totals** (`Page` totals), never the length of a capped list; a real bug once said "30" where
   there were 34.
-
-### 10.6 Coverage, shadow IT, drift
-
-- **Coverage** (`attack_coverage.py`): a static capability map of 56 ATT&CK techniques (41 marked priority) × tools (full/partial),
-  intersected with *enabled* connectors, plus observed firing. It reports blind spots and single-source priority
-  techniques. Enabling a connector changes the map immediately.
-- **Shadow IT** (`shadow_it.py`): Umbrella DNS aggregated in memory per run (never stored: it's high volume and
-  personal data) against `config/sanctioned_services.yaml`.
-- **Drift** (`drift.py`): per domain, a recent window vs a baseline window on agreement with analyst dispositions,
-  PSI of the verdict mix (alert above 0.2) and mean confidence. It raises `model_drift`.
-
----
 
 ## 11. Action layer and autonomy policy
 
@@ -878,6 +933,12 @@ It is rebuilt on demand and never stored. An event not in the store cannot appea
   `approve_policy`) → active. Every version is kept.
 - **Kill switch:** a durable flag in `system_flags` (or `SOC_KILL_SWITCH`), read by every replica. It halts
   autonomous execution immediately.
+- **Containment (NAM build, round 39):** `CONTAINMENT` = `endpoint.isolate`, `identity.disable_account`,
+  `identity.reset_password`, `identity.confirm_compromised`, `pam.rotate_secret`. Whatever the document says these
+  are four-eyes and capped at L3, and `policy_problems` refuses a document that makes one L4 or single-approver.
+  Every four-eyes action is capped below L4 too: before, `four_eyes` only added a reason, so a version setting an
+  action to L4 with four-eyes would have executed it with nobody involved. Approving a version is an exactly-once
+  claim (`core/db.claim`).
 
 ---
 
@@ -997,7 +1058,7 @@ changes no number, verdict or action; the test suite proves it on three estates.
 
 ### 13.2 Authorisation
 
-- **Roles → permissions** (`ROLE_PERMS`): analyst, lead, automation_admin, admin, auditor (PRESENTER_GUIDE.md §15.3).
+- **Roles → permissions** (`ROLE_PERMS`): analyst, lead, automation_admin, admin, auditor (PRESENTER_GUIDE.md.3).
 - **Human-only permissions** (`HUMAN_ONLY_PERMS`: approvals, policy, access management, rollback) are never granted
   to API-key principals, whatever roles they hold.
 - **Domain scope:** a principal may be limited to phishing / incident / vulnerability.
@@ -1242,82 +1303,16 @@ itself; durable kill switch; hostile-input hardening. The full table is in [FAIL
 
 ## 16. Performance and scale
 
-| Hot path | Technique | Measured |
-|---|---|---|
-| Risk ranking | `candidates()` pre-filter; reuse while the data is unchanged (#47) | 20,000 entities, little activity: ~16 s → 0.06 s; 21,728 entities, realistic activity: 9.4 s → 4.7 s once, then 0.02 s |
-| Ingestion | exact resolution candidates, (kind, canonical key) index, page-level savepoints (#42, #45) | 40x messy estate: sync 244 s → 149 s, flat 29 statements per record; per new host flat (was 1,846 statements at 600 hosts) |
-| Request load | several server processes, sized pool, 503 under saturation (#46) | 1 process: 43 requests/s, everything queued; 4 processes: 150 requests/s for 100 analysts, no error |
-| Correlation | runs over risk candidates only | 36.5 s → 0.09 s |
-| A case's shared actions | database-side `LIKE` narrowing on the JSON result before the Python check | 20,000 actions: 0.47 s → 0.005 s |
-| Situation brief | cached by facts fingerprint (15 min) | one model call per change, however many viewers |
-| Enrichment | parallel lookups (16 workers), 30-minute cache | bounded by the slowest source, capped at 20 s |
-| Access log | batched background writes (up to 500 rows per batch) | no per-request write latency |
-| Finding narratives | rewritten only when evidence or severity changes | token saving (LLM_TOKENS_AND_COST.md) |
+The platform core was measured before the NAM build (laptop, SQLite, full scope): sync of a 21,675-record messy
+estate at about 146 records/s with 29 SQL statements per record flat across sizes; one server process 43 requests/s,
+four processes 128-150 requests/s to 40-100 simulated analysts with no error (OPERATIONS.md, *Server and database
+under load*). Those properties carry over: the NAM jobs follow the same rules - sync per page with a commit, judging
+in committed batches, no write lock across model calls, queries flat with history (the DLP summary is database
+aggregates; the noisy-rule list and tool rulings read the 30 days up to the newest alert).
 
-The API is stateless and scales horizontally. The scheduler coordinates through the database. With
-`SOC_BLOB_STORE=database` no state is on a host's disk either, so any replica on any node serves any request
-(HIGH_AVAILABILITY.md: components, reference deployments, Kubernetes package, disaster recovery). Volume and request
-load are measured with `scripts/measure_scale.py` (messy estates of growing size, statements per record, review
-queue) and `scripts/load_test.py` (a real multi-process server, concurrent analysts, jobs writing); figures in
-OPERATIONS.md. The client's own volume is measured during deployment (§26).
-
-### 16.1 Latency: measured end to end
-
-Measured on a laptop with every vendor API call delayed **400 ms**, which is typical for Microsoft Graph,
-CrowdStrike and similar SaaS APIs, and with the real LLM (Azure AI Foundry, gpt-4.1-mini). Figures are for one item
-on the built-in estate. The script is the one used for §12.3; the vendor-call counts let you rescale to other API
-speeds.
-
-| Step | Who waits | Vendor calls | Without LLM | With LLM |
-|---|---|---|---|---|
-| Analyse a reported phishing e-mail (campaign, clicks, impact) | nobody (background) - sets time to case | 31 | **2.9 s** (was 12.5 s) | 9-12 s (the model writes the explanation) |
-| Analyse a benign e-mail (auto-closed) | nobody | 20 | **1.2 s** (was 8.1 s) | 1.2 s (no model call) |
-| Ingest alerts from every tool (incident) | nobody (every 5 min) | 11 | **0.9 s** (was 4.5 s) | 0.9 s |
-| Investigate an incident (enrichment across tools) | nobody | 92 | **1.8-2.6 s** (was 3.8 s) | 8-16 s (the model's response time varies) |
-| Vulnerability refresh (4 scanners + feeds) | nobody (every 6 h) | 32 | **6.5 s** (was 13.1 s) | 6.5 s |
-| Re-correlate (risk, correlation rules, narratives) | nobody (every 10 min) | 0 | 0.1 s | 19 s first time (was 67 s); 0.1 s when nothing changed |
-| Open a case, story, 360 view or list | analyst | 0 | < 0.1 s | < 0.1 s (results are stored) |
-| Situation brief | analyst | 0 | < 0.1 s | 0 s when prepared by the job; ~6 s if not yet prepared |
-| Analyst question | analyst | 0 | < 0.1 s | ~6-7 s |
-| Deep analysis | analyst (on request) | 0 | - | ~14 s once, then instant (cached) |
-| Report (CISO weekly, all sections) | analyst | 0 | 0.2 s | ~7 s (was 22 s) |
-
-**With deferred explanations (§9.2.1)** the case is on screen at the "Without LLM" time even when the model is on;
-the model's explanation follows a few seconds later, and in a batch the explanations for all of a run's cases are
-written in parallel (a run of 10 incidents waits for about 3 model calls' time with `SOC_LLM_CONCURRENCY=4`, not 10).
-
-**Time from a user pressing *Report* to a case on screen** = up to the phishing job interval (default 2 minutes;
-lower `SOC_JOB_PHISHING_SECONDS` for faster pickup) + the analysis above. Uploads through the console are analysed
-immediately.
-
-### 16.2 How the latency was brought down
-
-- **Parallel syncs** (all three modules). `SyncRunner.sync_many` downloads every (tool, stream) at once, while the
-  calling thread ingests each stream's pages in the original order, with a checkpoint after every page. The result
-  is identical to syncing one stream after another, in about the time of the slowest stream. Used by incident
-  ingest (inventory still ingested before alerts), the vulnerability refresh (assets before findings) and the
-  scheduler's jobs.
-- **Parallel vulnerability intelligence.** The KEV catalogue, EPSS scores and every due NVD detail are fetched at
-  once, then applied in CVE order. NVD without an API key simply queues on its rate budget.
-- **Parallel vendor lookups.** In one phishing analysis, these all run in parallel in bounded thread pools:
-  - the threat-intel indicators, and the 8 sources for each indicator
-  - control reconciliation, alongside campaign scope and user impact (reconciliation is awaited first only when
-    campaign scope depends on it: a "clean" verdict that the controls disagree on)
-  - the DNS queries per domain
-  - the per-user checks, and within each user Defender for Endpoint, CrowdStrike and Entra
-  - Entra's seven identity-context reads
-
-  Incident enrichment was already parallel (16 workers, 20 s deadline per source).
-- **Determinism is kept:** results are always merged in a fixed order, and the connector registry builds each
-  connector once under a lock. Re-running every pipeline still changes nothing, and LLM on vs off still gives
-  identical figures on all three estates.
-- **Rate limits are respected:** every call still goes through its connector's token bucket, which is thread-safe,
-  so parallelism never exceeds a vendor's budget.
-- **Parallel LLM batches**, the prepared brief and deferred case explanations (§12.3, §10.5, §9.2.1).
-- **A regression test** (`test_phishing_analysis_asks_the_tools_in_parallel`) fails if an analysis takes more than
-  half the time its vendor calls would take one after another.
-
----
+**Not yet measured for NAM:** the `dlp`, `crosstool` and `posture` jobs at NAM's alert volume, the share of alerts
+reaching the model and the cost per alert. Phase 1 measures them (`scripts/measure_scale.py`,
+`scripts/measure_llm_usage.py`) and the figures go here; none is estimated in advance.
 
 ## 17. API design
 
@@ -1372,7 +1367,7 @@ immediately.
     same bytes, so reports stay deterministic).
   - Downloads re-check that the reader's scope covers every domain in the report.
 - **Recurring and per-case reports** (`reporting/reports.py`): daily exposure, weekly VM, weekly management deck,
-  per-case investigation record. A client's `.docx` or `.pptx` template can be the base.
+  per-case investigation record. NAM's `.docx` or `.pptx` template can be the base.
 - **Compliance pack** (`reporting/compliance.py`): a ZIP of `evidence.json` (controls, computed pass/fail tests,
   figures), `audit_log.jsonl` (full chained export with verification) and `summary.docx`. No secrets and no prompts.
 - **Output** is encrypted at rest and audited.
@@ -1400,131 +1395,10 @@ immediately.
   masked.
 - **Corporate CAs:** `SSL_CERT_FILE` (honoured by httpx) covers every outbound TLS connection; `SOC_LLM_CA_BUNDLE`
   covers only the LLM gateway.
-- Moving into a client environment (hosting, sign-in, each tool, the client's own LLM):
-  [CLIENT_DEPLOYMENT_GUIDE.md](CLIENT_DEPLOYMENT_GUIDE.md).
+- Moving into NAM's environment (hosting, sign-in, each tool, NAM's own LLM):
+  [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 - The full list of settings is in [OPERATIONS.md](OPERATIONS.md). Every setting in production documentation is also
   in `deploy/docker-compose.yml`.
-
----
-
-## 21. The phishing ML engine (trained models per e-mail component)
-
-`soc_platform/domains/phishing/engine/` is an earlier, self-contained phishing analysis system. It runs **inside the
-platform by default** whenever its libraries (scikit-learn, XGBoost, LangGraph) are installed:
-- a seven-agent swarm: header, content NLP, URL, attachment/OCR, sandbox, threat intel, user behaviour
-- a LangGraph decision graph (weighted scoring with a consensus boost), a counterfactual engine, MITRE mapping
-- RabbitMQ workers, Redis caching and a sandbox executor for detonation, when deployed as its own service
-- models verified by SHA-256 manifest before loading
-
-**The trained models** (`artifacts/phishing/models/`): header (random forest), content (a text classifier, below), URL
-(random forest), attachment and sandbox (scikit-learn), threat intel and user behaviour (XGBoost).
-
-**The content model was replaced** (2026-09-29). The delivered model was a 2-layer BERT reading the first 128 tokens;
-on 2,000 held-out public messages it reached 68 % accuracy and caught 25 % of phishing, and on the platform's corpus
-it called three phishing e-mails "Legitimate" with 90-95 % confidence and never predicted *Spam*. The new model
-(`scripts/train_content_model.py`, model card in `content_agent/model_card.json`):
-- TF-IDF word (1-2) and character (3-5) features + logistic regression, three classes (legitimate, spam, phishing);
-  9.5 MB, half the old model, ~6 ms per e-mail on a laptop CPU (measured; the list of 300k feature names
-  used to explain a score is built once per loaded model - rebuilding it per e-mail cost 149 ms)
-- the whole message, HTML reduced to visible text; links, addresses and numbers as neutral tokens
-  (`content_agent/text_prep.py`, the same function in training and at inference)
-- risk = expected risk over the classes (legitimate 0, spam 0.65, phishing 0.95); the words that pushed most towards
-  the predicted class become evidence (`content_terms:`)
-- trained on public data: the Nazario phishing corpus 2019-2025 (real phishing; CC BY 4.0 - attribution below),
-  the SpamAssassin public corpus (legitimate and spam; non-live testing terms: the messages are never sent) and the
-  "Safe Email" rows of zefang-liu/phishing-email-dataset (LGPL-3.0). That dataset's "Phishing Email" rows were left
-  out: most are ordinary spam, which would teach "spam = phishing". 11,499 messages after de-duplication, 20 %
-  held out
-- results: hold-out 99.1 % accuracy (phishing recall 98.9 %, spam 96.3 %) - likely flattered by the older
-  legitimate mail - and, on the platform's corpus it was never trained on, 10 of 12 base messages right (the old
-  model 7), every phishing message caught. It still reads invoice wording as phishing, so it never confirms an alarm
-  on its own.
-
-Attribution: phishing corpus by Jose Nazario, https://monkey.org/~jose/phishing/, licensed CC BY 4.0.
-
-**Integration:**
-- `SOC_PHISHING_ENGINE`: `auto` (default: on when installed), `1` (on), `0` (heuristic only). Used by the server,
-  the jobs and `demo` (which prints which analysis it used). The test suite pins `0` except `test_phishing_engine.py`.
-- `EngineAnalyzer` runs the agents in parallel on the parsed e-mail, then the engine's decision graph. The engine's
-  own persistence, actions, LLM and the retired "Garuda" hop are disabled; the platform's action layer, policy,
-  audit, LLM gateway and impact agents replace them.
-- Models load in a background thread at server start (`warm_up_engine`): ~9-11 s on a laptop CPU, then ~1 s per
-  e-mail. The models are cached per process.
-- The engine logs through loguru at INFO per graph node; in-process it is set to `SOC_PHISHING_ENGINE_LOG_LEVEL`
-  (default `WARNING`). scikit-learn is pinned to 1.8.x, the version the models were saved with.
-
-**The platform feeds the models what they cannot see in the e-mail** (each measured before and after, below):
-- **Threat intel:** inside the platform the engine's own agent had no API keys and an empty local store, so it
-  scored every message 0. It now receives the platform's threat-intel fusion (8 sources, already queried by the
-  heuristic for the sender domain, link domains, attachment hashes and origin IP; `platform_threat_intel_result`):
-  malicious indicators score 0.8-1.0 by how many sources agree, suspicious 0.45, nothing found 0.
-- **User behaviour:** four of its seven inputs were defaults in this deployment (contact history "never", department
-  "medium risk", business hours "always"). The platform now supplies them (`behavior_context`, passed as
-  `payload["behavior_context"]` and read by the engine's feature contract): the recipient's delivered-mail history
-  with the sender's domain over 90 days (Defender for Office 365 advanced hunting, `sender_history`, the reported
-  message itself excluded), the recipient's department (the directory) and whether the message arrived in business
-  hours (its Date header, in the sender's time zone). Anything that cannot be looked up keeps the model's default.
-- **Sandbox:** without an isolated detonation host only the agent's static fallback runs, and on the labelled corpus
-  that ranked malicious attachments no better than chance (separation 0.40) while the attachment agent covers the
-  same ground correctly. It is therefore **not run** in-platform unless `SOC_PHISHING_SANDBOX=1` (a detonation host
-  is configured).
-
-**Fusion** (`CompositeAnalyzer.fuse`): the more severe verdict wins; both opinions, every model's score and each
-model's measured reliability are kept on the case and shown on the case page (*Analysis*). Two safeguards send a
-case to an analyst as *suspicious* instead of declaring it malicious:
-- **Corroboration:** when the engine alone says malicious (the heuristic says safe or spam) and none of the reliable
-  models (header, URL, attachment, threat intel - `MODEL_RELIABILITY`) scores 0.5 or more, i.e. only the content and
-  user-behaviour models drove it.
-- **Authenticated sender:** when the engine alone calls a DMARC/DKIM-authenticated sender malicious below 0.85.
-
-Engine indicators that describe the agent's own state or an absence (`ml_header_model_used`, `urls_analyzed=2`,
-`virustotal_not_configured`, `no_attachments`, the content model's own label...) are not turned into evidence
-(`ENGINE_STATUS_NOTE`, checked against every indicator the agents emitted on the corpus).
-
-**Measured** (`scripts/eval_phishing.py --engine [--no-context]`: the built-in corpus plus the corpora of two
-generated organisations, each analysed against its own tools and people; 46 labelled messages, 28 malicious or
-suspicious, 18 legitimate or spam):
-
-| | Detection | Legitimate called malicious | Exact verdict |
-|---|---|---|---|
-| Heuristic analyser alone | 28 / 28 | 0 | 44 / 46 |
-| ML engine alone, without the platform's data | 22 / 28 | 3 (the genuine invoice, in each organisation) | 33 / 46 |
-| ML engine alone, **with** the platform's data | 22 / 28 | **0** | 36 / 46 |
-| ... and the new content model | **25 / 28** | **0** | **39 / 46** |
-| **Combined, as the platform runs it** | **28 / 28** | **0** | **46 / 46** |
-
-Each model on its own (separation: the chance a malicious message scores above a legitimate one; 0.5 = coin flip):
-
-| Model | Separation | Notes |
-|---|---|---|
-| Header | 0.85 | never scored a legitimate message 0.5+; misses attacks with clean authentication |
-| URL | 1.00 on the 13 messages with links | 0.49 over all 46: a message without links scores 0, correctly |
-| Attachment | 1.00 on the 13 with attachments | ranks correctly but scores many malicious attachments below 0.5 |
-| Content | 0.88 → **0.99** with the new text classifier | phishing scored below 0.5: 7 → 0; still flags the genuine invoice |
-| User behaviour | 0.86 → **0.93** with real contact history | legitimate messages scored 0.5+: 3 → 0 |
-| Threat intel | 0.50 on this corpus | the intel sources know none of the corpus domains; contributes on known campaigns |
-| Sandbox | 0.40 (static fallback only) | not run without a detonation host |
-
-Read with care: the corpus is small and synthetic, the generated organisations reuse its base messages, and the
-heuristic was written alongside it. With the new content model the engine's only blind spot on it is a
-bank-detail-change request from a real supplier's account (no link, no attachment, a familiar sender); the heuristic
-covers it. Next steps: retrain the content model on the client's reported mail once shadow mode has collected it
-(the public legitimate mail is old), and recalibrate the attachment model. Real accuracy is measured on the client's
-reported mail in shadow mode.
-
-**Tested in the platform** (`test_phishing_engine.py`, 13 tests): every in-platform agent answers inside the real
-pipeline; the genuine invoice is safe and phishing still caught with the platform's data; threat intel fed from the
-platform; sandbox off without a detonation host; both safeguards; status notes not cited; the behaviour features
-use real history, department and arrival time; fallback when the engine fails; the setting.
-
-**Quality:** 205 engine tests. It is lint-clean under the repository's policy (resilience-boundary catch-alls
-documented in `pyproject.toml`; silent `pass` handlers replaced with logging). Real bugs fixed during review:
-- a warning-banner action that reported success without changing the message (it now tags delivered mail, the only
-  change Graph allows)
-- an ignored severity filter
-- IOC timestamps mislabelled as UTC
-- a blocking write inside an async handler
-- a leaked file handle
 
 ---
 
@@ -1646,6 +1520,24 @@ Operations detail: [OPERATIONS.md](OPERATIONS.md).
 
 ## 25. Decision log
 
+### 25.1 NAM build decisions
+
+| # | Decision | Alternatives considered | Why |
+|---|---|---|---|
+| N1 | Switch inherited modules off by scope, not delete them | delete the code | deleting would mean rewriting much of the inherited suite; scope gives one switch with a test for each surface |
+| N2 | Decisions read structured facts; insider text fenced | let the model read the message | an insider writes the message; no decision may lower severity on content |
+| N3 | The AI's authority is earned per narrow decision type (shadow → recommend → decide) with targets set by NAM | one global AI on / off switch | agreement differs by channel; promotion needs evidence and a second lead; drift demotes without a person |
+| N4 | `decide` refused in code in this version | a setting | it cannot be switched on by configuration before the adversarial DLP-content test set exists |
+| N5 | The Dome Score weights are a versioned, two-lead document | constants in code | NAM's CISO agrees them; every change is previewed and audited; a trend names a weights change |
+| N6 | Containment always four-eyes, enforced in the engine | trust the policy document | a policy version could otherwise make isolation autonomous (found in round 39) |
+| N7 | Exactly-once claims on every approval | check-then-write | two people approving at once both succeeded (round 39) |
+| N8 | Configuration export outside the sync runner and the context store | sync it as a stream | it is a document to diff, not events about entities |
+| N9 | Compliance mapping as versioned data, never 'compliant' | controls in code | NAM's compliance team validates it; regulatory facts only from the source text |
+| N10 | Placeholder connectors in fake mode until vendor docs exist | build from memory of the APIs | a fixture happily answers calls a tenant would refuse (an inherited lesson) |
+
+### 25.2 Platform core decisions (inherited)
+
+
 | # | Decision | Alternatives | Why | Consequence |
 |---|---|---|---|---|
 | 1 | Deterministic scoring; the LLM only narrates | LLM verdicts | Explainability, auditability, reproducibility; no hallucinated numbers; works with the LLM off | More engineering in code; narrative quality depends on the evidence given |
@@ -1685,7 +1577,7 @@ Operations detail: [OPERATIONS.md](OPERATIONS.md).
 | 35 | Per-role data scope: a principal sees the union of its roles' domains, but each permission counts only where the role granting it applies (`Principal.acting_in`); route guards, case writes and `ActionService` decide with the acting principal | One merged scope per principal; separate accounts per scope | Penetration testing found the merged scope let a phishing lead who was also an all-domain auditor approve incident actions | Cross-domain decisions (policy, evidence export, correlated findings) need an all-domain role; `/me` shows `role_scopes` |
 | 36 | Every regex over message content is bounded (no unbounded run before a required character; scans stop at the next tag) and tested on 2.4 MB hostile bodies | An HTML parser for extraction; a timeout around analysis | Quadratic patterns let one reported e-mail hold a worker for hours; bounded patterns keep the verdict logic unchanged | Anchor text beyond 5,000 characters and addresses beyond RFC lengths are not matched |
 | 37 | Console single sign-on implemented in the console itself (authorization code + PKCE against Entra ID, no library), configured from a public `GET /api/v1/auth/config` | MSAL.js; sign-in at a reverse proxy (Easy Auth / oauth2-proxy) | Keeps the strict CSP (`script-src 'self'`, only `login.microsoftonline.com` added to `connect-src`) and no third-party script; one app registration serves API and console | No silent token refresh: an expired token means one more click on *Sign in with Microsoft* (Entra keeps the session). Exercised end to end only in a real tenant |
-| 38 | An organisation's own LLM gateway is reached through settings, not code: auth header and prefix, fixed extra headers, CA bundle, JSON mode off, beta fallback off | A provider per client | Multi-vendor gateways (Claude, Gemini, OpenAI behind one endpoint) mostly speak the OpenAI chat-completions protocol but differ in these details; everything else (redaction, guardrails, budget, breaker) stays in the gateway | Token-per-call (OAuth) gateways or non-OpenAI protocols still need a small provider class (`docs/CLIENT_DEPLOYMENT_GUIDE.md` 5.7) |
+| 38 | An organisation's own LLM gateway is reached through settings, not code: auth header and prefix, fixed extra headers, CA bundle, JSON mode off, beta fallback off | A provider per client | Multi-vendor gateways (Claude, Gemini, OpenAI behind one endpoint) mostly speak the OpenAI chat-completions protocol but differ in these details; everything else (redaction, guardrails, budget, breaker) stays in the gateway | Token-per-call (OAuth) gateways or non-OpenAI protocols still need a small provider class (`docs/DEPLOYMENT_GUIDE.md` 5.7) |
 | 39 | Connector formats audited against vendors' public references and reference integrations; fixtures regenerated in the real shapes | Trusting the first implementation | The audit found mismatches that would only have shown in a live tenant: HEC events without message fields and per-engine verdicts, Wiz union fields and resource fields, ServiceNow local-time display timestamps, InsightVM fix text and severity words, MDE alert evidence, Graph beta-only sign-in fields | Each connector still needs its first run against the client's tenant |
 | 40 | A conformance suite runs every connector through the API behaviour a tenant has and the demo fixtures do not: its vendor's paging, resume, 429, 401, 403, missing / null fields; fixtures can say "answer this way N times" and carry headers | More hand-written demo data | The demo is one tidy scenario; the suite found resume bugs in nine connectors, crashes on missing fields in fourteen, a swallowed timezone offset and Sentinel incidents without entities | Proves behaviour against documented shapes, not the client's: record-and-sanitise (#43) closes that gap during deployment |
 | 41 | Event streams resume from a time watermark (newest change seen, minus a 30-minute overlap; future times ignored); inventories are read in full; a continuation token is never kept between syncs; a stream says when it is complete (`Page.reset`) | Keep the last cursor (the previous behaviour) | Continuation tokens expire or point past the end; offsets into moving windows skip or repeat; logs arrive late | Each sync re-reads up to 30 minutes of events (de-duplicated); inventories cost one full read per sync |
@@ -1760,13 +1652,13 @@ Operations detail: [OPERATIONS.md](OPERATIONS.md).
 
 ## 26. Known limitations and trade-offs
 
-- **Not yet run against the client's tenants.** Connectors follow documented APIs and are exercised through fixtures.
+- **Not yet run against NAM's tenants.** Connectors follow documented APIs and are exercised through fixtures.
 - **No schema migration framework.** Additive changes (new tables, new optional columns, wider text) are automatic
   on both engines; required columns, renames and drops need Alembic, which should be introduced before the first
   such change in production.
-- **Load at the client's own volume not yet measured.** Measured on generated messy estates up to 21,675 records /
+- **Load at NAM's own volume not yet measured.** Measured on generated messy estates up to 21,675 records /
   21,728 entities (cost per record flat as they grow) and with 100 concurrent analysts on one laptop (no error). The
-  client's volume, network latency to PostgreSQL and vendor API budgets are measured during deployment with the same
+  NAM's volume, network latency to PostgreSQL and vendor API budgets are measured during deployment with the same
   scripts against the target environment. Ingestion is ORM-bound (about 29 statements per record): around 146
   records/s on SQLite and 75 on a local PostgreSQL; a first backfill of a very large tenant takes hours (it is
   committed per page and resumable). Each new incident's enrichment waits on the tools' request budgets (about 1.5 s).
@@ -1780,11 +1672,11 @@ Operations detail: [OPERATIONS.md](OPERATIONS.md).
   mitigation meanwhile.
 - **Infrastructure proved by rendering and compiling, not yet by a real deployment.** The Bicep template compiles
   without warnings, the overlays render and are tested, and the production Compose stack was run end to end; a
-  `what-if` in the client's subscription and the failover drill on the real cluster are go-live steps.
+  `what-if` in NAM's subscription and the failover drill on the real cluster are go-live steps.
 - **Security testing is internal** (automated pentest, fuzzing, XSS probe). An independent third-party test is still
   needed before go-live.
 - **Accessibility is automated** (axe-core); a manual screen-reader review has not been done.
-- **Latency depends on the client's APIs.** The measurements in §16.1 assume 400 ms per vendor call; real tenants
+- **Latency depends on NAM's APIs.** The measurements in §16.1 assume 400 ms per vendor call; real tenants
   can be slower (large advanced-hunting queries in particular). Enrichment has a 20 s deadline per source, so a slow
   tool delays one case by at most that and is then reported as unavailable.
 - **Notifications are platform-wide:** one threshold and one set of channels; no per-team or per-domain routing
@@ -1797,7 +1689,7 @@ Operations detail: [OPERATIONS.md](OPERATIONS.md).
   platform core.
 - **No per-person erasure.** Retention and legal hold exist, but a data-subject erasure request (remove one person's
   data everywhere) has no tool. The audit log is append-only and hash-chained, so erasure there needs a design - for
-  example pseudonymising the person in place with a recorded, chained event - agreed with the client's data-protection
+  example pseudonymising the person in place with a recorded, chained event - agreed with NAM's data-protection
   officer.
 - **Request rate limits and tool budgets are per process.** The API's per-client limit (20/s, burst 120) is held in
   each server process, so with N workers a client may reach N times it; tool budgets are divided by

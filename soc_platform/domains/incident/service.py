@@ -330,7 +330,9 @@ class IncidentService:
         open_cases = self.s.execute(select(Case).where(Case.domain == "incident", Case.status != "closed")
                                     .order_by(Case.created_at, Case.id)).scalars().all()
         for case in open_cases:
-            if case.id in exclude:
+            # a cross-tool case (intelligence/crosstool.py) is built from other tools' facts, not from alerts this
+            # pipeline clustered: investigating it here would replace its assessment and add unrelated actions
+            if case.id in exclude or (case.attributes or {}).get("crosstool"):
                 continue
             known = {(e.entity_id, e.summary) for e in self.s.execute(select(Evidence).where(
                 Evidence.case_id == case.id, Evidence.dimension == "exposure")).scalars()}

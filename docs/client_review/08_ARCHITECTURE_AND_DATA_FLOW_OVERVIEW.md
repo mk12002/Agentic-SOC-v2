@@ -1,69 +1,49 @@
-# Architecture and data flow overview
+# 8. Architecture and data flow overview
 
 | | |
 |---|---|
-| **Document** | Architecture and data flow overview - Agentic SOC platform |
-| **Version** | 1.0 - 2026-10-13 |
-| **Audience** | Customer presentation: security leadership, architecture, SOC |
+| **Document** | CyberDome for NAM - review pack, document 8 of 9 (for the customer presentation) |
+| **Answers** | The architecture, data flow, AI components, human control and external transfers - in one view each |
 
-## About the platform
-
-The Agentic SOC platform is a planned investigation and automation layer that runs inside the organisation's own
-environment, on top of the security tools it already owns. It recommends actions; **a person approves them**. An
-optional AI model, reached only through the organisation's own LLM gateway, writes explanations from evidence but
-never makes a decision.
-
-**Status:** the design below is **Planned**. The development environment (a dedicated development VM) is being set up.
-
-## 1 High-level architecture
+## 8.1 One layer, inside NAM's boundary
 
 ![System context](diagrams/01-context.svg)
 
-| Part | Planned role |
-|---|---|
-| SOC analysts | Use a browser; sign in with the organisation's Entra ID single sign-on and MFA; roles decide what each person sees and may approve |
-| Platform | Runs in the organisation's environment: workflows (phishing, incident, vulnerability), intelligence (risk, correlation), governance (roles, approvals, audit), LLM gateway client, connectors |
-| Security tools | Reached through their vendor APIs over HTTPS, outbound only, with a dedicated least-privilege identity per tool; read-only by default |
-| Organisation services | Entra ID, the vault holding credentials, the SIEM / log platform, monitoring, optional Teams / Slack notifications, the organisation's LLM gateway |
-| Storage | PostgreSQL and an encrypted file store, both inside the organisation's environment |
+CyberDome runs in NAM's environment or an Indian cloud region. It reads Forcepoint DLP, Silverfort, Trend Micro,
+Trellix ePO and the AD / CMDB export (Arcon, Cloudflare and NAM's SIEM / SOAR follow in Phase 2), resolves every
+record to one device or person, and offers the CyberDome modules: Dome Connect, Dome Graph, Dome Agents, cross-tool
+cases, the Dome Score, Dome Comply and the pilot scorecard. In Phases 1-2 nothing is written to any tool.
 
-## 2 Data flow
+## 8.2 Data flow
 
 ![Data flow](diagrams/04-data-flow.svg)
 
-1. **Collect** - connectors read alerts, inventory, findings, sign-ins and reported e-mails from the tools.
-2. **Link** - each record is resolved to one host or one person; ambiguous matches go to an analyst.
-3. **Investigate** - the workflows enrich, score with fixed rules and recommend actions.
-4. **Decide** - an analyst reviews the evidence and approves or rejects each action.
-5. **Act** - approved actions are sent to the tool through one governed action layer; every step is audited.
+A DLP incident is read, resolved to its sender and device, turned into numbered facts, judged by a published table,
+escalated into a case when warranted, investigated with read-only look-ups, decided by the AI in shadow, and ruled on
+by an analyst. Text the sender wrote is kept apart and never decides. Everything is stored in PostgreSQL in the region.
 
-## 3 AI / LLM components
+## 8.3 The AI
 
 ![AI / LLM call path](diagrams/05-llm-path.svg)
 
-- Optional, and reached only through the organisation's own LLM gateway.
-- Names of people and hosts are pseudonymised before a prompt leaves the platform and restored after.
-- The model writes explanations from evidence it is given and must cite it; uncited statements and figures not in
-  the evidence are removed.
-- The model never produces a figure, verdict, score or decision, and cannot trigger an action. With the model off,
-  every result is the same.
+Optional, in NAM's environment or an Indian region. Every call passes the usage policy, pseudonymisation and the
+approved-endpoint check; the answer passes the citation and numeric checks; any refusal or failure falls back to the
+computed path. The AI's authority over DLP dispositions is earned per decision type.
 
-## 4 Analyst interaction and control
+## 8.4 Human control
 
 ![Human approval controls](diagrams/06-action-governance.svg)
 
-- Default policy: **recommend** - every action waits for a person's approval.
-- High-impact actions need two people; irreversible actions can never run on their own.
-- A kill switch stops all automatic execution; pausing a tool stops every write to it.
+Every action is recommended; a person approves; containment needs two people whatever the policy says. Weights,
+catalogue, rule changes and AI promotions need two leads. Reportability is a person's decision.
 
-## 5 External data transfers
+## 8.5 External transfers
 
-| Destination | What is sent | When |
+| To | What | When |
 |---|---|---|
-| The organisation's security tools (vendor cloud APIs) | API requests for data; approved actions | Always, per connected tool |
-| Public vulnerability intelligence (NVD, EPSS, CISA KEV) | CVE identifiers only | When enabled |
-| Threat-intelligence sources | Indicators only (hashes, external domains / IPs); internal addresses and the organisation's own domains are never sent | Only sources the organisation approves |
-| The organisation's LLM gateway | Pseudonymised evidence for explanations | Only if the AI is enabled |
-| Anything else | Nothing: no vendor-hosted service, no telemetry home, no URL from an e-mail is ever fetched | - |
+| NAM's tools | API reads; approved actions from Phase 3 | always |
+| The model | pseudonymised evidence | only if on; approved endpoint in NAM's environment or an Indian region |
+| Teams / Slack / webhook | a finding's title, severity, link | only if configured |
+| Entra ID | sign-in key requests | production |
 
-The detailed versions are in *Solution architecture*, *Data flow and protection* and *AI / LLM security*.
+Nothing else leaves the deployment.

@@ -1,9 +1,10 @@
 """Posture score (Dome Score), version ``v1-draft``: one figure for the CISO, computed by a published formula.
 
-DRAFT WEIGHTS. The weights and penalties below are a starting proposal; they are to be agreed with the CISO and will
-then live in a versioned, two-person-approved document like the autonomy policy. Until then the API and the screen
-label the score as a draft. Nothing here is written by a model: every figure can be recomputed from the factors
-returned with it.
+ADJUSTABLE WEIGHTS. The domain weights and the penalties are a versioned document (``posture_weights.py``): a lead
+proposes a change, sees the score it gives, and a second lead approves it. Until one is approved the built-in draft
+below applies and the API and the screen say "draft - to be agreed with the CISO". Nothing here is written by a model:
+every figure can be recomputed from the factors and the weights returned with it. The default figures in this
+docstring are the draft's.
 
 Domain scores (0-100, or "not measured" when no connected tool can tell):
 
@@ -34,10 +35,11 @@ from soc_platform.core import controls
 from soc_platform.core.models import Case, Entity, utcnow
 from soc_platform.intelligence.control_coverage import coverage
 from soc_platform.intelligence.models import PostureSnapshot
+from soc_platform.intelligence.posture_weights import DEFAULT, WeightsStore
 from soc_platform.intelligence.tool_health import tool_health
 
 FORMULA_VERSION = "v1-draft"
-WEIGHTS = {"identity": 20, "privileged_access": 20, "endpoint": 20, "data_protection": 25, "web": 15}
+WEIGHTS = dict(DEFAULT["weights"])          # the built-in draft (the weights in force: posture()["weights"])
 LABELS = {"identity": "Identity", "privileged_access": "Privileged access", "endpoint": "Endpoint",
           "data_protection": "Data protection", "web": "Web (WAF)"}
 DATA_PROTECTION_TOOLS = {"forcepoint_dlp", "trellix_epo"}
@@ -88,7 +90,18 @@ def _identity(session: Session) -> dict[str, Any]:
                                 link="#/cases")]}
 
 
-def posture(session: Session) -> dict[str, Any]:
+def _pen(cfg: dict[str, Any], key: str, n: int) -> float:
+    p = cfg["penalties"][key]
+    return float(min(p["cap"], p["points"] * n))
+
+
+def posture(session: Session, *, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The score now. ``config``: weights and penalties to compute it with (a preview); by default the version in force."""
+    if config is None:
+        config, source = WeightsStore(session).active()
+    else:
+        source = {"version": "preview", "status": "preview - not in force"}
+    W = config["weights"]
     cov = coverage(session, limit=0)
     health = tool_health(session)
     by_control = {c["control"]: c for c in cov["controls"]}
@@ -109,10 +122,11 @@ def posture(session: Session) -> dict[str, Any]:
         base = sum(c["covered_percent"] for c in dp) / len(dp)
         mine = [f for f in health["findings"] if f["tool"] in DATA_PROTECTION_TOOLS]
         crit, warn = sum(f["severity"] == "critical" for f in mine), sum(f["severity"] == "warning" for f in mine)
-        h_pen = min(20, 5 * crit + 2 * warn)
+        dc, dw = config["penalties"]["dp_health_critical"], config["penalties"]["dp_health_warning"]
+        h_pen = float(min(max(dc["cap"], dw["cap"]), dc["points"] * crit + dw["points"] * warn))
         cases = session.execute(select(func.count()).select_from(Case).where(
             Case.domain == "dlp", Case.status != "closed")).scalar() or 0
-        c_pen = min(15, 3 * cases)
+        c_pen = _pen(config, "dlp_case", cases)
         # each control counts for its share of the mean, so the factors add up to the domain score
         domains["data_protection"] = {"score": _clamp(base - h_pen - c_pen), "measured": True, "reason": None, "factors": [
             *[_factor(f"{c['label']}: devices covered", f"{c['covered']} of {c['applicable']}",
@@ -131,23 +145,27 @@ def posture(session: Session) -> dict[str, Any]:
         domains[d] = {"score": None, "measured": False, "factors": [],
                       "reason": "No tool for this domain is connected yet."}
 
-    measured = {d: v for d, v in domains.items() if v["measured"]}
+    for d, v in domains.items():
+        if v["measured"] and not W[d]:
+            v["note"] = "weight 0: measured, left out of the score"
+    measured = {d: v for d, v in domains.items() if v["measured"] and W[d] > 0}
     crit_cases = session.execute(select(func.count()).select_from(Case).where(
         Case.status != "closed", Case.severity == "critical")).scalar() or 0
-    case_pen, health_pen = min(20, 4 * crit_cases), min(10, 2 * health["counts"]["critical"])
+    case_pen, health_pen = _pen(config, "critical_case", crit_cases), _pen(config, "critical_health", health["counts"]["critical"])
     score = None
     weighted = None
     if measured:
-        total = sum(WEIGHTS[d] for d in measured)
-        weighted = sum(WEIGHTS[d] * v["score"] for d, v in measured.items()) / total
+        total = sum(W[d] for d in measured)
+        weighted = sum(W[d] * v["score"] for d, v in measured.items()) / total
         score = round(max(0.0, min(100.0, weighted - case_pen - health_pen)))
-    ordered = [{"id": d, "label": LABELS[d], "weight": WEIGHTS[d], **domains[d]} for d in WEIGHTS]
-    levers = _levers(ordered, measured, case_pen, health_pen, crit_cases, health["counts"]["critical"])
+    ordered = [{"id": d, "label": LABELS[d], "weight": W[d], **domains[d]} for d in LABELS]
+    levers = _levers(ordered, measured, W, case_pen, health_pen, crit_cases, health["counts"]["critical"])
     movers = sorted((f | {"domain": LABELS[d["id"]]} for d in ordered for f in d["factors"] if (f["effect"] or 0) < 0),
                     key=lambda f: (f["effect"], f["label"]))
     return {"score": score, "band": band(score), "bands": [{"from": f, "band": b} for f, b in BANDS],
-            "formula_version": FORMULA_VERSION,
-            "weights_status": "draft - to be agreed with the CISO", "domains": ordered,
+            "formula_version": FORMULA_VERSION, "weights": dict(W), "penalty_settings": config["penalties"],
+            "weights_version": source.get("version"), "weights_source": source,
+            "weights_status": source["status"], "domains": ordered,
             "weighted_mean": None if weighted is None else round(weighted, 1),
             "penalties": [_factor("Open critical cases", crit_cases, -case_pen,
                                   action=f"Resolve {crit_cases} open critical case(s)", link="#/cases"),
@@ -157,20 +175,20 @@ def posture(session: Session) -> dict[str, Any]:
             "coverage_percent": cov.get("coverage_percent")}
 
 
-def _levers(ordered: list[dict[str, Any]], measured: dict[str, Any], case_pen: float, health_pen: float,
-            crit_cases: int, crit_findings: int) -> list[dict[str, Any]]:
+def _levers(ordered: list[dict[str, Any]], measured: dict[str, Any], W: dict[str, int], case_pen: float,
+            health_pen: float, crit_cases: int, crit_findings: int) -> list[dict[str, Any]]:
     """What would raise the score most: each reduction with the points the whole score would regain if it were
     removed (a domain factor counts by its domain's share of the measured weight). An upper bound - a domain score
     held at 0 or 100 regains less."""
-    total = sum(WEIGHTS[d] for d in measured)
+    total = sum(W[d] for d in measured)
     out = []
     for d in ordered:
-        if not d["measured"]:
+        if d["id"] not in measured:
             continue
         for f in d["factors"]:
             if (f["effect"] or 0) < 0 and f.get("action"):
                 out.append({"domain": d["label"], "label": f["label"], "value": f["value"], "action": f["action"],
-                            "link": f["link"], "gain": round(-f["effect"] * WEIGHTS[d["id"]] / total, 1)})
+                            "link": f["link"], "gain": round(-f["effect"] * W[d["id"]] / total, 1)})
     for label, n, pen, action, link in (("Open critical cases", crit_cases, case_pen, f"Resolve {crit_cases} open critical case(s)", "#/cases"),
                                         ("Critical tool-health findings", crit_findings, health_pen, "Fix the critical tool-health findings", "#/controls")):
         if pen:
@@ -184,14 +202,15 @@ def snapshot(session: Session) -> dict[str, Any]:
     doc = posture(session)
     day = utcnow().strftime("%Y-%m-%d")
     row = session.get(PostureSnapshot, day)
-    slim = {"formula_version": doc["formula_version"],
+    slim = {"formula_version": doc["formula_version"], "weights_version": doc["weights_version"],
+            "weights": doc["weights"],
             "domains": {d["id"]: d["score"] for d in doc["domains"]}, "coverage_percent": doc["coverage_percent"]}
     if row is None:
         session.add(PostureSnapshot(day=day, score=doc["score"], document=slim))
     else:
         row.score, row.document = doc["score"], slim
     session.flush()
-    return {"day": day, "score": doc["score"]}
+    return {"day": day, "score": doc["score"], "weights_status": doc["weights_status"]}
 
 
 def trend(session: Session, *, days: int = 30) -> dict[str, Any]:

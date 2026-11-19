@@ -1,207 +1,85 @@
-# Security risk and governance
+# 5. Security risk and governance
 
 | | |
 |---|---|
-| **Document** | Security risk and governance - Agentic SOC platform |
-| **Version** | 1.0 - 2026-10-10 |
-| **Audience** | Security risk, governance and compliance, SOC management, internal audit |
+| **Document** | CyberDome for NAM - review pack, document 5 of 9 |
+| **Answers** | The risk assessment; access control; audit logging; monitoring; human approval controls; the security testing performed |
 
-## About the platform
+## 5.1 Risk assessment
 
-The Agentic SOC platform is an investigation and automation layer that runs inside the organisation's own environment,
-on top of the security tools it already owns (EDR, e-mail security, identity, DNS, deception, privileged access,
-vulnerability scanners, cloud posture, ITSM / CMDB, SIEM). It reads from those tools through their APIs, resolves every
-record to one host or one person, and runs three workflows - reported phishing, incident management and
-vulnerability management - plus a cross-domain intelligence layer. Every change it makes to a security tool is an
-*action request* that passes through one governed action layer and a versioned *autonomy policy*, whose default is
-**recommend**: a person approves each action. An optional large language model, reached only through the
-organisation's own LLM gateway, writes explanatory narrative but never produces a figure, verdict, score or decision.
+| # | Risk | Likelihood before controls | Controls | Residual |
+|---|---|---|---|---|
+| R1 | An insider writes text to talk the AI or an analyst into closing a DLP alert | Medium | facts not text; text fenced; no rule reads it; destination kept only as a real host name | Low |
+| R2 | The AI closes real data loss | Medium | shadow first; promotion on NAM's target and a second lead; close only on agreement with the computed disposition; never-automatic list; 1 in 10 re-checked; automatic demotion | Low |
+| R3 | Containment run by the platform or by one person | Medium | engine-enforced four-eyes for containment whatever the policy says | Low |
+| R4 | A stolen session used to decide | Medium | Entra ID, MFA for every decision, revocation, short sessions | Low |
+| R5 | Over-privileged integration accounts | Medium | read-only accounts per tool; writes only from Phase 3, per action | Low (Configured at deployment) |
+| R6 | Personal data leaving India through the model | Medium | model in NAM's environment or an Indian region, or off; pseudonymisation; approved endpoints | Low |
+| R7 | Tampered evidence or history | Low | hash-chained append-only audit; database refuses edits; hourly verification; anchors in NAM's log platform | Low |
+| R8 | A governance document changed quietly (weights, catalogue, policy) | Medium | versioned; two people; exactly-once approvals; every step audited | Low |
+| R9 | A regulatory deadline restarted or decided by the platform | Medium | a person decides; the decision stands; strict boolean; exactly-once | Low |
+| R10 | A DLP rule change hides real data loss | Medium | refused when it would hide escalated / bulk personal / high or critical / never-automatic alerts; second lead; engineer; verified | Low |
+| R11 | A tool outage misread as safety | Medium | "not measured" / "not reported" instead of zero or healthy; freshness per stream; stale shown | Low |
+| R12 | NAM's tool APIs differ from the placeholders | High | fake mode until confirmed; every path a setting; preflight; record and sanitise | Medium until each tool is onboarded |
+| R13 | Availability loss | Medium | stateless replicas, database HA, leased jobs, 503 not 500 under saturation | Low |
 
-**Status terms used in this document:** *Implemented* - built, enforced in code and covered by automated tests that
-run on every build; *Configured at deployment* - built, with the value chosen by or taken from the organisation's
-environment; *To validate in the organisation's environment* - built and tested against vendor-shaped data, not yet
-exercised against the organisation's own tenants, volumes or users (covered by the pilot).
+## 5.2 Access control
 
-## 1 Summary
+| Role | May |
+|---|---|
+| Analyst | investigate, rule on DLP alerts, take cases, add notes, request and approve normal actions, log outages |
+| Lead | everything an analyst may, plus approve high-impact and four-eyes actions, propose / approve weights, catalogue, rule changes, decision-type targets and promotions, decide reportability, export evidence |
+| Admin | access management (grants, API keys), connectors, kill switch, AI usage policy |
+| Automation admin | connectors, jobs, propose the autonomy policy, record tool changes |
+| Auditor | read everything in scope, the audit log, evidence exports |
 
-- The platform holds read access - and, once approved, write access - across the security estate, so it is treated as
-  **production security infrastructure**: least privilege, step-up MFA, separation of duties, a tamper-evident audit
-  chain and a durable kill switch.
-- **Humans decide.** Every write to a security tool is an action request; the default for every action type is
-  *recommend* (L2), so a person approves each one. Irreversible actions can never run autonomously. Approval
-  permissions can never be held by a service account.
-- **Everything is accountable.** Every change, decision, approval, configuration change and model call is an
-  append-only, hash-chained audit event; one trace id links each request or job to everything it caused.
-- **Tested adversarially.** A penetration suite attacks the platform on every build; a white-box review and live
-  probing found and fixed 14 issues (3 high); input fuzzing covers every API field, every connector field and every
-  policy document.
+* **Data scope:** `dlp`, `incident` or all domains; the Dome Score, Dome Comply and Pilot screens need all domains;
+  out-of-scope records answer "not found"; each role acts only inside its own scope.
+* **Step-up MFA** for every decision; **separation of duties** everywhere (nobody approves their own proposal,
+  compared case-insensitively); service accounts never approve, change policy or manage access; privileged grants
+  need a second administrator and end within 90 days.
+* **Break-glass:** a sealed secret exchanged once for a 15-minute session, audited and alerted.
 
-## 2 Risk assessment
+## 5.3 Audit logging
 
-Ratings are the inherent risk before controls and the residual risk with the controls in place, proposed for joint
-review with the organisation (H = high, M = medium, L = low). References R01-R16 are the project's risk register.
-
-| # | Risk | Inherent | Controls in place | Residual | Owner |
-|---|---|---|---|---|---|
-| 1 | **The platform is compromised** and used as a pivot into the security tools it can reach (R07) | H | Client-hosted, private network, inbound only via the TLS proxy; Entra SSO with MFA; per-tool least-privilege identities with read scopes by default; write scopes per approved action; every write gated by the autonomy policy and human approval; secrets only in the vault; non-root containers; penetration suite on every build | M | Joint |
-| 2 | **Stolen analyst session or token** used for high-impact decisions | H | RS256 tokens validated against the tenant keys (audience, issuer, tenant, expiry required); an application's own token is a service account that can never approve; step-up MFA for approvals, rollback, policy, kill switch and access management; per-token and per-user revocation; the console keeps the token for one browser tab; dev sign-in refused in production and never connected to a real tool; a deployment that forgets its production settings refuses to start | L | Joint |
-| 3 | **Insider misuse or over-privilege** | M | Five roles with least privilege; domain scoping per role (out-of-scope records answer "not found"); no self-approval of four-eyes actions, policies, exceptions or access grants; lead, admin and automation-admin grants need a second administrator and end within 90 days; turning the kill switch back off needs a lead; time-bound, justified grants; full audit and access logs | L | Organisation |
-| 4 | **Over-automation disrupts the business** (R04) | H | Default L2 for every action type; tool stage ceiling (*Recommend* never above L2); four-eyes for account disablement, host isolation and release, password resets, campaign purges, privileged-secret rotation and domain blocks; destructive types capped at L3; VIP / critical-asset and target-count gates; hard limit blocks; durable kill switch; reversible actions roll back through the same policy; an action is on record before the tool is called, and one whose result never came back is flagged for verification, never repeated | L | Organisation |
-| 5 | **Wrong entity resolution** routes a decision or a notification to the wrong host or person (R01) | M | Vendor ids as conflict keys (never merged); hardware identifiers need name corroboration; unsure matches go to an analyst queue; stress tests: 0 false merges for 400 hosts and 300 people | L | Joint (validate in pilot) |
-| 6 | **AI produces unsupported claims or is manipulated by injected content** (R02) | H | The AI never produces figures, verdicts or actions; grounding and numeric-fidelity guardrails; untrusted-output checks; read-only analyst tools; prompt-injection test | L | Joint |
-| 7 | **Sensitive data exposure** - e-mail content, identity and privileged-access data (R10) | H | Data stays in the organisation's environment; files encrypted at rest; retention with automatic legal hold; domain-scoped access; pseudonymisation before any AI call; internal indicators never sent to threat-intel services | M | Organisation |
-| 8 | **An integration credential is compromised** | H | One identity per tool, least privilege, read scopes by default; certificate credentials supported for Microsoft apps; secrets only in the vault, never in configuration, database, console or logs; rotation by replacing the vault file | M | Organisation |
-| 9 | **Tampering with history or evidence** | M | Append-only audit table (the platform, a database trigger and the runtime role's grants all refuse update and delete), SHA-256 chain, verification on demand and hourly; the chain's head shipped hourly to the organisation's log platform, so even the database owner cannot rewrite history unnoticed | L | Joint |
-| 10 | **Tampering with configuration** (redirecting a connector, switching a tool off or promoting it to act) | M | Four-eyes proposals (proposer cannot approve; MFA); strict schema; preflight before going live; versioned with restore; pausing - the safe direction - is the only immediate change | L | Organisation |
-| 11 | **Supply chain** - dependencies, images, ML model files | M | `pip-audit` clean; every image package installed against a SHA-256; base images and CI steps pinned by digest / commit; both images scanned (0 fixable high / critical); release images signed and verified at admission; unused packages removed; ML model files verified by SHA-256 manifest before loading; no runtime npm dependencies in the console; pinned scikit-learn version | L | Joint |
-| 12 | **The platform degrades the source tools** - rate-limit exhaustion (R06) | M | Per-tool request budgets split across processes; `Retry-After` honoured; inventories and event streams read incrementally | L | Joint (measure in pilot) |
-| 13 | **Availability** - a tool, the LLM or the database fails | M | Tool outages shown as "unavailable", never a silent verdict change; LLM circuit breaker with deterministic fallback; database saturation answers 503 with retry; scheduler self-healing, dead letters raise findings; stateless API replicas and two or more schedulers spread across nodes and zones, with renewed job leases (a dead scheduler's job is taken over within 120 s); stored files in the database so any replica serves any request; one failing e-mail or incident isolated and retried; liveness that never depends on the database; HA PostgreSQL (managed zone-redundant, or a three-instance cluster on-prem) | L | Joint |
-| 14 | **Malicious attachment execution** (R12) | M | The sandbox agent is disabled unless an isolated detonation host is configured; detonation hardening fails closed (no network, read-only root, capabilities dropped, seccomp, limits); the Docker socket is not mounted in platform services | L | Organisation (if detonation used) |
-| 15 | **Disclosure through notifications** - finding titles can name users and hosts | M | Destinations only from configuration, HTTPS only, threshold-based; webhook URLs never stored, logged or shown | M | Organisation (choose channels) |
-| 16 | **Detection and model drift** over time (R14) | M | Drift monitoring (agreement with analysts, distribution shift, confidence) raises findings; shadow-mode agreement metrics; deterministic rules unaffected by model drift | L | Joint |
-| 17 | **Live behaviour differs from tested behaviour** - tenant data shapes, volumes, permissions (R08) | M | Conformance and fuzz suites; preflight per tool; Recording stage to capture real shapes; staged rollout one tool at a time; pilot exit criteria | L after pilot | Joint |
-
-## 3 Role-based access control
-
-**Roles and permissions** (enforced in code, `core/auth.py`):
-
-| Permission | Analyst | Lead | Automation admin | Admin | Auditor |
-|---|---|---|---|---|---|
-| Read cases, findings, dashboards | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Read the audit log | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Investigate (enrich, dispositions, notes, deep analysis) | ✓ | ✓ | | | |
-| Request actions | ✓ | ✓ | | | |
-| Approve actions (not high-impact) | ✓ | ✓ | | | |
-| Approve high-impact actions (four-eyes, VIP, large blast radius) | | ✓ | | | |
-| Roll back actions | | ✓ | | | |
-| Resolve entities (review queue, overrides) | ✓ | ✓ | | | |
-| Propose autonomy policy | | | ✓ | | |
-| Approve autonomy policy and connector changes | | ✓ | | | |
-| Manage connectors (propose configuration, pause, test notifications) | | | ✓ | ✓ | |
-| Kill switch | | ✓ | ✓ | ✓ | |
-| Manage access (grants, API keys, session revocation, AI usage policy) | | | | ✓ | |
-| Export compliance evidence and the audit trail | | ✓ | | ✓ | ✓ |
-| Change the block / exception watch lists (upload, remove) | | ✓ | | | |
-| Propose, approve (a second lead) or revoke tuning rules (noise, raise attention, exercises, phishing auto-close, vulnerability priority and SLAs, usually-rejected actions; in the role's own domains) | | ✓ | | | |
-| Change the report style (templates, logo, brand, writing guide) | | ✓ | | ✓ | |
-
-| Control | Behaviour | Status |
+| Record | Contents | Protection |
 |---|---|---|
-| Source of roles | Entra ID app roles `SOC.<Role>` or `SOC.<Role>.<Domain>` assigned to groups; platform grants (time-bound, justified, audited) on top. Unknown role claims grant nothing | Implemented; configured at deployment |
-| Domain scope | Any role can be limited to phishing, incident and / or vulnerability. Every list is filtered; every record route checks the record's domain and answers "not found" out of scope - including reports, the audit log and the access log. Cross-domain views (intelligence, brief, metrics) need all-domain scope | Implemented |
-| Per-role scope | A user sees the union of their roles' domains, but each permission counts only where the role granting it applies (a phishing lead who is also an all-domain auditor approves phishing actions only) | Implemented |
-| Step-up MFA | Approvals, rollback, policy approval, kill switch, access management, watch-list changes and tuning need a token showing MFA (`amr`) or the configured Conditional Access authentication context; on by default in production | Implemented |
-| Human-only permissions | Approvals, policy, access management and rollback are never granted to API-key principals, whatever roles a key holds | Implemented |
-| Separation of duties | No one approves their own action, policy, exception, connector change or access grant; automation admins configure but cannot approve; a scoped administrator grants only their own domains; a lead, admin or automation-admin grant takes effect only when a second administrator approves it and ends within 90 days; a rollback is an action under the policy; switching the kill switch off needs a lead | Implemented |
-| Service accounts | API keys: only the SHA-256 is stored; expiry at most 365 days; roles limited to analyst, auditor or automation admin; shown once | Implemented |
-| Revocation | Per token (logout) and per user (revoke all sessions) | Implemented |
-| Break-glass | For identity-provider outages: a sealed secret of which only the hash is configured, exchanged once for a 15-minute session that is honoured only if the platform issued it (the configured hash alone gives no access); every use and failed attempt is audited and raises a critical finding; repeated failures from one address are refused | Implemented; configured at deployment |
+| Audit chain | every change and decision by a person or the AI: rulings, AI decisions, approvals, actions, documents, access, exports; every successful write request leaves at least one event | append-only (application and database), SHA-256 linked, verified hourly, anchors shipped to NAM's log platform, never pruned by the platform |
+| Access log | every API request: who, what, status, latency, address | append-only; 400 days |
+| Model calls | prompt (pseudonymised), answer, tokens, removals and why | 180 days of text |
+| Trace | one id ties a request or job to every record it caused | - |
 
-## 4 Audit logging
+Exports: JSON Lines, JSON, CSV (formula-guarded), Excel, Word; each export audited; an unfiltered export re-verifies
+outside the platform. The Dome Comply audit pack bundles the controls, assessments, the catalogue and the full trail.
 
-| Record | Content | Integrity | Retention |
-|---|---|---|---|
-| **Audit chain** | Every change and decision: action requests, approvals, rejections, executions, rollbacks; policy and configuration proposals, approvals and restores; access grants and revocations; case work (assignment, notes by length, dispositions); agent recommendations; model use; report builds and exports; retention runs; break-glass use. **Every successful write request leaves at least one event** (a generic one where a route's own code wrote none). Each event: actor, time, type, subject, payload, trace id | Append-only (update and delete refused); each record's SHA-256 covers the previous record's hash; concurrent writers serialised; `GET /api/v1/audit/verify` reports the first altered record; verified hourly by the self-check | Never pruned by the platform (the database refuses update, delete and truncate too); export as JSON Lines with chain verification for archiving or the SIEM, or as JSON, CSV, Excel or a Word report for a period, event type or actor - every export audited; the *Audit log* screen states retention, protections and access from the settings in force |
-| **Access log** | Every API request: who, authentication method, method, path, status, client address, user agent, latency | Append-only | 400 days (configurable) |
-| **Model-call log** | Every model call or refusal | - | Text 180 days; figures kept |
-| **Job runs** | Every scheduled or replayed job: outcome, attempts, error, summary | - | - |
-| **Application log** | Structured line per request, audit event, model call, outbound call, job and command; secrets masked | Shipped to the organisation's log platform | The organisation's policy |
+## 5.4 Monitoring
 
-**Trace ids.** Every request (`X-Request-ID`, reused from the proxy when it is a safe value), job and command gets a
-trace id that is stored on the access-log row, every audit event, every model call and the job run, and printed on
-every log line. The *Trace* view shows everything one request or job did, in order - including each model call's
-prompt, answer and the statements the guardrail removed.
+`/health` (scheduler state, audit chain), `/health/live` and `/health/ready` for probes, `/metrics` (Prometheus:
+cases, actions, sync age, kill switch, scheduler heartbeat, audit chain, failing jobs, break-glass use), alert rules
+for the Kubernetes package, the hourly self-check, structured JSON logs. Recommended alerts: scheduler stopped, audit
+chain broken, any break-glass use, an action outcome unknown, a job failing for 30 minutes, a tool stale for 6 hours.
 
-**Read access** to the audit log is scoped: domain-scoped readers see records about their domains and their own
-actions; the full export needs all-domain scope.
-
-## 5 Monitoring
-
-| Signal | Source | Suggested alert |
-|---|---|---|
-| Liveness and integrity | `/health` (details for signed-in callers: database, audit-chain validity, kill switch, scheduler state) | Audit chain not valid; scheduler `stale` / `stuck` / `never` |
-| Operational metrics | `/metrics` (Prometheus; auditor API key, all-domain scope): open cases, actions by status, insights, unresolved entities, seconds since each stream's last successful sync, kill switch, scheduler heartbeat age, audit chain, failing jobs, break-glass uses; ready-made alert rules in the delivery | Scheduler stopped; audit chain broken; break-glass used; an action's outcome unknown; a job failing; sync age above the stream's cadence; kill switch engaged |
-| Integrations | Integrations screen: per-connector state (healthy / stale / error / misconfigured), freshness per stream, reconciliation against the tool's own totals | Connector in error or stale |
-| Jobs | Job history; a job failing 3 runs in a row is dead-lettered and raises a finding | Any dead-lettered job |
-| Platform self-check (hourly) | Recomputes each shared figure through every code path, resolves every stored reference, looks for duplicates, verifies the audit chain; alerts only when a check fails twice | Self-check finding |
-| AI usage | AI usage screen; findings at 80 % and 100 % of the monthly budget and while a day's budget is used up | Budget findings; model-call errors |
-| Logs | stdout (JSON): `level` WARNING / ERROR, `job.end` not ok, `llm.call` error, `connector.http` errors, `connector.data_quality` (vendor sent an unexpected shape), `ingest.rejected` (pushed alerts refused) | As listed |
-| Security events | Break-glass use, revoked sessions, configuration and policy changes, kill switch - all audit events, and break-glass use raises a critical finding | Forward the audit export to the SIEM |
-
-Operational findings (dead-lettered jobs, break-glass use, failing self-check, AI budget) can also be pushed to Teams,
-Slack or a webhook.
-
-## 6 Human approval controls
+## 5.5 Human approval controls
 
 ![Human approval controls](diagrams/06-action-governance.svg)
 
-**Autonomy levels:** L0 observe, L1 enrich, L2 recommend (default), L3 approve, L4 autonomous. The policy decides each
-request's effective level, in this order: a failed precondition blocks; more targets than the hard limit blocks; the
-kill switch caps at L3; a destructive action type caps at L3; a VIP or critical-asset target forces L3 and
-high-impact; more targets than the action's limit forces L3 and high-impact; four-eyes marks it high-impact. All
-reasons are shown to the approver. A four-eyes action needs two different people: when the platform recommended it,
-two different leads approve it (the first approval is recorded, nothing runs until the second).
+| Control | Status |
+|---|---|
+| Default L2 for every action: the platform recommends, a person decides | Implemented |
+| A tool at `recommend` caps its actions at L2 whatever the policy says | Implemented |
+| Containment always four-eyes, never autonomous (engine-enforced) | Implemented |
+| Destructive actions never autonomous; VIP / critical targets and blast radius force approval; hard limits block | Implemented |
+| Exactly-once approval; recorded before and after the tool call; an unknown outcome flagged, never re-run | Implemented |
+| Kill switch: durable, every replica, immediate | Implemented |
+| Two leads for weights, catalogue, rule changes, promotions; a lead in person for reportability | Implemented |
 
-**Default policy** (every action type is L2 - recommend - until the organisation approves a change):
+## 5.6 Security testing performed
 
-| Action type | Tool | Per-request target limit | Four-eyes | Never autonomous (destructive) | Reversible by |
-|---|---|---|---|---|---|
-| `identity.disable_account` | Entra ID | 3 | ✓ | | `identity.enable_account` |
-| `identity.revoke_sessions` | Entra ID | 10 | | | - |
-| `identity.reset_password` | Entra ID | 10 | | ✓ | - |
-| `identity.confirm_compromised` | Entra ID | 25 | | ✓ | - |
-| `endpoint.isolate` | Defender for Endpoint, CrowdStrike | 5 | ✓ | | `endpoint.release` |
-| `endpoint.collect_forensics` | Defender for Endpoint, CrowdStrike | 25 | | | - |
-| `endpoint.scan` | Defender for Endpoint | 25 | | | - |
-| `indicator.block` | Defender for Endpoint | 25 | | | `indicator.unblock` |
-| `email.campaign_purge` | Defender for Office 365 | 200 | | ✓ | `email.restore` |
-| `email.block_sender` | Defender for Office 365 | 25 | | | `email.unblock_sender` |
-| `email.tag`, `email.reporter_feedback` | Defender for Office 365 | 25 | | | - |
-| `email.gateway_quarantine` | Avanan | 25 | | | `email.gateway_restore` |
-| `dns.block_domain` | Umbrella | 25 | | | `dns.unblock_domain` |
-| `pam.rotate_secret` | Delinea Secret Server | 5 | | ✓ | - |
-| `canary.acknowledge` | Canary | 25 | | | - |
-| `ticket.create`, `ticket.update`, `notify.email` | ServiceNow / Jira, Defender for Office 365 | 25 | | | - |
-
-All action types also have a hard limit of 5,000 targets per request, above which the request is blocked.
-
-| Control | Behaviour | Status |
-|---|---|---|
-| Single execution path | The action layer is the only code that calls a tool's write method | Implemented |
-| Idempotency | Each request has a key (type, parameters, targets, case); a repeat returns the existing request | Implemented |
-| Exactly-once execution | Approval is a conditional status update: six simultaneous approvals execute once (tested) | Implemented |
-| Preconditions | Re-checked at execution; a stale target is blocked and recorded | Implemented |
-| Rollback | Reversible actions create a linked reverse action; needs the rollback permission (lead) | Implemented |
-| Policy change control | Proposed by an automation admin, approved by a different person with `approve_policy` and MFA; validated field by field; versioned | Implemented |
-| Kill switch | One action in the console (lead / admin / automation admin, MFA); stored in the database, honoured by every replica and the scheduler, survives restarts | Implemented |
-| Pause a tool | Immediate, audited, reason required; its actions become manual steps; resuming is a proposal | Implemented |
-| Promotion evidence | Shadow-mode metrics: agreement between what the platform recommended and what analysts decided, per domain | Implemented |
-
-## 7 Security testing performed
-
-| Activity | Scope | Outcome |
-|---|---|---|
-| Automated penetration suite (every build) | Unauthenticated and forged credentials on every route (`alg: none`, wrong keys, expired, algorithm confusion, Basic, SQL in keys); role and scope escalation; injection payloads in every parameter; prompt injection in a reported e-mail; path traversal; oversized and malformed uploads; stored XSS on 8 screens; CORS, TRACE; key guessing; concurrent approvals; spoofed `X-Forwarded-For`; production-mode exposure | Every attack refused (401 / 403 / 404 / 413 / 422 / 429 as appropriate); no 5xx; nothing executed |
-| White-box review and live probing (round 2) | Every route, the authentication and access layers, the console's HTML sinks; ReDoS timing of every regular expression on hostile inputs up to 2.4 MB | 14 findings (3 high, 6 medium, 4 low, 1 info), all fixed with regression tests |
-| Input fuzzing | Every request field and query parameter of every API route; every field of every connector stream with wrong types; every node of the autonomy policy, AI usage policy and connector configuration; corrupted e-mails; model answers of every shape | All handled without a server error; malformed items refused with a reason |
-| Static analysis | bandit over the platform and scripts | No medium or high findings |
-| Dependency audit | pip-audit (Python), npm audit (test tooling) | No known vulnerabilities |
-| Browser tour | Real browser over every screen at 4 widths, accessibility scan, stored-XSS probe, screen-versus-API figure cross-check | No problems |
-| Database parity | The full suite on SQLite and PostgreSQL 16, with PostgreSQL's constraints enforced in SQLite runs | Identical results |
-
-
-## 8 The organisation's responsibilities
-
-These controls depend on the hosting environment and cannot be enforced by the platform's code:
-
-- Run behind TLS; restrict network access to the API; list the reverse proxy in `SOC_TRUSTED_PROXIES`.
-- Production settings: `SOC_ENVIRONMENT=prod`, `SOC_AUTH_MODE=entra`, `SOC_DATA_KEY` from the vault, break-glass hash
-  configured and the secret sealed with two custodians.
-- Entra app roles assigned to groups; Conditional Access requiring MFA; "assignment required" on the application.
-- Per-tool service identities with read scopes first; write scopes only per approved action type.
-- Database: TLS, backups with a tested restore, INSERT / SELECT only on the audit table for the platform's login.
-- Give *propose* (automation admin / admin) and *approve* (lead) to different people; review the configuration
-  history together with the audit log.
-- Forward logs and the audit export to the organisation's SIEM and alert on the signals in section 5.
-- Choose notification channels appropriate for finding titles that may name users and hosts.
-- Operate any detonation host on an isolated network segment with no route to production.
+| Test | Result |
+|---|---|
+| Penetration test of the NAM surface (round 39): every NAM route with every role, a lead without MFA, a lead of another domain, a service key, anonymous; hostile values; racing decisions; sender text; manual vs scheduled runs | 6 findings fixed (2 high: racing approvals, containment could be made autonomous; 2 medium; 2 low); 8 permanent tests |
+| The inherited attack suite (24 tests): authentication bypass, token forgery, privilege escalation, cross-domain access, injection, path traversal, upload abuse, leakage, CORS, brute force, races | passes on every build |
+| Every GET route × 7 roles; write-route fuzzing | passes on every build |
+| Browser tour with a stored-XSS probe through every field a person writes (NAM scope) | no XSS; strict CSP |
+| Static analysis (bandit), dependency audit (pip-audit), image scan (Trivy), secret scan | clean gates in CI |
+| Independent penetration test of the deployed platform | planned before NAM's data (scope in `docs/SECURITY.md`) |

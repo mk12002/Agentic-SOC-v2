@@ -153,3 +153,93 @@ def test_the_api_runs_the_whole_lifecycle(client):  # noqa: F811 - the imported 
     assert client.post(f"/api/v1/dlp/tuning/{row['id']}/frobnicate", headers=lead2, json={}).status_code == 404
     assert client.post("/api/v1/dlp/tuning/999999/approve", headers=lead2, json={}).status_code == 404
     assert client.get("/api/v1/dlp/tuning", headers=tok(client, "pia", "analyst", "phishing")).status_code == 403
+
+
+# ---------------------------------------------------------------------------------------------- classification quality
+
+
+def _set_classifiers(session, rule: str, **changes) -> None:
+    """Edit what the tool reported about each match of the rule's alerts (as if it had reported it so)."""
+    for a in alerts(session):
+        if a.rule == rule:
+            facts = dict(a.facts)
+            facts["classifiers"] = [{**c, **changes} for c in facts["classifiers"]]
+            a.facts = facts
+    session.flush()
+
+
+def test_scanned_images_and_number_patterns_become_classification_findings(world, session):
+    """The partner's remittances are scanned PDFs: every match was read from an image, by a pattern classifier. The
+    findings come from that (the classifier's type and OCR origin as the tool reports them) and from the rulings."""
+    from soc_platform.domains.dlp.tuning import ocr_only, quality
+
+    rule = noisy(session)
+    found = {q["kind"]: q for q in quality(session)}
+    assert set(found) == {"exclude_ocr", "use_edm"} and {q["rule"] for q in found.values()} == {rule.rule}
+    rows = [a for a in alerts(session) if a.rule == rule.rule]
+    ocr = found["exclude_ocr"]["preview"]
+    assert ocr["effect"] == "hides" and ocr["allowed"] and ocr["hidden"] == sum(ocr_only(a) for a in rows) == len(rows)
+    edm = found["use_edm"]
+    assert edm["params"] == {"classifier": rule.facts["classifiers"][0]["name"]}
+    pv = edm["preview"]
+    assert pv["effect"] == "reclassifies" and pv["hidden"] == 0 and pv["still_firing"] == len(rows)   # hides nothing
+    assert pv["affected"] == len(rows) and pv["affected_closed_benign"] == sum(a.analyst_outcome == "close_benign" for a in rows)
+    _set_classifiers(session, rule.rule, ocr=False)                        # matched in the text itself, not an image
+    assert {q["kind"] for q in quality(session)} == {"use_edm"}
+    _set_classifiers(session, rule.rule, type="edm")                       # already an exact data match
+    assert quality(session) == []
+
+
+def test_a_classification_change_is_checked_against_what_the_tool_reported(world, session):
+    rule = noisy(session)
+    name = rule.facts["classifiers"][0]["name"]
+    wrong = preview(session, rule.rule, "use_fingerprint", {"classifier": name})
+    assert not wrong["allowed"] and "pattern classifier, not a dictionary" in wrong["blocked_by"][0]
+    absent = preview(session, rule.rule, "use_edm", {"classifier": "Made-up classifier"})
+    assert not absent["allowed"] and "matched none" in absent["blocked_by"][0]
+    for kind, params in (("exclude_ocr", {"x": 1}), ("use_edm", {}), ("use_edm", {"classifier": ["x"]}),
+                         ("use_edm", {"classifier": "a" * 121}), ("use_fingerprint", {"classifier": name, "also": 1})):
+        with pytest.raises(ValueError):
+            clean(kind, params)
+    # an escalated alert matched only from images is never hidden by switching OCR off
+    target = next(a for a in alerts(session) if a.rule == rule.rule and a.analyst_outcome is None)
+    world.decide(target.id, ANALYST, outcome="escalate", reason="a real card number in the scan")
+    pv = preview(session, rule.rule, "exclude_ocr", {})
+    assert not pv["allowed"] and "escalated" in pv["blocked_by"][0]
+    edm = preview(session, rule.rule, "use_edm", {"classifier": name})
+    assert edm["allowed"] and edm["warnings"] and "escalated" in edm["warnings"][0]      # a warning, not a hidden alert
+
+
+def test_an_exact_data_match_is_made_by_an_engineer_and_verified_from_the_configuration(world, session):
+    rule = noisy(session)
+    name = rule.facts["classifiers"][0]["name"]
+    t = DlpTuning(session)
+    row = t.propose(LEAD1, rule=rule.rule, kind="use_edm", params={"classifier": name}, reason="numbers that only look like cards")
+    assert t.approve(row.id, LEAD2, "agreed").status == "approved"
+    assert t.mark_applied(row.id, ENGINEER, "CHG-2001").status == "applied"
+    cfg = ConfigSnapshots(session, world.registry)
+    cfg.take("forcepoint_dlp", reason="manual", by=ENGINEER.id)
+    assert t.verify(row)["configuration"] == f"the configuration still lists '{name}'"
+
+    def swap(items):
+        item = next(i for i in items if i["name"] == rule.rule)
+        item["classifiers"] = ["Card numbers held (EDM)"]
+        item["classifier_types"] = {"Card numbers held (EDM)": "exact_data_match"}
+
+    change_rules(cfg, swap)
+    cfg.take("forcepoint_dlp", reason="manual", by=ENGINEER.id)
+    v = t.verify(row)
+    assert v["confirmed"] and v["configuration"] == "confirmed in the tool's configuration"
+    assert v["matching_alerts_since"] == 0                                # no alert since still matched by the old pattern
+
+
+def test_the_dlp_tool_reports_each_classifier_type_and_whether_it_read_an_image():
+    from soc_platform.connectors.tools.forcepoint_dlp import _classifiers
+
+    got = _classifiers([{"name": "PAN", "matches": 3, "type": "Regular Expression"},
+                        {"name": "Investors", "matches": 2, "type": "exact-data-match", "extracted_from": "image"},
+                        {"name": "Kw", "matches": 1, "type": "KEYWORD", "ocr": "yes"},
+                        {"name": "X", "matches": True}, "junk"])
+    assert [(c["name"], c["type"], c["ocr"]) for c in got] == [
+        ("PAN", "pattern", False), ("Investors", "edm", True), ("Kw", "dictionary", False), ("X", "unknown", False)]
+    assert got[3]["matches"] == 0                                         # a boolean is not a count

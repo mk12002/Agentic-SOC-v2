@@ -106,8 +106,8 @@ def test_agent_request_waits_for_human_approval(session, registry, analyst):
 
 def test_lead_approval_executes_and_audits(session, registry, lead):
     svc = ActionService(session, registry, PolicyEngine())
-    svc.policy.document["actions"]["endpoint.isolate"]["four_eyes"] = False   # one approval: the non-four-eyes path
-    req = svc.request("endpoint.isolate", targets=[{"type": "asset", "id": "h1"}],
+    svc.policy.document["actions"]["endpoint.release"]["four_eyes"] = False   # one approval: the non-four-eyes path
+    req = svc.request("endpoint.release", targets=[{"type": "asset", "id": "h1"}],
                       requested_by=agent_principal("incident"), case_id="C1")
     done = svc.approve(req.id, lead, note="confirmed")
     assert done.status == "executed" and done.approver == "lena"
@@ -165,14 +165,19 @@ def test_idempotency_on_replay(session, registry):
 
 
 def test_l4_executes_autonomously_and_rollback_uses_reverse(session, registry, lead):
-    svc = ActionService(session, registry, _policy(endpoint__isolate=4))
-    svc.policy.document["actions"]["endpoint.isolate"]["four_eyes"] = False
-    req = svc.request("endpoint.isolate", targets=[{"type": "asset", "id": "h1"}], requested_by=agent_principal("canary"))
+    # a reversible action that is not containment (containment is never autonomous: see the test below)
+    from soc_platform.tests.conftest import RecordingSpec
+
+    registry.register(RecordingSpec("identity.require_mfa", reverse_type="identity.release_mfa"))
+    registry.register(RecordingSpec("identity.release_mfa"))
+    svc = ActionService(session, registry, _policy(identity__require_mfa=4))
+    svc.policy.document["actions"]["identity.release_mfa"] = {"level": 2, "four_eyes": True}
+    req = svc.request("identity.require_mfa", targets=[{"type": "identity", "id": "u1"}], requested_by=agent_principal("dlp"))
     assert req.status == "executed" and req.approver == "policy:L4"
-    # the release is an action like any other: four-eyes in the default policy, so a second lead must approve it
+    # the undo is an action like any other: four-eyes here, so a second lead must approve it
     rev = svc.rollback(req.id, lead, note="false positive")
-    assert rev.action_type == "endpoint.release" and rev.status == "recommended" and rev.reverse_of == req.id
-    assert registry.get("endpoint.release").calls == [] and session.get(type(req), req.id).status == "executed"
+    assert rev.action_type == "identity.release_mfa" and rev.status == "recommended" and rev.reverse_of == req.id
+    assert registry.get("identity.release_mfa").calls == [] and session.get(type(req), req.id).status == "executed"
     with pytest.raises(PermissionError):
         svc.approve(rev.id, lead)                                       # not the person who asked for it
     done = svc.approve(rev.id, person("lars", Role.LEAD))
@@ -377,6 +382,28 @@ def test_irreversible_actions_are_never_autonomous_whatever_the_policy_says():
     doc["default_level"] = 4
     doc["actions"] = {t: {"level": 4} for t in specs}
     engine = PolicyEngine(doc)
+    from soc_platform.core.policy import CONTAINMENT
+
     for t, s in specs.items():
         decision = engine.decide(t, [{"type": "asset", "id": "h1"}], destructive=s.destructive)
-        assert (decision.outcome == "execute") is (not s.destructive), (t, decision.outcome)
+        assert (decision.outcome == "execute") is (not s.destructive and t not in CONTAINMENT), (t, decision.outcome)
+
+
+def test_containment_stays_with_two_people_whatever_a_policy_document_says(session, registry, lead):
+    """CLAUDE.md §0.4: isolating a host (and the other containment types) is decided by people, four-eyes, always.
+    A policy document that makes it autonomous or single-approver is refused; one stored before is overruled."""
+    from soc_platform.core.policy import CONTAINMENT, policy_problems
+
+    for bad in ({"level": 4}, {"four_eyes": False}, {"level": 4, "four_eyes": True}):
+        assert policy_problems({"actions": {"endpoint.isolate": bad}}), bad
+    assert policy_problems({"actions": {"endpoint.release": {"level": 4, "four_eyes": True}}})   # four-eyes is never L4
+    assert not policy_problems({"actions": {"endpoint.release": {"level": 4, "four_eyes": False}}})
+    svc = ActionService(session, registry, PolicyEngine())
+    svc.policy.document["actions"]["endpoint.isolate"].update(level=4, four_eyes=False)          # as if stored earlier
+    d = svc.policy.decide("endpoint.isolate", [{"type": "asset", "id": "h1"}], destructive=False)
+    assert d.outcome == "pending_approval" and d.four_eyes and d.high_impact
+    req = svc.request("endpoint.isolate", targets=[{"type": "asset", "id": "h1"}],
+                      requested_by=agent_principal("incident"), case_id="C1")
+    assert svc.approve(req.id, lead, note="first").status == "pending_approval"
+    assert registry.get("endpoint.isolate").calls == []                       # one person is never enough
+    assert {"endpoint.isolate", "identity.disable_account", "pam.rotate_secret"} <= CONTAINMENT

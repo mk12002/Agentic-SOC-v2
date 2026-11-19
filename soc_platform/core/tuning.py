@@ -56,7 +56,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from soc_platform.core.audit import AuditLog
 from soc_platform.core.auth import Perm, Principal, same_person
-from soc_platform.core.db import Base, BoundedText, UTCDateTime
+from soc_platform.core.db import Base, BoundedText, UTCDateTime, claim
 from soc_platform.core.models import Case, CaseEntity, Disposition, Entity, utcnow
 from soc_platform.core.schema import severity_rank
 
@@ -449,12 +449,14 @@ class TuningStore:
             raise PermissionError("separation of duties: a second lead approves - not the one who proposed it")
         clean_params(self.s, row.kind, row.params)          # the data may have changed since it was proposed
         now = utcnow()
+        if not claim(self.s, row, ("proposed",), status="active", decided_by=by.id, decided_at=now,
+                     decision_note=(note or "")[:1000],
+                     expires_at=now + timedelta(days=int(row.params.get("expires_days") or EXPIRES_DEFAULT))):
+            raise ValueError(f"rule {rule_id} was decided by someone else at the same moment")
         if row.kind in SINGLETONS:
             for old in self.active(row.kind):
-                old.status, old.decided_at = "superseded", now
-        row.status, row.decided_by, row.decided_at = "active", by.id, now
-        row.decision_note = (note or "")[:1000]
-        row.expires_at = now + timedelta(days=int(row.params.get("expires_days") or EXPIRES_DEFAULT))
+                if old.id != row.id:
+                    old.status, old.decided_at = "superseded", now
         self.audit.append(actor_type=by.actor_type, actor_id=by.id, event_type="tuning.activated",
                           subject_type="tuning_rule", subject_id=str(row.id),
                           payload={"rule": describe(row.kind, row.params), "proposed_by": row.proposed_by,
@@ -464,7 +466,9 @@ class TuningStore:
     def reject(self, rule_id: int, by: Principal, note: str = "") -> TuningRule:
         row = self._pending(rule_id, ("proposed",), "rejected")
         _may_tune(by, row.kind, row.params)
-        row.status, row.decided_by, row.decided_at, row.decision_note = "rejected", by.id, utcnow(), (note or "")[:1000]
+        if not claim(self.s, row, ("proposed",), status="rejected", decided_by=by.id, decided_at=utcnow(),
+                     decision_note=(note or "")[:1000]):
+            raise ValueError(f"rule {rule_id} was decided by someone else at the same moment")
         self.audit.append(actor_type=by.actor_type, actor_id=by.id, event_type="tuning.rejected",
                           subject_type="tuning_rule", subject_id=str(row.id), payload={"note": row.decision_note})
         return row
@@ -475,7 +479,9 @@ class TuningStore:
         _may_tune(by, row.kind, row.params)
         if not (note or "").strip():
             raise ValueError("say why the rule is revoked")
-        row.status, row.decided_by, row.decided_at, row.decision_note = "revoked", by.id, utcnow(), note.strip()[:1000]
+        if not claim(self.s, row, ("active",), status="revoked", decided_by=by.id, decided_at=utcnow(),
+                     decision_note=note.strip()[:1000]):
+            raise ValueError(f"rule {rule_id} was decided by someone else at the same moment")
         self.audit.append(actor_type=by.actor_type, actor_id=by.id, event_type="tuning.revoked",
                           subject_type="tuning_rule", subject_id=str(row.id), payload={"note": row.decision_note})
         return row

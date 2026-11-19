@@ -315,10 +315,92 @@ FEATURES: list[tuple[str, str, list[str]]] = [
     ("Generalisation", "Phishing verdicts match labels on every estate's corpus; reports and answers never mention another estate",
      ["test_variants.py::test_phishing_verdicts_match_labels_on_every_corpus",
       "test_variants.py::test_reports_and_answers_never_mention_another_estate"]),
+    # ---------------------------------------------------------------- CyberDome for NAM (CLAUDE.md §0.2)
+    ("CyberDome (NAM)", "M0 product scope: the NAM scope offers only NAM's tools, jobs, routes, screens and report sections; the menu folds",
+     ["test_scope.py::test_the_nam_scope_offers_only_nams_tools", "test_scope.py::test_the_inherited_jobs_are_not_scheduled_in_the_nam_scope",
+      "test_scope.py::test_the_api_has_no_route_screen_or_job_of_an_inherited_module", "test_scope.py::test_reports_offer_only_sections_the_scope_has",
+      "test_scope.py::test_the_phishing_engine_never_loads_outside_the_full_scope",
+      "test_scope.py::test_the_side_menu_folds_through_the_click_allow_list_and_says_so_to_screen_readers"]),
+    ("CyberDome (NAM)", "M1 Dome Connect: Forcepoint DLP, Silverfort, Trend Micro, Trellix ePO and the directory export page, resume and resolve one device across four tools (fake mode, placeholder APIs)",
+     ["test_connector_nam_stack.py::test_streams_page_with_tokens_and_never_keep_one_between_syncs",
+      "test_connector_nam_stack.py::test_every_endpoint_path_is_a_declared_setting_marked_to_be_confirmed",
+      "test_connector_nam_stack.py::test_one_device_seen_by_four_tools_is_one_record",
+      "test_connector_nam_stack.py::test_the_stack_adds_no_lookup_or_alert_kind_the_other_workflows_read_and_only_the_planned_actions"]),
+    ("CyberDome (NAM)", "M2 tool health: silent agents, failed or late jobs, certificates, unmapped users - from the tools' own reports",
+     ["test_controls_posture.py::test_what_the_tools_report_about_themselves_becomes_findings_with_a_next_step",
+      "test_controls_posture.py::test_certificate_days_are_counted_from_the_tools_own_report_and_jobs_can_fail_or_run_late",
+      "test_controls_posture.py::test_with_nothing_reported_health_says_so_and_never_invents_a_finding"]),
+    ("CyberDome (NAM)", "M3 Dome Graph: every baseline device checked against each control; silent measured from the tool's own check-in",
+     ["test_controls_posture.py::test_every_device_in_the_baseline_is_checked_against_each_control_that_applies",
+      "test_controls_posture.py::test_a_device_a_tool_sees_that_the_directory_does_not_list_is_reported_not_counted",
+      "test_controls_posture.py::test_silent_is_measured_from_the_tools_newest_check_in_not_from_the_clock",
+      "test_controls_posture.py::test_a_device_a_tool_stops_listing_stops_counting_as_covered",
+      "test_controls_posture.py::test_coverage_names_devices_on_every_estate_without_the_built_in_names"]),
+    ("CyberDome (NAM)", "M4 data protection: computed disposition, destinations, never-automatic list, cases; sender text changes nothing",
+     ["test_dlp.py::test_the_decision_table_escalates_closes_or_asks_a_person", "test_dlp.py::test_every_incident_becomes_one_alert_judged_once",
+      "test_dlp.py::test_high_severity_and_privileged_senders_are_never_closed_automatically",
+      "test_dlp.py::test_text_the_sender_wrote_never_changes_an_outcome_a_severity_or_a_fact",
+      "test_dlp.py::test_the_same_story_holds_on_every_estate", "test_dlp_api.py::test_the_dlp_queue_runs_reads_and_takes_a_ruling_within_scope"]),
+    ("CyberDome (NAM)", "M5 earned autonomy: shadow and recommend; decide refused; two-lead promotion; demotion on drift without a person",
+     ["test_decisions.py::test_the_ai_may_escalate_alone_but_closes_only_with_the_computed_check_and_off_the_never_list",
+      "test_decisions.py::test_promotion_needs_the_sample_the_agreement_and_a_second_lead",
+      "test_decisions.py::test_the_decide_stage_is_refused_in_this_version_whatever_was_measured",
+      "test_decisions.py::test_falling_agreement_demotes_without_a_person",
+      "test_decisions.py::test_a_shift_in_what_the_ai_decides_demotes_even_while_it_agrees",
+      "test_dlp.py::test_a_decision_without_a_valid_citation_or_outcome_falls_back_to_the_computed_path",
+      "test_dlp.py::test_with_the_model_off_refused_or_failing_nothing_is_stored_and_the_figures_are_identical"]),
+    ("CyberDome (NAM)", "M6 AI investigator: read-only look-ups from a fixed menu within a budget; rules plan without the model; findings cited",
+     ["test_dlp_investigator.py::test_the_model_chooses_from_the_menu_and_everything_else_is_dropped",
+      "test_dlp_investigator.py::test_look_ups_only_read", "test_dlp_investigator.py::test_the_time_budget_stops_the_look_ups",
+      "test_dlp_investigator.py::test_without_the_model_the_platform_runs_its_own_checks_and_cites_every_finding",
+      "test_dlp_investigator.py::test_the_sender_text_reaches_the_planner_only_inside_the_fence"]),
+    ("CyberDome (NAM)", "M7 DLP rule changes: suggestions and classification-quality findings (OCR, EDM, fingerprints), preview, refusals, two leads, engineer, verification",
+     ["test_dlp_tuning.py::test_the_noisy_rule_gets_a_suggestion_with_its_evidence_and_preview",
+      "test_dlp_tuning.py::test_a_change_that_would_hide_what_must_be_seen_is_refused",
+      "test_dlp_tuning.py::test_two_leads_an_engineer_and_a_check_that_it_took_effect",
+      "test_dlp_tuning.py::test_scanned_images_and_number_patterns_become_classification_findings",
+      "test_dlp_tuning.py::test_a_classification_change_is_checked_against_what_the_tool_reported",
+      "test_dlp_tuning.py::test_an_exact_data_match_is_made_by_an_engineer_and_verified_from_the_configuration"]),
+    ("CyberDome (NAM)", "M8 cross-tool cases: one case per person, severity from how many tools agree, actions recommended, text changes nothing",
+     ["test_crosstool.py::test_the_phished_person_is_one_critical_case_where_four_tools_agree",
+      "test_crosstool.py::test_two_tools_make_a_high_case_and_one_tool_alone_makes_none",
+      "test_crosstool.py::test_a_rerun_adds_nothing_and_a_new_signal_joins_the_open_case",
+      "test_crosstool.py::test_message_text_never_creates_or_changes_a_case", "test_crosstool.py::test_every_estate_joins_its_own_phished_person",
+      "test_core_governance.py::test_containment_stays_with_two_people_whatever_a_policy_document_says"]),
+    ("CyberDome (NAM)", "M10 Dome Score and CISO view: recomputable score, adjustable weights (two leads), levers and movement from the factors, one document behind every surface",
+     ["test_controls_posture.py::test_the_score_can_be_recomputed_from_the_factors_it_returns",
+      "test_posture_weights.py::test_the_score_follows_the_weights_and_is_recomputable",
+      "test_posture_weights.py::test_two_leads_change_the_weights_and_every_step_is_audited",
+      "test_ciso.py::test_what_raises_the_score_most_is_each_reduction_weighted_by_its_domains_share",
+      "test_ciso.py::test_the_brief_states_only_computed_figures", "test_ciso.py::test_the_cyberdome_reports_are_built_from_the_same_figures",
+      "test_dlp_api.py::test_the_ciso_view_shows_the_figures_of_the_screens_behind_it"]),
+    ("CyberDome (NAM)", "M11 change baseline: configuration snapshots where the tool exports them, planned / unplanned changes, score before and after",
+     ["test_config_snapshots.py::test_only_tools_that_export_their_configuration_are_read_and_the_rest_say_so",
+      "test_config_snapshots.py::test_a_change_made_outside_a_recorded_change_is_unplanned_and_shown_on_tool_health",
+      "test_config_snapshots.py::test_a_recorded_change_is_planned_and_reports_the_posture_before_and_after",
+      "test_config_snapshots.py::test_a_tool_that_cannot_be_read_never_stops_the_others"]),
+    ("CyberDome (NAM)", "M12 Dome Comply: evidence per control, never 'compliant'; a person decides reportability; clocks from the catalogue; cited draft; audit pack",
+     ["test_comply_pilot.py::test_controls_carry_computed_evidence_and_never_claim_compliance",
+      "test_comply_pilot.py::test_the_catalogue_is_changed_by_two_people",
+      "test_comply_pilot.py::test_a_person_decides_reportability_and_the_clocks_start_then",
+      "test_comply_pilot.py::test_the_ai_draft_cites_the_facts_and_a_failing_model_falls_back",
+      "test_comply_pilot.py::test_the_audit_pack_holds_controls_assessments_catalogue_and_the_trail"]),
+    ("CyberDome (NAM)", "M13 pilot scorecard: KPIs measured from the records, baseline capture, lead-set targets, outage log",
+     ["test_comply_pilot.py::test_the_pilot_kpis_are_measured_from_the_records",
+      "test_comply_pilot.py::test_baseline_target_and_outages_drive_the_status", "test_comply_pilot.py::test_the_api_runs_comply_and_the_pilot"]),
+    ("CyberDome (NAM)", "Pentest of the NAM surface: who decides, service keys, MFA, racing approvals, hostile documents, sender text, run serialisation, audit-pack readers",
+     ["test_pentest_nam.py::test_only_a_lead_in_person_with_mfa_decides_what_the_ciso_and_the_regulator_see",
+      "test_pentest_nam.py::test_racing_approvals_decide_once_and_leave_one_audit_event",
+      "test_pentest_nam.py::test_a_regulatory_decision_takes_a_real_true_or_false",
+      "test_pentest_nam.py::test_hostile_documents_and_values_are_refused_before_they_are_stored",
+      "test_pentest_nam.py::test_text_a_sender_writes_never_becomes_the_destination_fact",
+      "test_pentest_nam.py::test_a_manual_run_never_runs_beside_the_scheduled_one",
+      "test_pentest_nam.py::test_the_audit_pack_goes_only_to_those_who_export_evidence",
+      "test_pentest_nam.py::test_domain_scoped_people_get_no_cross_domain_nam_screen"]),
 ]
 
 NOT_AUTOMATED = [
-    ("Vendor connectors against the client's real tenants", ("Each connector is built to the vendor's documented API and exercised on vendor-shaped "
+    ("Vendor connectors against NAM's real tenants", ("Each connector is built to the vendor's documented API and exercised on vendor-shaped "
      "fixtures through the same code. Real tenants need credentials: run *Preflight* per connector (Integrations screen).")),
     ("Other LLM providers with real keys (Azure OpenAI deployments API, Anthropic, self-hosted)", ("Azure AI Foundry is verified live "
      "with `--llm`; the other adapters are tested against the official request shapes with stubbed responses.")),
@@ -327,6 +409,11 @@ NOT_AUTOMATED = [
     ("Entra ID SSO login flow", "RS256/JWKS validation is tested with signed tokens; the browser SSO redirect needs an app registration."),
     ("Docker Compose deployment", "Compose file validated (YAML/services); images were not built in this environment."),
     ("Accuracy and latency on client data / volumes", "Measured on synthetic and public data only; shadow-mode metrics measure it in production."),
+    ("NAM's tools against their real APIs (Forcepoint DLP, Silverfort, Trend Micro, Trellix ePO, Arcon, Cloudflare)",
+     ("The five NAM connectors run in fake mode on placeholder paths and shapes (CLAUDE.md §0.4b); each needs the vendor's "
+     "documentation for NAM's installed version, then preflight against the tenant. Arcon, Cloudflare and the SIEM / SOAR are not built.")),
+    ("NAM's control catalogue and regulatory deadlines", ("The SEBI CSCRF / DPDP / CERT-In catalogue is a draft for NAM's compliance "
+     "team to validate; deadlines other than the deck's CERT-In 6 hours are not set, and that one is marked 'to verify'.")),
 ]
 
 
@@ -399,8 +486,10 @@ def _webhook_receiver():
     return srv
 
 
-def run_browser_tour(with_llm: bool = False, shots: Path | None = None) -> tuple[bool, str]:
-    """Tour into a temporary folder (docs/screenshots is only refreshed deliberately, via SOC_SHOTS)."""
+def run_browser_tour(with_llm: bool = False, shots: Path | None = None, scope: str = "full") -> tuple[bool, str]:
+    """Tour into a temporary folder (docs/screenshots is only refreshed deliberately, via SOC_SHOTS). ``scope``: the
+    product scope the server runs in - ``full`` drives tour.js (every inherited screen), ``nam`` drives tour_nam.js
+    (the CyberDome screens). The server is told its scope explicitly: the build's default is ``nam``."""
     tour = ROOT / "scripts" / "ui_tour"
     if not (tour / "node_modules" / "axe-core").exists():
         npm = shutil.which("npm") or shutil.which("npm.cmd")
@@ -417,7 +506,8 @@ def run_browser_tour(with_llm: bool = False, shots: Path | None = None) -> tuple
            "SOC_REPORT_OUTPUT_DIR": str(tmp / "reports"), "SOC_RAW_PAYLOAD_DIR": str(tmp / "raw"),
            # the real scheduler runs (heartbeat, so /health says "running") but its first job pass is a day away: the tour
            # drives every pipeline itself, and background jobs would move its figures under the screen-vs-API check
-           "SOC_EMBEDDED_SCHEDULER": "1", "SOC_SCHEDULER_START_DELAY": "86400",
+           "SOC_EMBEDDED_SCHEDULER": "1", "SOC_SCHEDULER_START_DELAY": "86400", "SOC_PRODUCT_SCOPE": scope,
+           "SOC_CONNECTORS_CONFIG": str(ROOT / "config" / "connectors.yaml"),
            **(llm_env() if with_llm else {"SOC_LLM_PROVIDER": "none"})}
     shots = shots or tmp / "shots"
     server = subprocess.Popen([sys.executable, "-m", "uvicorn", "soc_platform.api.app:app", "--host", "127.0.0.1", "--port", str(port)],
@@ -429,13 +519,13 @@ def run_browser_tour(with_llm: bool = False, shots: Path | None = None) -> tuple
                 break
             except OSError:
                 time.sleep(1)
-        p = subprocess.run(["node", "tour.js"], cwd=tour, env={**os.environ, "SOC_BASE": f"http://127.0.0.1:{port}", "SOC_SHOTS": str(shots)},
+        p = subprocess.run(["node", "tour.js" if scope == "full" else "tour_nam.js"], cwd=tour, env={**os.environ, "SOC_BASE": f"http://127.0.0.1:{port}", "SOC_SHOTS": str(shots)},
                            capture_output=True, text=True, check=False)
         if not (shots / "tour-result.json").exists():   # the tour died: show why instead of a missing-file error
             return False, "tour crashed: " + ((p.stderr or "") + (p.stdout or ""))[-1500:]
         res = json.loads((shots / "tour-result.json").read_text())
         ok = p.returncode == 0 and not res["problems"]
-        detail = (("LLM on - " if with_llm else "") + f"{res['screenshots']} screenshots, layout audited at {', '.join(map(str, res['audited_widths']))} px in light + dark, "
+        detail = (("LLM on - " if with_llm else "") + f"scope {scope}: {res['screenshots']} screenshots, layout audited at {', '.join(map(str, res['audited_widths']))} px in light + dark, "
                   "every KPI / badge / tab count on screen cross-checked against the API; "
                   f"problems: {len(res['problems'])}" + ("" if ok else " - " + "; ".join(res["problems"][:5])))
         return ok, detail
@@ -471,6 +561,7 @@ def main() -> int:
     missing = [t for t in tests if t not in results]
     evals = run_evaluations()
     browser = run_browser_tour(with_llm=args.llm) if args.browser else None
+    browser_nam = run_browser_tour(with_llm=args.llm, scope="nam") if args.browser else None
     engine = None
     if args.engine:
         p = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "soc_platform/domains/phishing/tests/unit",
@@ -479,7 +570,10 @@ def main() -> int:
         engine = (p.returncode == 0, (p.stdout.strip().splitlines() or ["no output"])[-1])
 
     rows, counts = [], defaultdict(int)
-    for area, feat, ts in FEATURES:
+    inherited = {"Phishing", "Vulnerability", "Attack story"}           # off in the NAM scope (core/scope.py)
+    ordered = sorted(FEATURES, key=lambda f: (f[0] != "CyberDome (NAM)", f[0] in inherited))
+    for area, feat, ts in ordered:
+        area = f"Inherited module, off in the NAM scope: {area}" if area in inherited else area
         outs = [results.get(t, "missing") for t in ts]
         status = ("FAILED" if "fail" in outs or "missing" in outs else
                   "not run (opt-in)" if all(o == "skip" for o in outs) else "VERIFIED")
@@ -487,7 +581,9 @@ def main() -> int:
         ev = "<br>".join(f"{'✅' if results.get(t) == 'pass' else '⏭️' if results.get(t) == 'skip' else '❌'} `{t}`" for t in ts)
         rows.append((area, feat, status, ev))
 
-    md = ["# Feature verification", "",
+    md = ["# Feature verification - CyberDome for NAM", "",
+          ("CyberDome's own features come first; then the platform core NAM runs on; the inherited modules switched off in "
+          "the NAM scope are listed last, because their tests still run on every build."), "",
           (f"Generated by `python scripts/verify_features.py{' --browser' if args.browser else ''}{' --engine' if args.engine else ''}{' --live' if args.live else ''}{' --llm' if args.llm else ''}` "
           f"on {started:%Y-%m-%d %H:%M} UTC. Re-run it any time; every row names the tests that prove it."), "",
           "## Summary", "", "| Check | Result |", "|---|---|",
@@ -500,6 +596,9 @@ def main() -> int:
         md.append(f"| {name} | {'✅' if ok else '❌'} {detail} |")
     if browser:
         md.append(f"| Browser tour (real server + browser, every screen, 4 roles) | {'✅' if browser[0] else '❌'} {browser[1]} |")
+    if browser_nam:
+        md.append(f"| Browser tour, NAM scope (every CyberDome screen, flows, XSS probe, scoped sign-in, 5 widths) | "
+                  f"{'✅' if browser_nam[0] else '❌'} {browser_nam[1]} |")
     if engine:
         md.append(f"| Phishing ML engine suite | {'✅' if engine[0] else '❌'} {engine[1]} |")
     if missing:
@@ -511,12 +610,13 @@ def main() -> int:
             area = a
         md.append(f"| {feat} | {'✅ ' if status == 'VERIFIED' else '❌ ' if status == 'FAILED' else '⏭️ '}{status} | {ev} |")
     md += ["", "## What automated verification cannot prove", "",
-           "These need the client's environment or credentials; the platform is built for them but they have not been exercised here.", "",
+           "These need NAM's environment or credentials; the platform is built for them but they have not been exercised here.", "",
            "| Item | Status |", "|---|---|"] + [f"| {a} | {b} |" for a, b in NOT_AUTOMATED]
     OUT.write_text("\n".join(md) + "\n", encoding="utf-8")
-    ok = counts["FAILED"] == 0 and all(e[2] for e in evals) and (browser is None or browser[0]) and (engine is None or engine[0]) and not missing
+    ok = counts["FAILED"] == 0 and all(e[2] for e in evals) and (browser is None or browser[0]) and (browser_nam is None or browser_nam[0]) and (engine is None or engine[0]) and not missing
     print(f"{counts['VERIFIED']}/{len(FEATURES)} features verified; evaluations {'ok' if all(e[2] for e in evals) else 'FAILED'}"
-          + (f"; browser {'ok' if browser[0] else 'FAILED'}" if browser else "") + f" -> {OUT}")
+          + (f"; browser {'ok' if browser[0] else 'FAILED'}" if browser else "")
+          + (f"; NAM tour {'ok' if browser_nam[0] else 'FAILED'}" if browser_nam else "") + f" -> {OUT}")
     return 0 if ok else 1
 
 

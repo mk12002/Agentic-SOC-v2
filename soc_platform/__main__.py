@@ -167,6 +167,20 @@ def cmd_demo() -> None:
         if gw is not None:
             print(f"[LLM] the model's own decision stored for {dlp.ai_decide_committing(dlp.ai_pending())} DLP alert(s) "
                   "(shadow: compared with analysts, nothing acted on)")
+        from soc_platform.intelligence.crosstool import CrossToolService
+        from soc_platform.reporting.breach import BreachAssessments
+
+        s.commit()
+        x = CrossToolService(s, reg).run()
+        if gw is not None:
+            s.commit()                  # never hold the database while the model writes
+            CrossToolService(s, reg).narrate(gw)
+        for c in CrossToolService(s, reg).overview()["cases"]:
+            print(f"[CROSS] {c['severity']:>8} {c['title']} - rules {', '.join(r['id'] for r in c['rules'])}")
+        if not x["opened"] + x["updated"] + x["unchanged"]:
+            print("[CROSS] no person has signals from two or more tools")
+        BreachAssessments(s).sync()
+        print(f"[COMPLY] {len(BreachAssessments(s).list())} personal-data incident(s) await a person's reportability decision")
         from soc_platform.domains.dlp.tuning import suggestions
         from soc_platform.intelligence.config_snapshots import ConfigSnapshots
 
@@ -182,7 +196,7 @@ def cmd_demo() -> None:
             print(f"[COVERAGE] {cov['fully_covered']} of {cov['baseline']['devices']} devices have every expected control "
                   f"({cov['coverage_percent']}%); {cov['devices_short_count']} short")
         print(f"[HEALTH] {th['counts']['critical']} critical and {th['counts']['warning']} warning finding(s) on the tools themselves")
-        print(f"[POSTURE] score {snap['score']} (draft weights, to be agreed)")
+        print(f"[POSTURE] score {snap['score']} (weights: {snap['weights_status']})")
         from soc_platform.intelligence.analyst import IntelligenceService
 
         intel = IntelligenceService(s, vm=vm) if vm is not None else IntelligenceService(s)

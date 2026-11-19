@@ -1,7 +1,7 @@
 // Azure infrastructure for the platform (the Kubernetes package is deploy/kubernetes/overlays/azure).
 //   az deployment group what-if -g <rg> -f deploy/azure/main.bicep -p prefix=soc adminGroupObjectId=<entra group id> \
 //      pgAdminPassword=<secret> existingAppGatewayId=<the organisation's gateway>      (review), then `create`
-// SKUs follow INFRASTRUCTURE_AND_COSTS.md section 10 (AKS Standard tier, 3 x D2s_v5, Flexible Server 2 vCore
+// SKUs follow HIGH_AVAILABILITY.md section 4.2 (AKS Standard tier, 3 x D2s_v5, Flexible Server 2 vCore
 // zone-redundant, ACR Standard, Key Vault standard). A dedicated WAF v2 gateway is created only when the console is
 // internet-facing (decision D5); otherwise AGIC drives the organisation's existing Application Gateway.
 // Everything is private by default: the database and Key Vault have no public endpoint, the cluster API is private,
@@ -380,7 +380,7 @@ resource kubeletPulls 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 var contributor = 'b24988ac-6180-42a0-ab88-20f7382dd24c'
-// an existing gateway's owner grants AGIC Contributor on it (CLIENT_DEPLOYMENT_GUIDE.md); a new one is granted here
+// an existing gateway's owner grants AGIC Contributor on it (DEPLOYMENT_GUIDE.md); a new one is granted here
 resource agicManagesGateway 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (internetFacing) {
   scope: agw
   name: guid(agw.id, aks.id, contributor)

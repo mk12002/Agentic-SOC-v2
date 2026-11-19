@@ -1,299 +1,89 @@
-# Requirements traceability
+# Requirements traceability - CyberDome for NAM
 
-Every requirement ID in *SOC – AI & Automation Consolidated Requirements* mapped to where it is implemented and how it
-is verified. Test names refer to `soc_platform/tests/` unless stated.
+Every requirement of the NAM build - the modules (M0-M13), the rules of who decides what, the guardrails and the
+phase discipline - traced to where it is implemented and the tests that prove it. Status: **Built** (in code, tested
+on every build), **Partial** (built in part; what is missing is named), **Open** (not built, with the reason).
+Source of the requirements: the NAM design note and deck (summarised in CLAUDE.md §0), which win over this table if
+they differ.
 
-Legend: ✅ implemented and tested · 🟡 implemented; completion or validation needs client data, environment or a decision (named in the row) · ⛔ needs client input before any build.
+## 1. Modules
 
-**Summary:** 102 requirements implemented and tested, 15 implemented but awaiting client data/environment for completion or validation, 0 blocked. Risks, assumptions, dependencies and open questions follow.
-
-## Vulnerability management – functional
-
-| ID | Requirement | Status | Implementation | Verified by |
+| # | Requirement | Status | Implementation | Tests |
 |---|---|---|---|---|
-| VM-F01 | Multi-source exposure ingestion | ✅ | Rapid7, CrowdStrike, Wiz, Defender connectors; `VulnerabilityService.ingest` (scheduled + on demand) | test_vulnerability, test_connectors |
-| VM-F02 | Asset identity resolution | ✅ | `core/entity_resolution.py` deterministic keys → scored fuzzy → queue → override; conflict keys, provisional absorption | test_resolution_scale (400-host messy estate: 0 false merges), test_core_context |
-| VM-F03 | Finding normalisation and deduplication | ✅ | `VulnerabilityService.consolidate` one record per asset×CVE, every source kept with status/link | test_vulnerability::test_four_scanners_consolidate... |
-| VM-F04 | Exposure enrichment and prioritisation | ✅ | `prioritise`: CVSS + EPSS + KEV + exploit + internet exposure + criticality, explainable factors; weights and SLA days adjustable by a vulnerability-priority tuning rule (previewed, two leads) | test_vulnerability, test_tuning |
-| VM-F05 | Affected-device consolidation | ✅ | `affected_devices(cve)` with owner/team/env/location/priority/status | test_vulnerability, test_api |
-| VM-F06 | Remediation notification drafting | ✅ | `create_campaign` drafts per-team notifications (assets, rationale, fix, target date) | test_vulnerability |
-| VM-F07 | Ownership routing | ✅ | `enrich_ownership` from ServiceNow CMDB / CSV mapping; unknown owner → blocked plan (exception raised) | test_vulnerability |
-| VM-F08 | Action plan tracking | ✅ | `ActionPlan` per campaign/team: owner, committed date, dependencies, status, responses | test_vulnerability |
-| VM-F09 | Automated follow-up | ✅ | Weekly follow-up per plan (`SOC_VM_FOLLOWUP_DAYS`): escalation for unacknowledged / overdue / SLA-breached (level 2+ stalled), otherwise a routine weekly status check; scheduled job | test_vulnerability::test_follow_up_is_weekly_per_plan_escalations_count_up_routine_checks_do_not, test_jobs |
-| VM-F10 | Remediation validation | ✅ | `validate` re-queries each source → verified / still present / decommissioned / unverifiable; false closures counted; ITSM-resolved tickets trigger validation | test_vulnerability (false closure, ITSM sync) |
-| VM-F11 | Exception and risk acceptance | ✅ | Exceptions with justification, compensating control, approver ≠ requester, expiry → auto-reopen | test_vulnerability::test_exception_separation... |
-| VM-F12 | Risk register updates | 🟡 | Kept current after every vulnerability refresh (`refresh_risk_register`): critical CVEs proposed for lead approval, affected assets and owners updated, entries marked remediated or sent back for review; audited. Format is generic until the client's register schema is supplied (A08) | test_vulnerability::test_risk_register_is_kept_current_after_every_refresh, test_risk_register_proposals_need_lead |
-| VM-F13 | Recurring reporting | 🟡 | Scheduled: daily exposure report (every day), weekly VM report (docx) and weekly management deck (pptx) every week (`weekly_reports` job), from one dataset; in the organisation's report style when one is uploaded - Word / PowerPoint templates, logo, brand, writing guide (A08) | test_vulnerability::test_weekly_reports_are_a_scheduled_job, test_demo_walkthrough (all reports download) |
-| VM-F14 | Trend and SLA analytics | ✅ | `metrics`: open/closed, MTTR, ageing, SLA breach, reopen/regression, per team | test_vulnerability |
-| VM-F15 | Natural-language exposure query | ✅ | `query` NL → shown filter → records (no model needed; LLM optional) | test_vulnerability, test_demo_walkthrough |
-| VM-F16 | New-CVE exposure assessment | ✅ | `new_cve_assessment` + `new_kev_exposure` insight; live NVD/EPSS/KEV verified | test_vulnerability, test_live_public_feeds |
-| VM-F17 | Coverage and data quality reporting | ✅ | `coverage`: per-scanner gaps, single-tool assets, stale scans, match rate | test_vulnerability |
-| VM-F18 | Audit trail | ✅ | Hash-chained audit on ingest, resolution, drafts, dispatch, validation, closure | test_vulnerability::test_everything_is_audited |
+| M0 | CyberDome branding; only what NAM asked for; no name or data of the earlier client | Built (an asset-manager sample estate is Open) | console, reports, API title; `core/scope.py` (`SOC_PRODUCT_SCOPE=nam`) | `test_scope.py`, `test_generalisation.py`, `test_variants.py` |
+| M1 | Read NAM's tools, read-only first: Forcepoint DLP, Silverfort, Trend Micro, Trellix ePO, the AD / CMDB export | Partial: fake mode on placeholder APIs; Arcon, Cloudflare, SIEM / SOAR products Open | `connectors/tools/{forcepoint_dlp,silverfort,trend_micro,trellix_epo,directory_export}.py`, `_paged.py` | `test_connector_nam_stack.py`, `test_connector_conformance.py`, `test_live_wire.py` |
+| M2 | Tool health: silent agents > 24 h, failed / late jobs, certificate days, unmapped users; warn ahead; recommend a ticket or re-push; "wherever the tool reports them" | Built | `intelligence/tool_health.py`, `health` streams, capability matrix | `test_controls_posture.py` |
+| M3 | Control coverage: baseline × controls; devices missing a control; devices a tool sees the baseline lacks; users in no DLP policy group; ranked by sensitive data | Built | `core/controls.py`, `intelligence/control_coverage.py` | `test_controls_posture.py` |
+| M4 | DLP domain: intake, personal-data flags, computed disposition, cases; triage with identity, PAM and endpoint context | Built (PAM context waits for Arcon) | `domains/dlp/service.py`, `models.py` | `test_dlp.py`, `test_dlp_api.py` |
+| M5 | Earned autonomy: decision types; shadow → recommend → decide; AI decision record; promotion proposed with evidence; drift demotes | Built for shadow / recommend; decide refused in code | `core/decisions.py` | `test_decisions.py` |
+| M6 | AI investigator: read-only look-ups from a fixed menu within a step and time budget; every finding cited | Built | `domains/dlp/investigator.py` | `test_dlp_investigator.py` |
+| M7 | DLP tuning proposals: false positives per rule, effect on past alerts, engineer approves and makes it; overrides feed it; classification quality (OCR, fingerprints, EDM) | Built | `domains/dlp/tuning.py` | `test_dlp_tuning.py` |
+| M8 | Cross-tool cases: joining sign-in risk, privileged check-out, DLP exfiltration, encryption off; computed severity ("N tools agree"); reversible actions by AI, containment by two approvers | Partial: privileged check-outs wait for Arcon | `intelligence/crosstool.py`, Silverfort / Trend Micro actions, `core/policy.py` | `test_crosstool.py`, `test_core_governance.py` |
+| M9 | SOAR execution backend | Open: product unknown | - | - |
+| M10 | Dome Score and CISO view: published, versioned formula; five domain scores; "why did it drop" from computed factors; board report | Built | `intelligence/posture.py`, `posture_weights.py`, `ciso.py`, `reporting/builder.py` | `test_controls_posture.py`, `test_posture_weights.py`, `test_ciso.py`, `test_dlp_api.py` |
+| M11 | Change baseline: snapshot before a change where the tool can export it; drift; posture before / after | Built | `intelligence/config_snapshots.py` | `test_config_snapshots.py` |
+| M12 | Compliance packs: SEBI CSCRF, DPDP, CERT-In catalogue mapped to evidence tests; share with current evidence; audit pack; personal-data case → breach assessment; clocks from a person's "reportable"; AI drafts; 180-day log retention per tool | Built (NAM's control list and confirmed deadlines Open) | `reporting/regimes.py`, `reporting/breach.py` | `test_comply_pilot.py` |
+| M13 | Pilot scorecard: DLP alerts reaching an analyst vs the week-2 baseline, outages found by users, AI agreement per decision type; QA re-checks apart | Built | `reporting/pilot.py` | `test_comply_pilot.py` |
 
-## Vulnerability management – technical
+## 2. Who decides what (CLAUDE.md §0.4.1)
 
-| ID | Requirement | Status | Implementation | Verified by |
-|---|---|---|---|---|
-| VM-T01 | Connectors | 🟡 | All four connectors implemented against documented APIs; verified on vendor-shaped fixtures, not yet on client tenants | test_connectors |
-| VM-T02 | Ingestion mechanics | ✅ | Cursor checkpoints, delta, resumable backfill, token-bucket budget, exponential backoff, reconciliation | test_connectors, test_resilience_security |
-| VM-T03 | Canonical data model | ✅ | Asset/Finding/Vulnerability(VulnIntel)/Owner/Campaign/Exception/ValidationResult with provenance & first/last seen | test_vulnerability |
-| VM-T04 | Asset resolution engine | ✅ | Tunable thresholds, resolution audit, persisted overrides, match-rate metric | test_core_context, test_resolution_scale, test_identity_scale |
-| VM-T05 | Storage | ✅ | Relational store (SQLite dev / Postgres prod) + blob store for reported e-mails, reports and - with `SOC_STORE_RAW_PAYLOADS` - original vendor payloads (encrypted at rest; in PostgreSQL with `SOC_BLOB_STORE=database`); retention job | test_access_security (encryption, retention), test_high_availability (database store, raw payloads, retention) |
-| VM-T06 | Enrichment services | ✅ | NVD, EPSS, KEV, 8 TI sources, cached with freshness and staleness shown | test_live_public_feeds, test_connectors |
-| VM-T07 | Constrained LLM usage | ✅ | LLM only for narrative; all facts/counts/scores computed in code; grounded JSON claims | test_resilience_security, test_intelligence |
-| VM-T08 | Reporting engine | 🟡 | Deterministic figures, LLM commentary only; client formats via template files (A08) | test_demo_walkthrough |
-| VM-T09 | Notification dispatch | ✅ | `notify.email` (Graph, SOC mailbox) or `ticket.create`, behind approval, dispatch recorded | test_vulnerability |
-| VM-T10 | ITSM integration | ✅ | ServiceNow & Jira: create/update + ticket state pulled back into plans; resolved → validation → false closure reopens ticket | test_vulnerability::test_itsm_bidirectional_sync... |
-| VM-T11 | Workflow orchestration | ✅ | `soc_platform/jobs.py`: run records, retries+backoff, dead letter + alert, DB lease across replicas, replay API; idempotency keys on actions | test_jobs |
-| VM-T12 | Access control | ✅ | Analyst/lead/admin/auditor/automation_admin roles, Entra SSO, per-tool service principals, vault `*_FILE` secrets | test_api, test_access_security |
-| VM-T13 | Observability | ✅ | Connector freshness & reconciliation dashboard, job health, /metrics for Prometheus | test_demo_walkthrough |
+| Requirement | Status | Implementation | Tests |
+|---|---|---|---|
+| Look-ups chosen by the AI from a fixed menu only (no free-form calls, no URLs) | Built | `investigator.MENU`, names off the menu dropped | `test_dlp_investigator.py::test_the_model_chooses_from_the_menu_and_everything_else_is_dropped` |
+| DLP disposition by the AI only once its type is promoted | Built | `core/decisions.py` stages | `test_decisions.py` |
+| Forcepoint rule change: AI proposes, engineer approves and makes it | Built | `domains/dlp/tuning.py` | `test_dlp_tuning.py::test_two_leads_an_engineer_and_a_check_that_it_took_effect` |
+| Reversible actions at L3 / L4 per type | Built (policy-driven; default L2) | `core/policy.py` | `test_core_governance.py` |
+| Containment by people, four-eyes, always | Built (engine-enforced, round 39) | `policy.CONTAINMENT` | `test_core_governance.py::test_containment_stays_with_two_people_whatever_a_policy_document_says` |
+| Reportability and notification by a person; the AI drafts | Built | `reporting/breach.py` | `test_comply_pilot.py::test_a_person_decides_reportability_and_the_clocks_start_then` |
+| Every figure, score, severity computed in code | Built | posture, coverage, dispose, severity | `test_consistency.py`, `test_ciso.py::test_the_brief_states_only_computed_figures` |
 
-## Incident management – functional
+## 3. Guardrails (CLAUDE.md §0.4.2) - each with a test that fails when removed
 
-| ID | Requirement | Status | Implementation | Verified by |
-|---|---|---|---|---|
-| IM-F01 | Alert ingestion and normalisation | ✅ | Alert streams from CrowdStrike, MDE, MDO, Entra, Canary, Umbrella (lookup), Wiz, Delinea, Sentinel + webhook for any SIEM | test_incident, test_connectors |
-| IM-F02 | Deduplication and clustering | ✅ | `cluster` by entity + time window + technique; repeat suppression | test_incident |
-| IM-F03 | Entity extraction | ✅ | Users (UPN/SAM/aliases), hosts, IPs, domains, URLs, hashes, processes, cloud resources via `EntityRef`s; built-in accounts excluded | test_identity_scale, test_incident |
-| IM-F04 | Multi-tool context enrichment | ✅ | `core/enrichment.py` parallel fan-out across 8 dimensions with per-source timeouts, cache, budget; identity context includes directory roles and Azure role assignments (Azure Resource Manager) | test_incident, test_connectors::test_entra_reports_azure_role_assignments_from_resource_manager |
-| IM-F05 | Consolidated security context view | ✅ | Case view: entity cards, unified timeline, evidence by dimension, deep links; entity 360 view | test_demo_walkthrough |
-| IM-F06 | AI risk assessment and summary | ✅ | Deterministic severity/confidence, MITRE with evidence, grounded summary; every claim cites evidence (E-refs resolvable in UI) | test_incident, test_demo_walkthrough |
-| IM-F07 | Recommended remediation actions | ✅ | Ranked recommendations with expected impact, blast radius, reversibility, executing tool | test_incident |
-| IM-F08 | Analyst decision capture | ✅ | Disposition capture (verdict, reasoning, analyst) feeding shadow metrics & tuning | test_api |
-| IM-F09 | Guarded response execution | ✅ | CrowdStrike contain, MDE isolate/scan, Entra revoke/disable, Umbrella block… via policy-gated action layer with rollback | test_core_governance, test_incident |
-| IM-F10 | Forensic collection on demand | 🟡 | `endpoint.collect_forensics` (CrowdStrike RTR / MDE investigation package) behind approval; artefact analysis pipeline depends on IM-T09 | test_incident |
-| IM-F11 | Similar-incident retrieval | ✅ | Similar-incident retrieval with past dispositions and actions | test_incident |
-| IM-F12 | Incident documentation | 🟡 | Investigation record + evidence pack (docx) from case & audit; the client's required format needs A08 | test_demo_walkthrough |
-| IM-F13 | Shift handover and queue summary | ✅ | `handover` open-incident brief; intelligence situation brief | test_incident, test_intelligence |
-| IM-F14 | Detection quality feedback | ✅ | `detection_quality` → tuning recommendations from dispositions | test_core_governance |
-| IM-F15 | Partial-result transparency | ✅ | `completeness` names unavailable sources in every case; UI shows it | test_resilience_security |
-| IM-F16 | Audit trail | ✅ | Audit of retrieval, inference, recommendation, approval, execution with actor | test_core_governance |
-
-## Incident management – technical
-
-| ID | Requirement | Status | Implementation | Verified by |
-|---|---|---|---|---|
-| IM-T01 | Connectors and authentication | 🟡 | Connectors for every named tool with correct auth (OAuth2, Entra app, Exchange-scoped token, API keys); live-tenant verification pending A01 | test_connectors |
-| IM-T02 | Ingestion modes | ✅ | Polling with cursors + push webhook `/api/v1/ingest/alerts`; replay-safe dedupe | test_api, test_connectors |
-| IM-T03 | Entity resolution and correlation graph | ✅ | Shared resolution engine + time-bounded relation graph with pivots (`neighbors`, `timeline`) | test_core_context, test_identity_scale |
-| IM-T04 | Enrichment orchestration | ✅ | Parallel fan-out, per-source timeouts, partial tolerance, caching, per-tool rate budget | test_incident, test_resilience_security |
-| IM-T05 | Grounded reasoning | ✅ | Evidence-only prompts, JSON schema, per-claim evidence ids, uncited claims dropped, insufficient-evidence flag | test_resilience_security, test_intelligence |
-| IM-T06 | Action abstraction layer | ✅ | `ActionSpec` preconditions, policy binding, execution record, reverse action | test_core_governance |
-| IM-T07 | Idempotency and concurrency control | ✅ | Idempotency keys + compare-and-set status transitions | test_core_governance |
-| IM-T08 | Performance targets | 🟡 | Latency measured per investigation and per tool (Overview → Enrichment latency); targets to be set on client baselines (A09) | test_demo_walkthrough |
-| IM-T09 | Re-platforming of forensic and containment capability | 🟡 | Collection via RTR / MDE is implemented; re-hosting the Volatility/Ghidra/YARA analysis over collected artefacts is not yet built | - |
-| IM-T10 | Case and ITSM integration | ✅ | Bidirectional ITSM (create/update + state sync back); target system per Q03 | test_vulnerability |
-| IM-T11 | Cost control | ✅ | Per-feature model choice by name (`SOC_LLM_MODELS`; advice to try a smaller or use a larger model from measured quality), caching, token budget with alerting | test_resilience_security, test_llm_usage |
-
-## Phishing – functional
-
-| ID | Requirement | Status | Implementation | Verified by |
-|---|---|---|---|---|
-| PH-F01 | Reported-email ingestion | ✅ | Defender user-reported messages + SOC mailbox via Graph; upload/API submission | test_phishing |
-| PH-F02 | Automated email decomposition | ✅ | `decompose`: headers, auth results, routing path, bodies, URLs, attachments, images, QR codes | test_phishing |
-| PH-F03 | Multi-signal analysis | ✅ | ML engine with a trained model per component, on by default when installed, fed with the platform's threat intelligence and mail-flow contact history, and the deterministic heuristic analyser, fused (a models-only alarm needs a reliable model or the rules to agree; a disputed authenticated sender goes to an analyst); every model's score and reliability shown on the case. Measured: 46 / 46 labelled messages exactly right combined | test_phishing_engine (engine inside the pipeline), test_phishing, engine unit tests (162) |
-| PH-F04 | Existing-control verdict reconciliation | ✅ | `reconcile` with Avanan + MDO verdicts/actions; disagreements flagged | test_phishing |
-| PH-F05 | Campaign scope determination | ✅ | `campaign_scope` via message trace / hunting + similarity | test_phishing |
-| PH-F06 | User-interaction analysis | ✅ | `user_impact`: Safe Links clicks, Umbrella DNS, replies | test_phishing |
-| PH-F07 | Endpoint impact assessment | ✅ | Endpoint detections for clickers (CrowdStrike, MDE) | test_phishing |
-| PH-F08 | Identity impact assessment | ✅ | Entra risky sign-ins, MFA, device registration, inbox rules for affected users | test_phishing |
-| PH-F09 | Consolidated investigation view | ✅ | One case record with verdict, evidence, MITRE, indicators, campaign, impact | test_demo_walkthrough |
-| PH-F10 | Explainable verdict | ✅ | Counterfactual + chronological narrative; grounded claims | test_phishing |
-| PH-F11 | Recommended and approved remediation | ✅ | Purge/quarantine, URL/domain block (Umbrella, MDE), sender block (Exchange admin API), session revoke — approval-gated | test_phishing, test_connectors |
-| PH-F12 | Reporter feedback | ✅ | Reporter feedback drafted and sent via `notify.email` (policy-gated) | test_phishing |
-| PH-F13 | Bulk triage and policy-based auto-close | ✅ | `AutoClosePolicy` for clear benign/spam with mandatory QA sampling | test_phishing |
-| PH-F14 | Campaign and user-risk reporting | ✅ | Volume, verdict mix, campaigns, repeat clickers, time to containment; supplier risk | test_phishing |
-| PH-F15 | Indicator propagation | ✅ | Confirmed indicators pushed to blocklists (gated) and the shared context store | test_phishing |
-| PH-F16 | Audit trail | ✅ | Full audit with actor attribution | test_phishing |
-
-## Phishing – technical
-
-| ID | Requirement | Status | Implementation | Verified by |
-|---|---|---|---|---|
-| PH-T01 | Ingestion connectors | 🟡 | Graph, MDO (Threat Explorer/hunting), Exchange admin API (own token audience), Avanan; live verification pending A01/Q09/Q10 | test_connectors |
-| PH-T02 | Analysis reuse and extension | ✅ | Engine swarm + LangGraph reused; campaign, user-impact and control-reconciliation agents added | test_phishing |
-| PH-T03 | Campaign clustering | ✅ | Similarity over sender/display name, subject template, URL structure, attachment hash + fuzzy hash, body | test_phishing |
-| PH-T04 | Sandbox hardening | ✅ | Hardened fail-closed detonation, no docker.sock, gVisor option, CAPEv2 for Windows payloads, authenticated executor | engine tests (sandbox), docs/SECURITY.md |
-| PH-T05 | Action layer | ✅ | Graph soft/hard delete & quarantine, Defender indicators, Umbrella destination lists, Entra revocation | test_connectors |
-| PH-T06 | Data handling | ✅ | Encrypted-at-rest .eml, retention job with legal hold, RBAC, PII pseudonymisation before any LLM call | test_access_security, test_resilience_security |
-| PH-T07 | Throughput | 🟡 | Measured with every vendor call taking 400 ms: a full analysis (campaign scope, clicks, endpoint and identity impact) 2.9 s, a benign e-mail 1.2 s; vendor lookups run in parallel; with the LLM on, the case is saved first and the explanation follows. Production sizing needs client volumes (A09/Q17) | test_phishing::test_phishing_analysis_asks_the_tools_in_parallel; ENGINEERING.md §16.1 |
-| PH-T08 | Shadow-mode validation | ✅ | Shadow mode by default (all actions L2 = recommend); agreement metrics vs analyst dispositions | test_core_governance |
-| PH-T09 | Deployment model | ✅ | API-only alongside existing controls; no MX change | - |
-
-## Non-functional
-
-| ID | Requirement | Status | Implementation | Verified by |
-|---|---|---|---|---|
-| NFR-01 | Human-in-the-loop by default | ✅ | Autonomy L0–L4 per action type; default L2; destructive never autonomous; approvals in console | test_core_governance |
-| NFR-02 | Explainability and evidence citation | ✅ | Every claim cites evidence; E-refs resolve to evidence with source + deep link in the UI; facts vs inferences separated | test_demo_walkthrough, test_intelligence |
-| NFR-03 | Reversibility and evidence preservation | ✅ | Isolate/quarantine/block preferred; reverse actions; forensic collection before containment recommended | test_core_governance |
-| NFR-04 | Auditability | ✅ | Append-only hash-chained audit (ORM, database trigger and runtime-role grants refuse changes; heads anchored hourly in the log platform, `audit verify --anchor`); verify endpoint; exports as JSON Lines (with chain verification), JSON, CSV, Excel or a Word report, filtered by period, event type or actor, each export audited; the Audit log screen states retention, protection and access from the settings in force; every successful write request audited (generic event when a route wrote none); trace id on every audit event, access-log row, model call and job run | test_core_governance, test_access_security, test_observability, test_audit_export |
-| NFR-05 | Resilience and partial-result tolerance | ✅ | Partial-result tolerance, circuit breakers, job retries/dead letter; per-connector token renewal, 403 stop, throttling, watermark resume, per-page commit with bad-record isolation; every tool down at once still runs every pipeline, screen and report (last known KEV/EPSS kept); malformed vendor fields, times, pushed alerts, ownership files, settings, policy documents and model output degrade one item, never the run | test_resilience_security, test_jobs, test_connector_conformance, test_real_world, test_data_tolerance |
-| NFR-06 | Performance | 🟡 | Measured per workflow and tool (dashboard); targets pending client baselines | test_demo_walkthrough |
-| VAL-01 | Benefits measured and reported (customer review: "what will we achieve, in quantifiable terms, monitored against what") | ✅ | `reporting/value.py`: 8 KPIs (efficiency, capacity, experience, threat, quality) against baseline and target; Overview card; board monthly and CISO weekly reports; lead-entered baselines and time-study figures, audited | test_value_scorecard |
-| NFR-07 | Scalability | 🟡 | Stateless API (scale out behind TLS) + PostgreSQL; the scheduler runs inside the API server by default and can run as its own service; any number of schedulers is safe (database-decided due-ness, atomic per-job lease renewed while the job runs; a dead scheduler's job is taken over within 120 s); stored e-mails and reports in PostgreSQL (`SOC_BLOB_STORE=database`) so no state is on a host's disk; a Kubernetes package with two or more replicas of everything, liveness / readiness probes and Azure / on-prem overlays (HIGH_AVAILABILITY.md). Measured at 20,000 entities / actions; messy estates up to 40x the demo on SQLite and PostgreSQL; multiple server processes (`SOC_API_WORKERS`), sized pool, 503 + `Retry-After` when saturated; 100 concurrent users at 150 requests/s with no error; client volumes still to be seen in its environment | test_scheduler, test_intelligence::test_risk_ranking_only_profiles_entities_with_risk_sources, test_volume, test_traffic, test_high_availability, test_deployment_manifests |
-| NFR-08 | Platform security | ✅ | Vault secrets (Key Vault files on Azure), least privilege (runtime database role without schema rights), encryption at rest (unsealed data refused in prod, `blobs reencrypt` rotation), verified TLS to the database, CSP/headers, rate limits, bandit/pip-audit clean, hash-locked and signed images, hardened sandbox, linear-time e-mail parsing (ReDoS-tested), proxy-safe client addressing (CIDR), credentials only to a connector's own origin, fail-closed production settings | test_access_security, test_resilience_security, test_pentest, test_go_live_hardening, test_deployment_manifests |
-| NFR-09 | Identity and access management | ✅ | Entra SSO (API token validation, v1/v2 issuers of the tenant, app-only tokens as services; console sign-in with authorization code + PKCE), RBAC with domain scope (per role: each role acts only inside its own scope), step-up MFA, SoD (privileged grants need a second administrator, rollback under the policy, kill-switch release needs a lead), break-glass (sealed, exchanged for a 15-minute session, throttled, audited, alerted), service-account keys, revocation; dev sign-in never with live tools | test_access_security, test_pentest, test_api, test_go_live_hardening |
-| NFR-10 | Data protection and residency | 🟡 | Retention periods configurable and enforced; classification/residency are client decisions (Q21, Q24) | test_access_security |
-| NFR-11 | LLM governance | ✅ | Approved endpoints, prompt/response log, pinning, redaction, grounding; administrator-set monthly and daily budgets, per-person limits, per-feature tier / answer cap / off switch (versioned, audited); usage, cost and tier advice per feature | test_resilience_security, test_llm_usage |
-| NFR-12 | Change management | ✅ | Versioned policy and versioned connector configuration / organisation lists: propose ≠ approve, re-checked at approval (stale proposals refused, preflight must still match), audited, restorable, exportable; pause is the only immediate change | test_core_governance, test_connector_admin |
-| NFR-13 | Observability | ✅ | Connector freshness, job health, reconciliation, drift monitor, Prometheus metrics with alert rules (scheduler heartbeat, audit chain, failing jobs, unverified actions, break-glass); structured trace-stamped logs (requests, audit, model calls, outbound tool calls, jobs, CLI) with secrets masked; trace view and model-call diagnostics | test_demo_walkthrough, test_jobs, test_intelligence, test_observability |
-| NFR-14 | Portability and vendor neutrality | ✅ | Uniform connector SDK + manifest registry; swapping a tool is a connector change; tools configured and staged from the console (Fixtures → Recording → Read-only → Recommend → Automate) after a preflight; `connector new` / `connector check` for a tool without a connector; one misconfigured tool is isolated | test_connectors, test_connector_conformance, test_connector_admin |
-| NFR-15 | Testability and validation | 🟡 | Golden corpora, regression suites (945 platform tests, 205 engine tests), connector conformance for every stream, record-and-sanitise mode turning live responses into fixtures, shadow agreement; accuracy in the client's environment needs A07 data | all |
-| NFR-16 | Documentation and handover | ✅ | README, ARCHITECTURE, CONNECTORS, OPERATIONS, SECURITY, DEMO_GUIDE, TEST_REPORT, this matrix | - |
-
-## Use cases
-
-| ID | Requirement | Status | Implementation | Verified by |
-|---|---|---|---|---|
-| U01 | Reporting-as-a-service across the SOC | ✅ | Reporting engine across VM, incident, phishing + compliance pack | test_demo_walkthrough |
-| U02 | Emergency CVE exposure assessment | ✅ | New-CVE / KEV exposure assessment + insight | test_vulnerability, test_intelligence |
-| U03 | Cloud misconfiguration remediation coordination | ✅ | `domains/vulnerability/misconfig.py`: Wiz issues → consolidation, ownership (CI or subscription), SLA, routing, validation, false closures | test_vulnerability::test_cloud_misconfiguration_lifecycle_u03 |
-| U04 | Canary deception alert auto-triage | ✅ | Canary auto-triage + `deception_corroborated` correlation | test_incident, test_intelligence |
-| U05 | Shift handover and queue briefing | ✅ | Shift handover + situation brief | test_incident, test_intelligence |
-| U06 | Exposure-informed incident triage | ✅ | Exposure-informed severity + `exposed_host_under_attack` | test_incident, test_intelligence |
-| U07 | Identity-centric risk view | ✅ | Identity-centric risk + entity 360 across Entra, Delinea, endpoint, phishing; exact cross-tool identity resolution | test_identity_scale, test_demo_walkthrough |
-| U08 | Phishing to endpoint to identity chaining | ✅ | `phishing_compromise_chain` phishing → endpoint → identity | test_intelligence |
-| U09 | Detection coverage mapping | ✅ | `intelligence/attack_coverage.py`: capability × observed ATT&CK matrix, blind spots, single-source techniques | test_demo_walkthrough |
-| U10 | Continuous control validation | ✅ | `control_gap` rule: confirmed-bad destination still reachable in another control | test_intelligence |
-| U11 | Shadow IT and risky destination analytics | ✅ | `intelligence/shadow_it.py`: unsanctioned services, risky destinations, per-user usage (Umbrella) | test_demo_walkthrough |
-| U12 | Natural-language querying of security data | ✅ | Intelligence analyst Q&A with shown tool calls + VM NL query with shown filter | test_intelligence |
-| U13 | Similar-incident retrieval | ✅ | Similar-incident retrieval | test_incident |
-| U14 | Detection tuning recommendations | ✅ | Detection tuning recommendations; suggestions become draft rules on *Tuning* (`core/tuning.py`), with raise attention, exercises and phishing auto-close (a computed suggested confidence): previewed on past data, approved by a second lead, guardrails in code | test_core_governance, test_tuning |
-| U15 | Automated post-incident reporting and evidence packs | ✅ | Investigation report + evidence pack from the audit trail | test_demo_walkthrough |
-| U16 | User security-risk scoring and targeted awareness | ✅ | Repeat-clicker cohorts + `repeat_clicker` insight | test_intelligence |
-| U17 | Compliance and audit evidence automation | ✅ | `reporting/compliance.py`: control tests + evidence.json + chained audit export + summary.docx | test_demo_walkthrough, test_access_security |
-| U18 | Third-party and vendor email risk monitoring | ✅ | `domains/phishing/supplier.py`: supplier compromise, payment diversion, impersonation, spoofing; supplier look-alikes protected in analysis | test_phishing::test_supplier_email_risk_u18 |
-
-## Coverage of the SOC management deck (operational challenges and automation opportunities)
-
-The management deck describes the security tools, three high-effort workflows, the recurring workload and the
-target operating model. Each item, and where the platform delivers it:
-
-| Deck item | Delivered by | Proven by |
+| Guardrail | Implementation | Test |
 |---|---|---|
-| **Tools:** CrowdStrike Falcon, Defender for Endpoint | `crowdstrike`, `defender_endpoint` connectors (hosts, alerts, vulnerabilities, containment) | test_connectors |
-| **Tools:** Rapid7 InsightVM/Nexpose, CrowdStrike, Wiz, Defender (exposure) | `rapid7`, `wiz`, CrowdStrike Spotlight and Defender TVM streams, consolidated per asset × CVE | test_vulnerability |
-| **Tools:** Avanan, Defender for Office 365 / Security Portal | `avanan`, `defender_office365` (reported mail, campaign search, verdicts, purge) | test_phishing, test_connectors |
-| **Tools:** Microsoft Entra, Azure Identity & Access | `entra`: users, sign-ins, risk, MFA, groups, directory roles, and Azure role assignments per subscription / resource group | test_connectors (incl. Azure roles) |
-| **Tools:** Microsoft Defender for Identity (data handoff workbook) | `defender_identity`: on-premises AD alerts and domain logons (look-up per person / address), people linked by on-premises SID | test_connector_defender_identity |
-| **Tools:** Cisco Umbrella, Thinkst Canary, Delinea Secret Server / Privilege Manager | `umbrella`, `canary`, `delinea_secret_server`, `delinea_privilege_manager` | test_connectors, test_incident |
-| **VM:** vulnerability identified → gather affected devices → consolidate & deduplicate | ingest from 4 scanners in parallel, entity resolution, one record per asset × CVE, affected-device list with owner | test_vulnerability |
-| **VM:** prepare remediation notification → platform team coordination | campaign per CVE, per-team drafts via ITSM or mailbox, behind approval | test_vulnerability |
-| **VM:** action plan & weekly follow-up | committed dates and acknowledgements; weekly follow-up per plan (escalation or status check) | test_vulnerability |
-| **VM:** remediation validation → closure | re-query every scanner; false closures reopened; two-way ITSM sync | test_vulnerability |
-| **VM recurring:** daily exposure report | `daily_report` job | test_jobs, test_demo_walkthrough |
-| **VM recurring:** critical vulnerability updates in the risk register | `refresh_risk_register` after every vulnerability refresh; lead approval | test_vulnerability |
-| **VM recurring:** weekly VM reports, weekly management PPT | `weekly_reports` job (Word + PowerPoint) | test_vulnerability |
-| **Incident:** high alert volumes | alerts from every tool clustered into incidents (shared user / host, 24 h); noisy detections flagged | test_incident |
-| **Incident:** alert lacks context; evidence from user, host, IP, endpoint, identity, DNS, vulnerability and privileged-access tools | parallel enrichment across 8 dimensions into one consolidated case view | test_incident |
-| **Incident:** analyst makes the risk decision | deterministic severity and confidence, recommended actions only (L2), analyst disposition captured | test_core_governance |
-| **Phishing:** user reports → sender / domain → URLs / attachments → security verdicts | decomposition, the 7 trained models + rules, threat-intel fusion, Defender / Avanan reconciliation | test_phishing, test_phishing_engine |
-| **Phishing:** recipients / campaign scope → user interaction → endpoint / identity impact | tenant-wide campaign search, click and DNS checks, per-user EDR and identity checks | test_phishing |
-| **Phishing:** risk & remediation in a single investigation view | one case with verdict, evidence, impact and gated remediation | test_phishing, test_demo_walkthrough |
-| **Common pattern:** search, gather, consolidate, correlate, document, follow up | shared context store, entity resolution, cross-domain correlation and attack story, reports, follow-up jobs | test_consistency, test_story |
-| **Operating principle:** AI gathers and correlates; the analyst validates and decides | recommend-by-default autonomy, four-eyes, LLM never decides a figure or verdict | test_core_governance, test_consistency (LLM on/off identical) |
-| **Automation layer:** gather, correlate, summarise, enrich, draft, report, follow-up support | connectors, enrichment, grounded narratives, drafted notifications, report builder, follow-up and notify jobs | the whole suite |
+| Never auto-closed: high / critical, privileged, deception, KEV host, block watch list | `tuning.guard`, `DlpService` never-auto | `test_dlp.py::test_high_severity_and_privileged_senders_are_never_closed_automatically`, `::test_a_person_on_the_block_list_and_a_device_with_a_known_exploited_flaw_are_never_automatic` |
+| The AI may escalate alone; close only when the computed disposition agrees | `core/decisions.py` | `test_decisions.py::test_the_ai_may_escalate_alone_but_closes_only_with_the_computed_check_and_off_the_never_list` |
+| Insider text fenced; decisions on structured facts; no severity lowered on content | `DlpService._facts`, `_fence`, `_domain` | `test_dlp.py::test_text_the_sender_wrote_never_changes_an_outcome_a_severity_or_a_fact`, `::test_a_model_that_obeys_an_injected_instruction_still_cannot_close_what_the_rules_escalate`, `test_pentest_nam.py::test_text_a_sender_writes_never_becomes_the_destination_fact` |
+| Without a valid citation → the computed path | `DlpService.ai_decide` | `test_dlp.py::test_a_decision_without_a_valid_citation_or_outcome_falls_back_to_the_computed_path` |
+| Every AI decision stores model, version, prompt version, evidence hash, output, stage | `ai_decisions` | `test_dlp.py::test_the_ai_decision_is_stored_beside_the_computed_one_and_can_be_replayed` |
+| Model off / failing / over budget → computed, figures identical | gateway fallbacks | `test_dlp.py::test_with_the_model_off_refused_or_failing_nothing_is_stored_and_the_figures_are_identical`, `test_consistency.py` |
+| 1 in 10 AI closures re-checked by a person, permanently | stable-hash QA sample | `test_decisions.py`, `test_comply_pilot.py` (QA re-checks reported apart) |
 
-## Added beyond the stated requirements
+## 4. The ladder, consistency, compliance wording, phases, residency (CLAUDE.md §0.4.3-8)
 
-Operational features added during the build. They are not requirement IDs, but they are implemented and tested
-in the same way.
+| Requirement | Status | Implementation | Tests |
+|---|---|---|---|
+| Promotion versioned, audited, a second lead; demotion on drift needs nobody; targets set by NAM's SOC lead, no default | Built | `core/decisions.py` | `test_decisions.py::test_promotion_needs_the_sample_the_agreement_and_a_second_lead`, `::test_falling_agreement_demotes_without_a_person`, `::test_a_shift_in_what_the_ai_decides_demotes_even_while_it_agrees` |
+| "LLM on / off identical" kept for figures and computed outcomes | Built | - | `test_consistency.py` |
+| Never "compliant"; mapping as data validated by NAM; regulatory facts only from the source, with the source named | Built | `reporting/regimes.py` (draft catalogue, sources, "to verify") | `test_comply_pilot.py::test_controls_carry_computed_evidence_and_never_claim_compliance`, `::test_the_draft_catalogue_is_well_formed_and_says_it_is_a_draft` |
+| Phase 1-2 connectors at `read` / `recommend`; writes per action in Phase 3 through `ActionService` | Built (stages); SOAR backend Open | connector stages, `ActionService` | `test_connector_admin.py`, `test_core_governance.py` |
+| Health and snapshots "wherever the tool reports / exports them" as a capability matrix on screen | Built | `config_snapshots.capable()`, tool health "not reported" | `test_config_snapshots.py::test_only_tools_that_export_their_configuration_are_read_and_the_rest_say_so`, `test_controls_posture.py::test_with_nothing_reported_health_says_so_and_never_invents_a_finding` |
+| The model in NAM's environment or an Indian region, or off; pseudonymisation on; raw logs in region | Built (configuration); the region is to decide | `llm/redaction.py`, approved endpoints | `test_resilience_security.py`, `test_go_live_hardening.py` |
 
-| Feature | Implementation | Tests |
+## 5. Product scope (CLAUDE.md §0.4a)
+
+| Requirement | Status | Tests |
 |---|---|---|
-| Case ownership and analyst notes | `CaseService.assign` / `add_note`, `case_notes`, owner filters | test_api::test_case_ownership_and_notes, test_core_governance |
-| Global search (cases, every tool identifier, findings, CVEs) | `GET /api/v1/search`, scope-filtered, escaped `LIKE` | test_api::test_global_search_finds_everything_the_caller_may_see |
-| Teams / Slack / webhook notifications for findings | `core/notify.py`, `notify` job, `notifications` table | test_notify, test_api::test_notification_settings_are_visible_to_auditors_without_the_secret |
-| Deferred case explanations (cases usable before the model writes) | `CaseService.narrate_pending`, `narrate=False` in jobs and bulk endpoints | test_incident, test_phishing |
-| Built-in, self-healing scheduler with heartbeat | `scheduler.py`, `/health` scheduler state | test_scheduler |
-| Automatic addition of new optional columns; recorded model response times | `Database._add_missing_columns`, `llm_calls.latency_ms`, `/api/v1/llm/status` | test_schema |
-| Send test message; one-command demo reset | `POST /api/v1/admin/notifications/test`; `python -m soc_platform reset-demo` | test_notify, test_api, test_cli |
-| Every request commits before its response | `Depends(db_session, scope="function")` everywhere | test_commit_before_response |
+| NAM's tools and modules plus the platform essentials; inherited modules switched off (registry, jobs, routes 404, screens hidden, report sections, engine never loads) | Built | `test_scope.py` (7 tests) |
+| A typo in a connector name still caught in the NAM scope | Built | `test_scope.py::test_the_nam_scope_offers_only_nams_tools` |
 
-## Risks (R01–R16): mitigations in place
+## 6. Security requirements of the NAM surface (round 39)
 
-| ID | Risk | Mitigation |
-|---|---|---|
-| R01 | Asset identity resolution across four exposure sources proves harder than expected | Conflict keys (vendor ids), corroboration for shared hardware ids, unresolved queue + override, stress tests: 0 false merges (assets and identities) |
-| R02 | LLM produces unsupported or subtly wrong claims | Grounded claims with evidence ids, uncited claims dropped, facts computed in code, deterministic fallback |
-| R03 | Analyst distrust and non-adoption | Explainable evidence with deep links, shadow mode + agreement metrics, analyst stays decision owner |
-| R04 | Over-automation causes business disruption | Autonomy policy, blast-radius limits, VIP gates, four-eyes (rollback included), kill switch (durable; release needs a lead), reversible actions, durable execution records (`unverified` instead of a blind retry) |
-| R05 | Ownership data quality is poor or absent | Ownership exceptions surfaced (blocked plans), CMDB + CSV + subscription mapping, coverage report |
-| R06 | API rate limits and quota exhaustion at client volume | Per-tool token buckets sized under vendor limits, caching, backoff, reconciliation |
-| R07 | The platform itself becomes a high-value target | RBAC, MFA step-up, service accounts can't approve, revocation, encryption at rest, audit, hardened sandbox |
-| R08 | Tool licensing gaps block planned integrations | Connector manifests list licence-dependent capability; fake/live per connector; degraded operation |
-| R09 | Scope ambiguity against existing investment | Layer orchestrates existing tools through their APIs; no displacement |
-| R10 | Sensitive data exposure — email content, identity, privileged access | Encryption at rest, retention, pseudonymisation before LLM, no prompts in exports |
-| R11 | LLM cost scales unfavourably with alert and email volume | Tiered routing, budget alerts, deterministic paths work without any LLM |
-| R12 | Sandbox execution risk in the current email build | Fail-closed hardened sandbox; no docker.sock in base deployment |
-| R13 | Forensic and evidential integrity | No destructive autonomous actions; forensic collection recommended before containment; append-only evidence |
-| R14 | Model and detection drift over time | Drift monitor (agreement, PSI, confidence) raising insights; golden evaluation scripts |
-| R15 | The client's tooling changes during or after the engagement | Connector SDK: tool change = connector change |
-| R16 | Scope creep across three broad focus areas | Phased build tracked in the build plan; shared core across the three domains |
+| Requirement | Tests |
+|---|---|
+| Only a lead in person with MFA decides weights, catalogue, pilot figures, reportability, targets, promotions | `test_pentest_nam.py::test_only_a_lead_in_person_with_mfa_decides_what_the_ciso_and_the_regulator_see` |
+| Concurrent decisions decided once, one audit event | `test_pentest_nam.py::test_racing_approvals_decide_once_and_leave_one_audit_event` |
+| Hostile documents and values refused before storage | `test_pentest_nam.py::test_hostile_documents_and_values_are_refused_before_they_are_stored` |
+| A manual run never beside the scheduled job | `test_pentest_nam.py::test_a_manual_run_never_runs_beside_the_scheduled_one` |
+| Audit pack only to evidence exporters; cross-domain screens only with all-domain scope | `test_pentest_nam.py::test_the_audit_pack_goes_only_to_those_who_export_evidence`, `::test_domain_scoped_people_get_no_cross_domain_nam_screen` |
 
-## Assumptions (A01–A12) and dependencies (D01–D12)
+## 7. Open, with the reason
 
-These are client-side inputs. The platform is built so each can be plugged in without code changes:
-
-| ID | Item | How the platform is ready |
-|---|---|---|
-| A01 | The client will provide API access to the named security tools, with read scopes initially and dedicated service accounts per tool. | Per-tool service principals configured in `config/connectors.yaml`; read scopes first |
-| A02 | The tools named in the client's tooling deck represent the complete relevant estate for these three focus areas. | New tools = new connector module (SDK + manifest) |
-| A03 | Current licence tiers expose the APIs required — particularly Defender advanced hunting, Entra Identity Protection risk data, CrowdStrike exposure management, and Avanan's API. | Connectors degrade gracefully; missing licences show as unavailable sources |
-| A04 | An asset ownership mapping exists in a CMDB or maintained source, or one can be established. | ServiceNow CMDB, the ownership mapping uploaded in the console (Excel / CSV; `core/ownership.py`, `test_ownership.py`), CSV mapping, cloud-subscription mapping |
-| A05 | The platform will run in an agreed environment with approved LLM endpoints and sufficient quota. | LLM optional; Azure OpenAI / Anthropic / OpenAI-compatible, approved-endpoint allow-list |
-| A06 | Analysts remain the decision authority; no autonomous destructive action is required at go-live. | Default policy: every action L2 (recommend) |
-| A07 | The client will provide representative historical data — alerts, reported emails with analyst dispositions, and vulnerability exports — for tuning and validation. | Evaluation scripts ready for the client's historical data (`scripts/eval_*`) |
-| A08 | Existing report templates, the risk register schema and required output formats will be supplied. | Report templates (.docx/.pptx) plug in; risk-register mapping configurable |
-| A09 | Volume baselines (alerts per day, reported emails per day, open findings, assets under management) will be provided. | Latency/volume metrics measured; sizing awaits baselines |
-| A10 | The two existing internal systems are the delivery team's intellectual property and are reusable in a client engagement, subject to internal IP and licensing clearance. | Commercial / IP question - not a software item |
-| A11 | The client's SOC operates a defined incident handling process with documented severity definitions and escalation paths. | Severity/approval routing configurable in the versioned policy |
-| A12 | Network connectivity is permitted between the platform and each tool's API endpoints, including any required allow-listing. | Outbound-only HTTPS to each tool API; proxy supported by httpx env |
-| D01 | API credentials and scopes | `connectors.yaml` + `*_FILE` vault secrets; per-connector Test button |
-| D02 | Network access | Connector test endpoint proves reachability per tool |
-| D03 | LLM provisioning | `SOC_LLM_*` settings, approved endpoints, redaction |
-| D04 | Infrastructure | Docker compose / container images; Postgres |
-| D05 | Identity integration | `SOC_AUTH_MODE=entra`; app roles `SOC.<Role>[.<Domain>]` |
-| D06 | Asset ownership data | CMDB connectors + CSV |
-| D07 | ITSM and case management integration | ServiceNow / Jira connectors |
-| D08 | Named SOC subject matter expert | Disposition capture + shadow metrics built for SME feedback |
-| D09 | Platform-team contacts | Team contacts per campaign; ticket routing by assignment group |
-| D10 | Security review and approval | SECURITY.md, compliance pack, audit export for the review |
-| D11 | Validation environment | Fake/live modes; shadow mode default |
-| D12 | Sample data | Evaluation scripts + golden corpora |
-
-## Open questions (Q01–Q28)
-
-Answers change configuration, not code. Each row names the setting that absorbs the answer.
-
-| ID | Question | Where the answer goes |
-|---|---|---|
-| Q01 | Is a SIEM in use? If so, which, and is it the primary alert aggregation point? This is our highest-priority question — it determines where our layer sits. | Sentinel or generic SIEM webhook connector |
-| Q02 | Is there an existing SOAR platform or automation capability? If so, what does it currently automate, and where should the boundary with our layer sit? | Action boundary via autonomy policy per action type |
-| Q03 | What case management or ticketing system does the SOC use for incidents, and what is used for vulnerability remediation tickets? | ServiceNow / Jira connector |
-| Q04 | What is the documented incident handling process, and what are the severity definitions and escalation paths? | Severity mapping + policy |
-| Q05 | Which team owns vulnerability remediation follow-up today, and how is it currently tracked? | VM campaign routing |
-| Q06 | Who are the platform teams that receive remediation notifications, and through what channel today? | Team contacts / assignment groups |
-| Q07 | What are the current SLAs for vulnerability remediation and for incident response? | SLA bands in VM prioritisation |
-| Q08 | Is there a maintained VIP or critical-asset list that automated actions should honour? | VIP / critical-asset gates in policy |
-| Q09 | Is Avanan's API available under the current licence, and what does it expose? This is the least certain integration in the assessment. | Avanan connector (least certain API) |
-| Q10 | Which Microsoft licence tiers are in place — Defender for Endpoint, Defender for Office 365, Entra ID — and do they include advanced hunting, Safe Links click t | MDE/MDO/Entra connector capability flags |
-| Q11 | Is CrowdStrike's exposure management capability licensed, and is Real Time Response enabled with an appropriate response policy? | CrowdStrike RTR / exposure scopes |
-| Q12 | Is InsightVM or legacy Nexpose the authoritative vulnerability source, and is the live API available on the deployed version? | Rapid7 connector mode |
-| Q13 | Is there a CMDB or authoritative asset ownership source? What is its coverage and how current is it? Critical dependency for remediation routing. | CMDB connector |
-| Q14 | What retention windows apply to the data we would query — particularly Umbrella reporting data and Defender advanced hunting tables? | Lookup windows per connector |
-| Q15 | Which reporting mechanism do users use to report suspicious email — a report button, a shared mailbox, or both? | Reporting-mailbox + Defender user-reported ingestion |
-| Q16 | What are the current daily and peak alert volumes, and how are they distributed across the security tools? | Sizing, rate budgets |
-| Q17 | How many emails are reported by users per day, and what proportion are ultimately confirmed malicious? | Throughput sizing, auto-close policy |
-| Q18 | How many open vulnerability findings and how many assets are under management across the four exposure tools? | Sizing |
-| Q19 | What is the current analyst headcount, shift model and typical time spent per investigation type? | Success metrics baselines |
-| Q20 | Can we obtain historical alerts, reported emails and analyst dispositions for validation and tuning? | Evaluation scripts |
-| Q21 | Where must the platform run — the client's tenant, a managed-service environment, or on-premise? What data residency constraints apply? | Deployment target & residency |
-| Q22 | Which LLM endpoints are approved, and are there restrictions on sending email content, identity data or privileged access data to them? | LLM provider & redaction settings |
-| Q23 | Is there an existing internal AI governance policy the platform must comply with? | LLM governance settings |
-| Q24 | What retention is required for security evidence and for audit logs? | Retention settings (`SOC_*_RETENTION_DAYS`) |
-| Q25 | Which actions may ever be executed without human approval, and which must never be? Who owns that decision? | Autonomy policy levels per action |
-| Q26 | What is the change management path for introducing or modifying an automated action? | Policy propose/approve workflow |
-| Q27 | Are there regulatory or audit constraints on automated security decision-making that we should design to? | Compliance pack control tests |
-| Q28 | What does success look like to SOC leadership — which specific metrics, and how are they measured today? | Overview dashboard + reports |
+| Item | Why open |
+|---|---|
+| Live connectors for NAM's tools | versions and licensed APIs not yet known (CLAUDE.md §0.5) |
+| Arcon, Cloudflare, SIEM and SOAR connectors; M9 | Phase 2-3; products unknown |
+| Decide stage | Phase 3; needs the adversarial DLP-content test set and NAM's auditors' answer on named closures |
+| NAM's control list, confirmed deadlines | NAM's compliance team |
+| Agreement targets, Dome Score weights | NAM's SOC lead and CISO |
+| An Indian asset-manager sample estate | not built |

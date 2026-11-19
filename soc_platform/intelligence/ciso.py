@@ -38,7 +38,6 @@ def movement(session: Session, now_doc: dict[str, Any], *, days: int = 30) -> di
     change in the whole-score penalties (critical cases, critical tool-health findings) and in which domains are
     measured. Returns None until an earlier day with a score is stored."""
     from soc_platform.intelligence.models import PostureSnapshot
-    from soc_platform.intelligence.posture import WEIGHTS
 
     since = (utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
     today = utcnow().strftime("%Y-%m-%d")
@@ -48,23 +47,26 @@ def movement(session: Session, now_doc: dict[str, Any], *, days: int = 30) -> di
     if first is None or now_doc["score"] is None:
         return None
     before = (first.document or {}).get("domains") or {}
-    measured = [d for d in now_doc["domains"] if d["measured"]]
-    total = sum(WEIGHTS[d["id"]] for d in measured) or 1
+    W = now_doc["weights"]
+    measured = [d for d in now_doc["domains"] if d["measured"] and W[d["id"]] > 0]
+    total = sum(W[d["id"]] for d in measured) or 1
     rows, explained = [], 0.0
     for d in now_doc["domains"]:
         b, a = before.get(d["id"]), d["score"]
         if b is None and a is None:
             continue
         change = None if b is None or a is None else round(a - b, 1)
-        contrib = None if change is None else round(change * WEIGHTS[d["id"]] / total, 1)
+        contrib = None if change is None or not W[d["id"]] else round(change * W[d["id"]] / total, 1)
         explained += contrib or 0.0
         rows.append({"id": d["id"], "label": d["label"], "before": b, "after": a, "change": change,
                      "contribution": contrib,
                      "note": "newly measured" if b is None else "no longer measured" if a is None else None})
     change = round(now_doc["score"] - first.score, 1)
     rows.sort(key=lambda r: (-(abs(r["contribution"] or 0)), r["label"]))
+    then_w = (first.document or {}).get("weights_version")
     return {"since": first.day, "from": first.score, "to": now_doc["score"], "change": change, "domains": rows,
-            "other": round(change - explained, 1)}
+            "other": round(change - explained, 1),
+            "weights_changed": then_w != now_doc.get("weights_version") and "weights_version" in (first.document or {})}
 
 
 def _dlp_week(session: Session) -> dict[str, Any]:
@@ -191,7 +193,7 @@ def evidence(doc: dict[str, Any]) -> list[dict[str, Any]]:
     if p["score"] is None:
         add("No domain can be measured yet: no tool and device baseline are connected.", 10)
         return out
-    add(f"The Dome Score is {p['score']} out of 100 ({p['band']}), formula {p['formula_version']} with draft weights.", 10)
+    add(f"The Dome Score is {p['score']} out of 100 ({p['band']}), formula {p['formula_version']}, weights {p['weights_status']}.", 10)
     mv = p.get("movement")
     if mv:
         add(f"Since {mv['since']} the score moved by {mv['change']:+g} points, from {mv['from']} to {mv['to']}.", 9)

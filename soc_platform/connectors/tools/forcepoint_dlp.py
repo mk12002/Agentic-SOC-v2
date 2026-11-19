@@ -5,7 +5,9 @@ Read: dlp_incidents (events, resumed from the newest change), endpoints (agent i
 by an engineer in Forcepoint, never by the platform.
 UNVERIFIED (see ``_paged.py``): the paths, the page shape and the field names are placeholders that run in fake mode
 only. To confirm against the installed version: the incident export API and its filters, whether agent check-ins and
-job / certificate state are exposed at all, and the classifier names used for personal data.
+job / certificate state are exposed at all, the classifier names used for personal data, and how a classifier's type
+(pattern, dictionary, file fingerprint, exact data match) and a match found in text read from an image (OCR) are
+reported - both feed the classification-quality findings of ``domains/dlp/tuning.py``.
 """
 
 from __future__ import annotations
@@ -33,14 +35,26 @@ def _text(v: Any, limit: int = 300) -> str | None:
     return str(v)[:limit] if isinstance(v, (str, int, float)) and not isinstance(v, bool) and str(v) else None
 
 
+# a classifier's type in the vendor's words -> ours (UNVERIFIED: the field and its values are placeholders)
+CLASSIFIER_TYPES = {"pattern": "pattern", "regex": "pattern", "regular_expression": "pattern", "script": "pattern",
+                    "dictionary": "dictionary", "keyword": "dictionary", "keywords": "dictionary",
+                    "fingerprint": "fingerprint", "file_fingerprint": "fingerprint", "directory_fingerprint": "fingerprint",
+                    "edm": "edm", "exact_data_match": "edm", "database_fingerprint": "edm",
+                    "ml": "ml", "machine_learning": "ml"}
+
+
 def _classifiers(v: Any) -> list[dict[str, Any]]:
-    """What matched: each classifier's name and how many times (a count that is not a whole number reads as 0)."""
+    """What matched: each classifier's name, how many times (a count that is not a whole number reads as 0), its type
+    (``unknown`` when not reported) and whether the matches came from text read out of an image (OCR)."""
     out = []
     for c in v if isinstance(v, list) else []:
         if isinstance(c, dict) and _text(c.get("name")):
             n = c.get("matches")
+            kind = str(c.get("type") or "").strip().lower().replace(" ", "_").replace("-", "_")
             out.append({"name": _text(c["name"], 120),
-                        "matches": int(n) if isinstance(n, (int, float)) and not isinstance(n, bool) and n >= 0 else 0})
+                        "matches": int(n) if isinstance(n, (int, float)) and not isinstance(n, bool) and n >= 0 else 0,
+                        "type": CLASSIFIER_TYPES.get(kind, "unknown"),
+                        "ocr": c.get("ocr") is True or str(c.get("extracted_from") or "").lower() == "image"})
     return out
 
 

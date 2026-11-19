@@ -31,12 +31,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Integer, String, UniqueConstraint, select
+from sqlalchemy import JSON, Integer, String, UniqueConstraint, func, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from soc_platform.core.audit import AuditLog
 from soc_platform.core.auth import Perm, Principal, same_person
-from soc_platform.core.db import Base, BoundedText, UTCDateTime
+from soc_platform.core.db import Base, BoundedText, UTCDateTime, claim
 from soc_platform.core.models import SystemFlag, new_id, utcnow
 
 STAGES = ("shadow", "recommend", "decide")
@@ -197,7 +197,11 @@ class DecisionStore:
         if row is not None:
             return row
         outcome = ai_outcome if ai_outcome in OUTCOMES else None
-        row = AiDecision(decision_type=dt.name, subject_type=subject_type, subject_id=subject_id,
+        # strictly later than the item's previous decision: "newest" must not depend on a clock tick (see _after)
+        prev = self.s.execute(select(func.max(AiDecision.created_at)).where(
+            AiDecision.subject_type == subject_type, AiDecision.subject_id == subject_id)).scalar()
+        row = AiDecision(created_at=_after(utcnow(), prev) if prev is not None else utcnow(),
+                         decision_type=dt.name, subject_type=subject_type, subject_id=subject_id,
                          stage=self.stage_of(dt.name), ai_outcome=outcome, ai_source=ai_source,
                          computed_outcome=computed_outcome,
                          effective_outcome=effective(outcome, computed_outcome, never_auto),
@@ -231,9 +235,15 @@ class DecisionStore:
         """A person ruled on the item: every decision recorded for it now carries the ruling."""
         if outcome not in OUTCOMES:
             raise ValueError(f"unknown outcome; use one of: {', '.join(OUTCOMES)}")
-        for r in self.s.execute(select(AiDecision).where(AiDecision.subject_type == subject_type,
-                                                         AiDecision.subject_id == subject_id)).scalars():
-            r.analyst_outcome, r.analyst_source, r.decided_at = outcome, source, utcnow()
+        rows = list(self.s.execute(select(AiDecision).where(AiDecision.subject_type == subject_type,
+                                                            AiDecision.subject_id == subject_id)).scalars())
+        when = utcnow()
+        for name in sorted({r.decision_type for r in rows}):
+            stage = self._active(name)       # a ruling is always later than the stage change before it (see _after)
+            if stage is not None and stage.decided_at is not None:
+                when = _after(when, stage.decided_at)
+        for r in rows:
+            r.analyst_outcome, r.analyst_source, r.decided_at = outcome, source, when
         self.s.flush()
 
     # ------------------------------------------------------------------ measurement
@@ -243,7 +253,7 @@ class DecisionStore:
         q = select(AiDecision).where(AiDecision.decision_type == decision_type, AiDecision.ai_outcome.is_not(None),
                                      AiDecision.analyst_outcome.is_not(None))
         if since_id is not None:
-            q = q.where(AiDecision.decided_at >= since_id)
+            q = q.where(AiDecision.decided_at > since_id)
         newest: dict[str, AiDecision] = {}
         for r in self.s.execute(q.order_by(AiDecision.created_at, AiDecision.id)).scalars():
             newest[r.subject_id] = r
@@ -349,7 +359,8 @@ class DecisionStore:
     def reject(self, proposal_id: int, by: Principal, *, reason: str = "") -> DecisionStage:
         row = self._pending(proposal_id)
         _may_change(by, _type(row.decision_type))
-        row.status, row.decided_at, row.approved_by = "rejected", utcnow(), by.id
+        if not claim(self.s, row, ("pending",), status="rejected", decided_at=utcnow(), approved_by=by.id):
+            raise ValueError("this proposal was decided by someone else at the same moment")
         self.audit.append(actor_type=by.actor_type, actor_id=by.id, event_type="decision.promotion_rejected",
                           subject_type="decision_type", subject_id=row.decision_type,
                           payload={"proposal": row.id, "reason": reason})
@@ -358,16 +369,22 @@ class DecisionStore:
 
     def _activate(self, name: str, stage: str, proposed_by: str, approved_by: str, reason: str, ev: dict[str, Any],
                   actor_type: str, event: str, *, proposal: DecisionStage | None = None) -> DecisionStage:
+        # strictly later than every ruling so far, so "decided since the change" never counts a ruling made in the
+        # same clock tick before it (Windows' clock moves in ~15 ms steps)
+        last = self.s.execute(select(func.max(AiDecision.decided_at)).where(AiDecision.decision_type == name)).scalar()
+        when = _after(utcnow(), last) if last is not None else utcnow()
+        if proposal is not None and not claim(self.s, proposal, ("pending",), status="active", approved_by=approved_by,
+                                              decided_at=when):
+            raise ValueError("this proposal was decided by someone else at the same moment")
         for old in self.s.execute(select(DecisionStage).where(DecisionStage.decision_type == name,
                                                               DecisionStage.status.in_(("active", "pending")))).scalars():
             if proposal is None or old.id != proposal.id:
                 old.status = "superseded"
         if proposal is not None:
             row = proposal
-            row.status, row.approved_by, row.decided_at = "active", approved_by, utcnow()
         else:
             row = DecisionStage(decision_type=name, stage=stage, status="active", proposed_by=proposed_by,
-                                approved_by=approved_by, reason=reason, baseline=_baseline(ev), decided_at=utcnow())
+                                approved_by=approved_by, reason=reason, baseline=_baseline(ev), decided_at=when)
             self.s.add(row)
         self.s.flush()
         self.audit.append(actor_type=actor_type, actor_id=approved_by, event_type=event, subject_type="decision_type",
@@ -404,6 +421,15 @@ class DecisionStore:
                                "decision.demoted")
                 demoted.append({"decision_type": name, "from": stage, "to": lower, "reason": why})
         return demoted
+
+
+def _after(now: datetime, other: datetime) -> datetime:
+    """``now``, or a microsecond after ``other`` when the clock has not moved past it."""
+    from datetime import UTC, timedelta
+
+    o = other if other.tzinfo else other.replace(tzinfo=UTC)
+    n = now if now.tzinfo else now.replace(tzinfo=UTC)
+    return n if n > o else o + timedelta(microseconds=1)
 
 
 def _type(name: str) -> DecisionType:

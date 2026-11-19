@@ -1,6 +1,6 @@
 # Application Gateway (zone-redundant) via the Application Gateway Ingress Controller. TLS terminates at the gateway
 # with a Key Vault certificate. Internal-only console: point it at the organisation's existing gateway. Internet-facing:
-# a WAF v2 gateway and policy are mandatory (INFRASTRUCTURE_AND_COSTS.md section 10.2, D5).
+# a WAF v2 gateway and policy are mandatory (HIGH_AVAILABILITY.md section 3.1, D5).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

@@ -1,119 +1,54 @@
-# Use-case mapping
+# 7. Use-case mapping
 
 | | |
 |---|---|
-| **Document** | Use-case mapping - Agentic SOC platform |
-| **Version** | 1.2 - 2026-10-17 |
-| **Audience** | SOC leadership, SOC analysts, security management |
+| **Document** | CyberDome for NAM - review pack, document 7 of 9 (for the customer presentation) |
+| **Answers** | NAM's challenges, the CyberDome capability that addresses each, and the expected benefit - stated without figures until the pilot measures them |
 
-## About the platform
+## 7.1 Seeing the estate
 
-The Agentic SOC platform is a planned AI-assisted investigation and operations layer across the security tools the
-organisation already owns (CrowdStrike Falcon, Microsoft Defender for Endpoint, Rapid7 InsightVM / Nexpose, Wiz,
-Avanan, Defender for Office 365, Microsoft Entra, Cisco Umbrella, Thinkst Canary, Delinea Secret Server and Privilege
-Manager). It gathers, correlates, summarises, enriches, drafts and reports; **the SOC analyst validates the evidence,
-determines the actual risk and approves the action**.
+| Challenge | Capability | Expected benefit | Status |
+|---|---|---|---|
+| Not knowing which devices miss the EDR agent, the DLP agent or disk encryption | **Dome Graph**: every AD baseline device checked against each control; missing, silent, off, unknown; ranked by the personal data on them | one list of gaps, riskiest first, instead of reconciling four consoles | Implemented (fake mode) |
+| Devices a tool sees that AD does not; people in no DLP policy group | listed separately on the same screen | baseline drift found before it becomes a blind spot | Implemented |
+| A tool quietly failing (agents silent, sync jobs failing, certificates expiring, directory import dropping people) | **Dome Connect - tool health**: findings from each tool's own reports, warned ahead, each with its next step | outages found by the platform, not by users | Implemented (where the tool reports it) |
+| Changes to tool configuration nobody recorded | **Change baseline**: daily snapshots, before / after a change with the Dome Score, unplanned changes flagged | a change and its effect on posture on record | Implemented (where the tool exports it) |
 
-**Status:** every capability below is **Planned**. The development environment (a dedicated development VM) is being
-set up; see *Development roadmap and readiness*.
+## 7.2 Handling DLP alerts
 
-## 1 The challenges this addresses
+| Challenge | Capability | Expected benefit | Status |
+|---|---|---|---|
+| A large DLP queue, most of it benign | **Computed disposition**: a published decision table closes the clearly benign (internal, partner, sanctioned; no bulk personal data; no risky sign-in), escalates the clearly risky, asks a person about the rest | analysts spend time where the facts are unclear | Implemented |
+| Context spread across tools | facts per alert from Silverfort, Trend Micro, Trellix and the directory; an investigator runs read-only look-ups | the alert arrives investigated | Implemented |
+| Using AI without losing control | **Earned autonomy**: shadow → recommend → decide per decision type, on NAM's target, with a second lead; automatic demotion | AI help that grows only as fast as it proves itself | Implemented (shadow, recommend) |
+| Insiders trying to talk their way out of an alert | facts, not text: the message is fenced data and read by no rule | an alert cannot be argued away | Implemented |
+| Noisy rules | **Rule changes**: suggestions from analysts' rulings, classification quality (OCR, EDM, fingerprints), previewed on past alerts, refused when unsafe, made by an engineer and verified | fewer false positives without hiding real loss | Implemented |
 
-The SOC's three high-volume workflows - vulnerability management, incident management and reported / phishing e-mail
-handling - share one operating pattern:
+## 7.3 One person, several tools
 
-```text
-Event / vulnerability / reported e-mail -> search multiple tools -> gather information manually
-  -> correlate evidence manually -> determine actual risk -> coordinate remediation -> follow-up / validation / reporting
-```
+| Challenge | Capability | Expected benefit | Status |
+|---|---|---|---|
+| A risky sign-in, a data leak and an unencrypted laptop seen as three unrelated alerts | **Cross-tool cases**: one case per person; severity from how many tools agree | the real incident found as one story | Implemented (privileged check-outs when Arcon is connected) |
+| Fast, safe response | revoke sessions and require MFA recommended; isolation when three or more tools agree, always by two people | response prepared, still decided by people | Implemented (actions are placeholders until APIs are confirmed) |
 
-The challenge is not a lack of security tools or data; it is the manual effort to bring distributed information
-together and turn it into timely, actionable decisions. Time goes on **search, gather, consolidate, correlate,
-document and follow up** - the steps the platform is planned to take over, leaving the decision with the analyst.
+## 7.4 Reporting to the CISO and the board
 
-### What the organisation gains, and how it is measured
+| Challenge | Capability | Expected benefit | Status |
+|---|---|---|---|
+| No single posture number the CISO trusts | **Dome Score**: a published formula over computed factors; adjustable weights agreed with the CISO (two leads); not measured is not zero | one number that can be recomputed by hand | Implemented |
+| "Why did it drop?" | movement per domain and what would raise it most, from the formula's own factors | answers in seconds, not a week of analysis | Implemented |
+| Board reporting effort | the monthly board deck and weekly CISO brief from the same figures | reports that match the screens | Implemented |
 
-The benefits are proposed as **targets**, each confirmed against a baseline measured before the pilot and then
-reported on a value scorecard (console overview, CISO weekly brief, monthly board pack). Figures are computed in code
-from tool and case timestamps; analyst effort, which software cannot see, comes from a short time study.
+## 7.5 Regulation
 
-| Benefit | KPI | Proposed target |
-|---|---|---|
-| Efficiency | Phishing handling time per reported e-mail (received -> closed) | -50 % |
-| Efficiency | Incident: alert to analyst decision | -40 % |
-| Efficiency | Analyst hours on the recurring reports per week | -70 % |
-| Capacity | Tier-1 analyst effort freed (effort saved per case x case volume) | >= 30 % |
-| Threat reduction | Time to contain a clicked phishing e-mail | -50 % |
-| Threat reduction | Time to a validated fix for critical / known-exploited vulnerabilities | -30 % |
-| Threat reduction | Critical findings past SLA (known-exploited or internet-exposed) | -50 % |
-| Quality gate | Agreement with analyst decisions in shadow mode; missed threats | >= 90 %; <= 2 % |
+| Challenge | Capability | Expected benefit | Status |
+|---|---|---|---|
+| Showing SEBI CSCRF, DPDP and CERT-In evidence | **Dome Comply**: controls mapped to computed evidence tests; the share with current evidence; gaps named; never "compliant" | evidence ready for the auditor | Implemented (catalogue draft to validate) |
+| Reportability decisions under time pressure | a breach assessment per personal-data case; a person decides; clocks from the catalogue; the AI drafts | the decision and the draft in one place, on record | Implemented (deadlines to confirm) |
+| Audit requests | the audit pack: controls, assessments, catalogue, the full tamper-evident trail | one download | Implemented |
 
-No benefit is claimed until it is measured against the agreed baseline.
+## 7.6 Proving value
 
-## 2 Challenge 1 - Vulnerability management (Vulnerability Assistant)
-
-Tools: Rapid7 InsightVM / Nexpose, CrowdStrike, Wiz, Microsoft Defender.
-
-| Lifecycle step today | Planned capability |
-|---|---|
-| Vulnerability identified | Findings pulled from every scanner; each CVE enriched with CVSS, exploit probability (EPSS) and known exploitation (CISA KEV) |
-| Gather affected devices | Affected-device list per CVE across all scanners, each device resolved to one asset |
-| Consolidate and deduplicate | One finding per device and CVE, each scanner's record kept; priority from exploitability, internet exposure and asset criticality |
-| Prepare remediation notification | Notification drafted per platform team with the affected devices, priority, SLA and fix text, for analyst approval |
-| Platform team coordination | Owner and support group from the CMDB / ownership sheet; a remediation campaign per CVE with tickets in ServiceNow / Jira |
-| Action plan and weekly follow-up | Action plans tracked; overdue and stalled items listed for follow-up; ticket status synchronised back |
-| Remediation validation | The scanners re-queried: a finding is closed only when no scanner still reports it; a closed ticket with the CVE still present is flagged |
-| Closure | Closure recorded with the validation evidence; time-bound exceptions approved by two people, reopened on expiry |
-
-| Recurring SOC workload | Planned capability |
-|---|---|
-| Daily Exposure Report preparation | Generated daily from the consolidated findings (Word) |
-| Critical vulnerability updates in the Risk Register | Risk register entries proposed for critical / known-exploited vulnerabilities, approved by the SOC, kept up to date with affected-asset counts and owners |
-| Weekly Vulnerability Management reports | Generated weekly (Word) |
-| Weekly management PPT preparation | Generated weekly (PowerPoint) |
-
-Every figure in a report is computed from the data; AI, if enabled, only writes the narrative around them.
-
-## 3 Challenge 2 - Incident management (Incident Investigation Assistant)
-
-Tools: CrowdStrike, Microsoft Defender / MDE, Entra / Identity, Canary, Umbrella, Wiz, Rapid7, Delinea.
-
-| Challenge today | Planned capability |
-|---|---|
-| A high volume of alerts makes individual handling cumbersome | Alerts grouped into incidents by the host and person they concern; one case instead of many alerts |
-| An alert may not contain enough context to understand the actual risk | Each incident enriched with consolidated security context and a risk-context summary; severity from fixed rules with the reasons shown |
-| User, host, IP, endpoint, identity, DNS, vulnerability and privileged-access evidence gathered from multiple portals | Multi-tool evidence gathered in parallel: endpoint (CrowdStrike, MDE), identity (Entra), DNS (Umbrella), deception (Canary), exposure (Rapid7, Wiz), privileged access (Delinea), on one timeline |
-| Manual correlation before the risk decision | Cross-tool correlation (for example phishing click -> endpoint execution -> identity compromise; privileged access after compromise; exposed host under attack) |
-| Remediation | Recommended containment (isolate host, revoke sessions, block indicator, ticket), each approved by an analyst |
-
-```text
-Today:    Alert -> Search tools -> Gather evidence -> Correlate -> Risk decision -> Remediate
-Planned:  Alert -> Consolidated security context -> Analyst risk decision -> Remediate
-```
-
-Operating principle: AI gathers and correlates information; the SOC analyst validates the findings and makes the final
-security decision.
-
-## 4 Challenge 3 - Reported / phishing e-mail handling (Phishing Investigation Assistant)
-
-Tools: Avanan, Defender for Office 365 / Microsoft Security Portal, CrowdStrike / MDE, Cisco Umbrella, Entra / Identity.
-
-| Investigation step today | Planned capability |
-|---|---|
-| User reports e-mail | Reported e-mails picked up automatically from the reporting mailbox |
-| Review sender / domain | Sender, domain, authentication results and look-alike / supplier checks done automatically |
-| Analyse URLs / attachments | Links and attachments extracted and checked against threat intelligence (indicators only; no link from an e-mail is ever opened) |
-| Security verdicts | Avanan and Defender verdicts consolidated with the platform's own analysis into one verdict with its evidence |
-| Recipients / campaign scope | Everyone who received the same campaign found across the tenant |
-| User interaction | Who clicked (allowed vs blocked) and whether the site was reached (Umbrella) |
-| Endpoint / identity impact | Endpoint activity (CrowdStrike / MDE) and risky sign-ins (Entra) after the click |
-| Risk and remediation | Recommended remediation (remove the campaign, block the sender, reset the account, reply to the reporter), each approved by an analyst |
-
-All of it is presented as a single investigation view for analyst validation, so analysts focus on confirming risk,
-scope and the right remediation instead of repeating the same checks.
-
-## 5 Feedback requested
-
-1. Does this mapping match each workflow as the SOC runs it today? Are any steps missing?
-2. Which assistant should the demonstration focus on first?
-3. Who will agree the baseline and the targets above (which cases and reports, which measures), and run the time study?
+| Challenge | Capability | Expected benefit | Status |
+|---|---|---|---|
+| Knowing whether the pilot worked | **Pilot scorecard**: KPIs against NAM's week-2 baseline and targets NAM sets | a decision on evidence | Implemented |

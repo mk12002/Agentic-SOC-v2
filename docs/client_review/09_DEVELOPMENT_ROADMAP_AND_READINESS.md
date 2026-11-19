@@ -1,71 +1,50 @@
-# Development roadmap and readiness
+# 9. Development roadmap and readiness
 
 | | |
 |---|---|
-| **Document** | Development roadmap and readiness - Agentic SOC platform |
-| **Version** | 1.0 - 2026-10-13 |
-| **Audience** | Customer presentation: security leadership, SOC, project sponsors |
+| **Document** | CyberDome for NAM - review pack, document 9 of 9 (for the customer presentation) |
+| **Answers** | What is built, what is not, the roadmap by phase, dependencies on NAM, next steps |
 
-## About the platform
+## 9.1 Current status
 
-The Agentic SOC platform is a planned investigation and automation layer that runs inside the organisation's own
-environment, on top of the security tools it already owns, covering phishing investigation, incident management and
-vulnerability management. It recommends actions; **a person approves them**.
+| Module | Status |
+|---|---|
+| Dome Connect: connectors for Forcepoint DLP, Silverfort, Trend Micro, Trellix ePO, the AD / CMDB export | Built, fake mode on placeholder APIs - to be confirmed against NAM's versions |
+| Dome Connect: tool health and configuration snapshots | Built (where each tool reports or exports them) |
+| Dome Graph: control coverage | Built |
+| Dome Agents: DLP triage, AI investigator, earned autonomy (shadow, recommend), DLP rule changes with classification quality | Built |
+| Cross-tool cases | Built (privileged check-outs wait for Arcon) |
+| Dome Score, adjustable weights, CISO view, board deck and weekly brief | Built |
+| Dome Comply: catalogue, evidence, audit pack, breach assessments, reportability, drafts | Built (catalogue a draft; NAM's control list and deadlines to confirm) |
+| Pilot scorecard | Built |
+| Platform essentials: cases, approvals, actions and policy (containment four-eyes), AI gateway and usage policy, watch lists, notifications, reports, access, audit | Built |
+| Arcon, Cloudflare, SIEM / SOAR product connectors; SOAR execution (M9) | Not built (products / versions unknown) |
+| The decide stage | Not built (Phase 3; gated) |
 
-## 1 Current status
+Verification: the automated suite on SQLite and PostgreSQL, the connector conformance suite, browser tours of every
+screen, the NAM penetration test (round 39) and feature-by-feature verification - see `docs/TEST_REPORT.md`.
 
-**The development environment is being set up**: a dedicated development VM is being provisioned and configured.
-All capabilities in this document are **Planned**. Development uses synthetic, vendor-shaped sample data only - no
-connection to the organisation's tools and no organisation data until the integrations are approved.
+## 9.2 Roadmap
 
-## 2 Planned capabilities
+| Phase | Weeks | Build | Prove |
+|---|---|---|---|
+| 1 - connect and see | 1-6 | each Phase 1 connector confirmed against NAM's API (only the request code changes); fixtures from recorded responses | coverage, tool health, the DLP queue and the Dome Score on NAM's data; AI in shadow; baselines |
+| 2 - triage and correlate | 7-14 | Arcon, Cloudflare, SIEM, SOAR (read) connectors; privileged check-outs in the cross-tool rules | agreement targets met; recommend stage per decision type; rule changes made and verified |
+| 3 - act and prove | 15-20 | SOAR execution backend (M9); write scopes per accepted action; the adversarial DLP-content test set | approved actions executed and verified; decide stage only where earned; audit pack accepted |
 
-| Area | Planned capability | Status |
-|---|---|---|
-| Foundation | Connector framework (read-only by default, rate-limited, resumable), one picture per host and person, case management, audit trail | Planned |
-| Connectors | 21 connectors: the organisation's 13 security tool families plus public vulnerability intelligence, threat-intel fusion, Jira, an ownership sheet, Sentinel and SIEM push | Planned |
-| Phishing investigation | Automatic analysis of reported e-mails, campaign scope, who clicked, impact, recommended remediation | Planned |
-| Incident management | Alert grouping, parallel enrichment, rule-based severity, MITRE mapping, recommended containment, ITSM tickets | Planned |
-| Vulnerability management | One finding per host and CVE, risk-based priority, owners, campaigns, verified fixes, time-bound exceptions | Planned |
-| Intelligence | Risk per person and host, cross-domain correlation, attack story, analyst assistant, reports | Planned |
-| Governance | Roles and scope, MFA, two-person approval, autonomy policy (default: recommend), kill switch, audit, encryption, retention | Planned |
-| AI (optional) | Explanations from cited evidence through the organisation's LLM gateway, with pseudonymisation and budgets | Planned |
+## 9.3 Dependencies on NAM
 
-## 3 Roadmap
+The decisions in *Deployment and validation*, section 6.6 (tool versions and APIs, model region, targets, weights,
+control list, baseline source, retention), the prerequisites in section 6.2, and named people: a SOC lead (targets,
+promotions), a second lead (two-person approvals), the CISO (weights), the compliance team (catalogue), engineers
+(tool changes).
 
-The total development timeline is **4 weeks**, ending with a demonstration on synthetic data.
+## 9.4 Next steps
 
-| Week | Planned work | Outcome |
-|---|---|---|
-| Week 1 | Development VM set up (**current**); build and test pipeline; synthetic vendor-shaped data; foundation (connector framework, one picture per host and person, cases, audit) | Working environment and foundation |
-| Week 2 | Connectors in fixture mode; phishing investigation workflow | Phishing workflow end-to-end on synthetic data |
-| Week 3 | Incident management and vulnerability management workflows; governance (roles, approvals, autonomy policy) | All three workflows with human approval |
-| Week 4 | Intelligence (risk, correlation), optional AI explanations, testing, demonstration preparation | **Demonstration** of the three workflows to the SOC |
-
-After development (dates to agree with the organisation):
-
-| Stage | What happens | Outcome |
-|---|---|---|
-| Integration readiness | Security review, approved integrations, read-only access, SSO, API permissions | Approval to connect tools |
-| Pilot | Tools connected read-only one at a time, then shadow mode (recommend only) measured against analyst decisions | Measured agreement and productivity against the agreed baseline |
-| Approved actions | Selected low-impact, reversible actions approved by analysts | Controlled move to assisted response |
-
-## 4 Key dependencies
-
-| Dependency | Owner | Needed for |
-|---|---|---|
-| Development VM and tooling | Development team | Week 1 |
-| Confirmation of tool list and representative synthetic data | Organisation SOC / development team | Weeks 1-2 |
-| Agreed use cases and productivity baseline | Organisation SOC | Week 4 demonstration and pilot measurement |
-| Security and architecture review sign-off | Organisation security / architecture | Integration readiness |
-| Per-tool service identities, read-only API permissions, licences | Tool owners | Integration readiness |
-| Entra ID app registration for sign-in, hosting environment, vault | Organisation IT | Integration readiness |
-| LLM gateway access (optional) | Organisation AI governance | AI explanations |
-
-## 5 Proposed next steps
-
-1. Complete the development VM set-up.
-2. Agree the use cases and the demonstration focus (see *Use-case mapping*).
-3. Confirm the tool list and field-level sample data with the tool owners.
-4. Agree the productivity baseline and pilot success measures with the SOC.
-5. Confirm the week-4 demonstration date.
+1. Agree the hosting environment and region; provision P1-P3.
+2. Obtain the API documentation and read-only accounts for the Phase 1 tools; confirm each connector and run its
+   preflight.
+3. Connect the baseline first, then Trellix and Trend Micro, then Forcepoint, then Silverfort.
+4. Week 2: capture baselines; NAM's SOC lead sets targets; the CISO agrees the weights; compliance starts
+   validating the catalogue.
+5. Phase 1 gate review with the CISO.

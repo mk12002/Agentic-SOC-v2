@@ -1,199 +1,114 @@
-# Solution architecture
+# 1. Solution architecture
 
 | | |
 |---|---|
-| **Document** | Solution architecture - Agentic SOC platform |
-| **Version** | 1.0 - 2026-10-10 |
-| **Audience** | Enterprise / security architecture, infrastructure and network teams |
+| **Document** | CyberDome for NAM - review pack, document 1 of 9 |
+| **Answers** | What runs where; the system context and components; the hosting model; infrastructure; network connectivity |
 
-**Status terms used in this document:** *Implemented* - built, enforced in code and covered by automated tests that
-run on every build; *Configured at deployment* - built, with the value chosen by or taken from the organisation's
-environment; *To validate in the organisation's environment* - built and tested against vendor-shaped data, not yet
-exercised against the organisation's own tenants, volumes or users (covered by the pilot).
+## 1.1 Purpose and principles
 
-## 1 Summary
+CyberDome is one investigation, coverage and governance layer above NAM's security tools. Five principles shape the
+architecture:
 
-- The platform is **client-hosted**: it runs in the organisation's own environment (containers on the organisation's
-  Kubernetes, Docker hosts or VMs; Windows hosts are also supported). It is not a vendor-operated SaaS and sends no
-  data or telemetry to its developers.
-- It consists of **two application services** (API with web console; scheduler), **one PostgreSQL database** and
-  **one encrypted file store**. There is no message bus, cache cluster or agent to install on endpoints.
-- It accepts inbound traffic **only through the organisation's TLS reverse proxy**. All integration traffic is
-  **outbound HTTPS** to the security tools' APIs, initiated by the platform; no tool connects in (except an optional
-  SIEM pushing alerts with an API key).
-- Every write to a security tool goes through one **action layer** governed by an autonomy policy whose default is
-  *recommend*: a person approves each action.
-- An optional LLM is reached only through the **organisation's own LLM gateway**; everything works without it.
+1. **Inside NAM's boundary.** The platform, its database and backups, and the AI model (when used) run in NAM's
+   environment or an Indian cloud region. No SaaS component; no data leaves except to NAM's own tools, an approved
+   model endpoint, and notification channels NAM configures.
+2. **Read first, act later.** In Phases 1-2 every tool is read-only; actions are recommended and approved by people;
+   containment always needs two people.
+3. **Computed, then explained.** Every figure, score and severity is computed in code; the AI investigates,
+   explains and - only as far as each decision type has earned - decides DLP dispositions.
+4. **Facts, not text.** Decisions read structured facts; text an insider can write is never decisional.
+5. **Everything on record.** Every decision by a person or the AI is in a hash-chained audit log.
 
-## 2 High-level architecture
+## 1.2 System context
 
 ![System context](diagrams/01-context.svg)
 
-| Element | Role |
-|---|---|
-| SOC users | Analysts, leads, administrators and auditors use a browser; sign-in is Microsoft Entra ID single sign-on with MFA; roles come from Entra app roles |
-| Agentic SOC platform | Ingests from the tools, resolves entities, runs the three workflows and the intelligence layer, presents cases and recommendations, executes approved actions, records everything in a tamper-evident audit chain |
-| Security tools | Read through their documented APIs with a dedicated, least-privilege service identity per tool; written to only for action types the organisation approves |
-| Organisation services | Entra ID (sign-in, app roles), the vault holding secrets, the SIEM / log platform receiving logs and audit exports, monitoring, optional Teams / Slack notifications, the LLM gateway |
-| Public intelligence | NIST NVD, FIRST EPSS and CISA KEV for vulnerability context (only CVE identifiers are sent); optional threat-intelligence sources, each enabled only with the organisation's approval |
+| Actor / system | Interaction | Status |
+|---|---|---|
+| NAM's people (SOC analysts and lead, CISO, engineers, compliance, auditors) | the web console over HTTPS; Entra ID sign-in; MFA for decisions | Implemented (Entra: Configured at deployment) |
+| Forcepoint DLP, Silverfort, Trend Micro, Trellix ePO, AD / CMDB export | read over each tool's API (HTTPS); Silverfort and Trend Micro actions only after approval, from Phase 3 | Implemented in fake mode; To validate in NAM's environment |
+| NAM's SIEM | pushes alerts to the platform's webhook | Implemented (generic); product connector Not built |
+| ServiceNow / Jira | tickets (create / update, after approval) | Implemented |
+| Arcon, Cloudflare, SOAR | Phase 2-3 | Not built |
+| AI model | optional; NAM's own gateway or an Indian-region model; pseudonymised prompts | Implemented; Configured at deployment |
+| Teams / Slack / webhook | findings above a severity threshold | Implemented; Configured at deployment |
 
-## 3 Detailed architecture
+## 1.3 Components and layers
 
 ![Components and layers](diagrams/02-components.svg)
 
-**Layering.** Dependencies point downward only: the API composes the intelligence layer, which reads the workflow
-domains, which use the core services, which use the connectors. The LLM gateway is a leaf any layer may call, and
-every layer works - with identical figures and decisions - when it is switched off.
-
-| Layer | Components | Responsibility |
+| Layer | Components | What they do |
 |---|---|---|
-| API and console | FastAPI application, static single-page console | Authentication, authorisation, input limits, rate limiting, security headers, access log; the console is static files served by the same process (no separate web server, no build-time dependencies at run time) |
-| Intelligence | Risk engine, 13 correlation rules, attack story, analyst assistant, situation brief, ATT&CK coverage, shadow IT, drift monitoring, report builder, compliance evidence pack | Cross-domain analysis on the shared picture; every figure computed in code |
-| Workflow domains | Phishing, incident, vulnerability (with cloud posture) | Case building, enrichment, deterministic scoring, recommendations |
-| Core services | Context store and entity resolution; cases and evidence; enrichment orchestrator; action layer; autonomy policy; audit chain; access management; encryption and retention; jobs and scheduler; connector configuration store; self-check | The governed foundation every workflow uses |
-| Connector SDK | 21 connectors | Uniform, rate-limited, resumable access to each tool; fixture mode for testing with the same parsing code |
-| LLM gateway (optional) | Providers for OpenAI-compatible gateways, Azure OpenAI / AI Foundry and the Claude Messages API | Usage policy, pseudonymisation, approved-endpoint enforcement, grounding and numeric guardrails, circuit breaker, call log |
-| Persistence | PostgreSQL 16; encrypted blob store (in PostgreSQL with `SOC_BLOB_STORE=database`, or a volume) | All records; reported e-mail, generated reports and - when switched on - original vendor payloads, encrypted before they are written |
+| Console | single-page web app | the screens: Dome Score (CISO view), Pilot scorecard, Cases, Approvals, Data protection, Coverage, Changes, Dome Comply, and the governance screens |
+| API | FastAPI application | authentication, authorisation per route and data scope, input limits, audit of every write, commit before reply |
+| Intelligence | posture (Dome Score), CISO view, cross-tool rules, control coverage, tool health, configuration snapshots, risk, correlation | everything that joins tools; every figure computed |
+| Domains and reporting | DLP triage, AI investigator, DLP rule changes, incident (SIEM alerts), Dome Comply, breach assessments, pilot, reports | the workflows |
+| Core | context store and entity resolution, controls, earned autonomy, cases, actions and autonomy policy, audit, access, watch lists, product scope | shared services and governance |
+| Connectors | one per tool; fake mode on vendor-shaped data until each API is confirmed | reading (and, from Phase 3, approved writes) |
+| Scheduler | jobs with database leases | recurring work in a fixed order: baseline first |
+| LLM gateway | budgets, limits, redaction, approved endpoints, citation checks, circuit breaker | every model call; optional |
 
-**Request path.** Every API call passes, in order: a 30 MB body limit enforced on the byte stream; a security
-middleware (NUL characters refused, size checked, per-client rate limit 20 requests/s with a burst of 120); token or
-API-key authentication with revocation checks; a permission check that also applies the user's data scope; the
-handler, inside one database transaction that commits **before** the response is sent; security headers and an
-access-log entry on the way out.
+**Product scope.** The platform core this build runs on also contains modules NAM did not ask for (phishing,
+vulnerability management, cloud posture and others). In NAM's deployment they are **switched off**
+(`SOC_PRODUCT_SCOPE=nam`): not listed, not scheduled, their routes answer "not found", their screens are hidden, and
+the inherited ML engine never loads. A test proves each of these.
 
-**Processing model.** Network work (tool calls, model calls) runs in parallel threads; database work stays sequential
-on the calling thread and parallel results are merged in a fixed order, so the same input always gives the same
-output. Every outbound call goes through the tool's request budget (a token bucket), so parallelism never exceeds the
-rate a vendor allows.
+## 1.4 Hosting model
 
-## 4 Hosting model
-
-| Aspect | Design |
-|---|---|
-| Where | The organisation's environment: a container platform (Kubernetes / AKS, Docker hosts) or VMs; Linux containers recommended; Windows supported |
-| Who operates | The organisation (or its appointed operator); the platform needs no inbound access for its developers |
-| Tenancy | Single organisation per deployment; no shared multi-tenant components |
-| Image | Multi-stage build on `python:3.11-slim` pinned by digest; every package installed against a SHA-256; runs as a non-root user (uid 1001) that cannot modify the code; no package manager or curl; production defaults (it refuses to start until production settings are present); health check on `/health/ready`; the phishing ML engine is included by a build argument; release images signed |
-| Configuration | Environment variables plus `config/connectors.yaml`; secrets as files mounted from the vault (`<NAME>_FILE`); every setting is validated at start-up and a wrong value refuses the start with the fix |
-| Upgrades | New image digest; the migration step (`init-db`, the only process with the schema owner's credentials) creates new tables, adds new nullable columns and widens text columns; the platform itself runs without schema rights; a change needing a scripted migration is announced with its script |
-| Infrastructure as code | Kubernetes package (base + Azure and on-premises overlays) and, for Azure, a Bicep template for the network, cluster, database, Key Vault, registry, optional WAF and logging |
-
-**Reference deployment** (from `deploy/docker-compose.yml`, verified end to end on Docker Desktop on 2026-10-07):
-
-| Service | Purpose | Notes |
+| Option | What runs | Status |
 |---|---|---|
-| `platform-api` | API and console | 4 worker processes by default (`SOC_API_WORKERS`, one per CPU core given); stateless - any number of replicas behind the proxy; graceful shutdown lets requests in flight finish |
-| `platform-scheduler` | Scheduled jobs (ingestion, investigation, correlation, retention, self-check, reports, notifications) | Several replicas are safe: the database decides what is due and a per-job lease, renewed while the job runs, prevents concurrent runs; a dead replica's job is taken over within 120 s; stops between jobs on SIGTERM |
-| `postgres` | PostgreSQL 16 | TLS required (certificate-verified by the platform); schema owner and runtime roles separated; in production a managed service with backups and point-in-time recovery |
-| `platform-migrate` | One-shot schema creation | The only service with the schema owner's credentials |
-| Stored files | Encrypted e-mails and reports | In PostgreSQL (`SOC_BLOB_STORE=database`) |
+| Kubernetes (recommended) | 2+ API pods, 1+ scheduler pods, PostgreSQL HA (CloudNativePG on premises, Azure Database for PostgreSQL Flexible Server zone-redundant), ingress with TLS / WAF, vault-mounted secrets | Implemented (package in `deploy/kubernetes/`, Azure and on-premises overlays); deployment Configured at deployment |
+| Docker Compose | API, scheduler, PostgreSQL with TLS, optional TLS proxy and backups | Implemented (`deploy/docker-compose.yml`, production defaults) |
 
-The compose file also contains an optional `engine` profile (the phishing ML engine's original microservices with
-RabbitMQ and Redis). **It is not needed**: the platform runs the trained models in-process and offline.
+For NAM the cluster, database, backups and model are in NAM's data centre or an Indian region (Azure: Central India
+or South India). The application keeps **no state on a host or in a process**: any pod can be replaced at any time;
+jobs are leased in the database; files (reports, audit packs) are stored encrypted in the database.
 
-## 5 Infrastructure components
+## 1.5 Infrastructure components
 
-| Component | Requirement | Owner |
-|---|---|---|
-| Container runtime / orchestrator | Docker or Kubernetes able to run Linux containers; CPU cores per API replica = worker count | Organisation |
-| PostgreSQL 16 | Dedicated database and login; TLS; backups with a tested restore; `max_connections` above `workers x (SOC_DB_POOL_SIZE + SOC_DB_MAX_OVERFLOW)` (defaults 20 + 20 per process) | Organisation |
-| Persistent storage | None beyond PostgreSQL with `SOC_BLOB_STORE=database` (recommended for several hosts); otherwise a volume for the encrypted reported e-mail and reports | Organisation |
-| Secrets vault | Azure Key Vault or equivalent, mounted as files into the containers | Organisation |
-| TLS reverse proxy / WAF | Terminates TLS (443) in front of the API; its address is listed in `SOC_TRUSTED_PROXIES` | Organisation |
-| Identity provider | Microsoft Entra ID: one app registration (API + console), app roles, Conditional Access requiring MFA | Organisation |
-| Forward proxy (optional) | `HTTPS_PROXY` / `NO_PROXY`; with TLS inspection, the inspecting root CA supplied via `SSL_CERT_FILE` | Organisation |
-| Log collection | Container stdout (JSON lines in production) into the organisation's log platform / SIEM | Organisation |
-| Monitoring | Prometheus-compatible scrape of `/metrics` with an auditor API key; `/health` for load balancers | Organisation |
-| LLM gateway (optional) | The organisation's in-house endpoint in front of its approved models | Organisation |
+| Component | Role | Sizing guidance | Status |
+|---|---|---|---|
+| API pods | console, API | 1 vCPU request per pod running one worker; 2+ for availability | Implemented |
+| Scheduler pods | jobs | 250m CPU request; any number is safe | Implemented |
+| PostgreSQL 16 | all state | managed zone-redundant HA (cloud) or a 3-instance cluster with a synchronous replica (on premises); storage sized from NAM's DLP volume in Phase 1 | Configured at deployment |
+| Ingress / WAF | TLS 1.2+, shared rate limit | NAM's gateway | Configured at deployment |
+| Vault | connector keys, data key, model key, webhooks | NAM's vault (Azure Key Vault or equivalent), mounted as files | Configured at deployment |
+| Model endpoint | optional AI | NAM's gateway or an Indian-region model | Configured at deployment |
+| Log platform | stdout JSON lines, audit anchors | NAM's SIEM / log store, write-once retention for anchors | Configured at deployment |
 
-**Measured capacity** (laptop test bed - to be re-measured on the target environment during the pilot with the
-included `scripts/load_test.py` and `scripts/measure_scale.py`):
+The base requests fit three 2-vCPU nodes (one per zone). They are starting values: confirm them with a load test at
+NAM's number of analysts (`scripts/load_test.py`) and from NAM's alert volume, measured in Phase 1; nothing is
+estimated in advance.
 
-| Measure | Result |
-|---|---|
-| Concurrent analysts | 4 API processes served 100 simulated analysts at 150 requests/s with no error or timeout (PostgreSQL 127 requests/s, also no error); a single screen takes 6-50 ms on its own |
-| Ingestion | About 146 records/s on SQLite and about 75 on PostgreSQL, flat as the estate grows (29 SQL statements per record at every size tested up to 21,675 records) |
-| Saturation | All database connections busy, or the database briefly unreachable, answers 503 with `Retry-After` - not a hang and not a server error |
-
-## 6 Network connectivity requirements
+## 1.6 Network connectivity
 
 ![Hosting model and network connectivity](diagrams/03-network.svg)
 
-### Inbound
+| From | To | Port / protocol | Direction | Purpose |
+|---|---|---|---|---|
+| NAM users | ingress | 443 / HTTPS | inbound | the console and API |
+| NAM's SIEM | ingress (`/api/v1/ingest/alerts`) | 443 / HTTPS, API key | inbound | alerts pushed |
+| ingress | API pods | 8080 / HTTP (inside the cluster) | internal | only path to the API |
+| API, scheduler pods | PostgreSQL | 5432 / TLS (verify-full) | internal | state |
+| API, scheduler pods | each NAM tool's API host | 443 / HTTPS | outbound | reads; approved actions from Phase 3 |
+| API, scheduler pods | ServiceNow / Jira | 443 / HTTPS | outbound | tickets |
+| API pods | `login.microsoftonline.com` | 443 / HTTPS | outbound | sign-in keys |
+| API, scheduler pods | model endpoint | 443 / HTTPS | outbound | optional; approved endpoint only |
+| scheduler pods | notification webhooks | 443 / HTTPS | outbound | optional |
 
-| From | To | Protocol / port | Purpose |
-|---|---|---|---|
-| Analyst browsers | Reverse proxy | HTTPS 443 | Console and API |
-| SIEM / SOAR (optional) | Reverse proxy | HTTPS 443 | Alert push (`POST /api/v1/ingest/alerts`, API key) |
-| Monitoring | Reverse proxy (or internal service address) | HTTPS 443 | `/metrics` (auditor API key), `/health` |
-| Reverse proxy | `platform-api` | HTTP 8080 (private network only) | Forwarded requests; the API trusts `X-Forwarded-For` / `-Proto` only from listed proxies |
+Default-deny network policies allow exactly these flows. No inbound connection reaches the scheduler or the database
+from outside the cluster.
 
-Nothing else is inbound: no tool connects to the platform, the containers need no SSH or management port, and the
-platform services do not mount the Docker socket.
+## 1.7 Jobs
 
-### Internal
-
-| From | To | Protocol / port |
+| Job | Interval | Does |
 |---|---|---|
-| `platform-api`, `platform-scheduler` | PostgreSQL | TCP 5432 with TLS |
-| `platform-api`, `platform-scheduler` | File store | Volume / blob mount |
-| `platform-api`, `platform-scheduler` | Vault | Secrets mounted read-only as files (no runtime vault API call needed) |
-
-### Outbound (allow-list)
-
-All outbound connections are HTTPS (443 unless the internal tool uses another port) and are opened by the platform.
-Only the hosts of the tools the organisation enables are needed.
-
-| Destination | Used by |
-|---|---|
-| `login.microsoftonline.com` | Entra sign-in token validation keys; every Microsoft connector's token |
-| `graph.microsoft.com`, `management.azure.com` | Entra ID, Azure role assignments, Sentinel, Defender for Office 365, Defender for Identity |
-| `api.security.microsoft.com` (or the regional host) | Defender for Endpoint |
-| `outlook.office365.com` | Defender for Office 365 (Tenant Allow/Block List actions) |
-| The CrowdStrike API host of the organisation's cloud | CrowdStrike Falcon |
-| The Wiz API and authentication hosts | Wiz |
-| The Check Point regional gateway | Avanan |
-| `api.umbrella.com` | Cisco Umbrella |
-| `<hash>.canary.tools` | Thinkst Canary |
-| `<instance>.service-now.com` or `<site>.atlassian.net` | ServiceNow / Jira |
-| `services.nvd.nist.gov`, `api.first.org`, `www.cisa.gov` | Public vulnerability intelligence |
-| Approved threat-intelligence sources only | Indicator enrichment (optional) |
-| Internal: Rapid7 console (often port 3780), Delinea servers, the LLM gateway, Teams / Slack webhooks | Rapid7, Delinea, narrative, notifications |
-
-**No other destination is contacted.** In particular the platform never fetches a URL found in e-mail content (there
-is no server-side request forgery surface), the phishing ML engine makes no network calls, and nothing is sent to the
-platform's developers. TLS certificates are verified on every call; internally issued certificates are trusted by
-supplying the organisation's CA bundle (`SSL_CERT_FILE`, `SOC_LLM_CA_BUNDLE`), never by disabling verification.
-
-## 7 Availability, resilience and recovery
-
-| Concern | Design | Status |
-|---|---|---|
-| API availability | Stateless replicas behind the proxy, spread across nodes and zones; liveness (`/health/live`, no database) and readiness (`/health/ready`) probes; rolling updates that keep capacity; graceful shutdown | Implemented |
-| No state on a host | Stored e-mails and reports in PostgreSQL (`SOC_BLOB_STORE=database`), encrypted and checksummed; any replica serves any request | Implemented |
-| Deployment package | Kubernetes base + Azure (three zones, managed PostgreSQL HA, Key Vault, Application Gateway - WAF v2 when internet-facing) and on-prem (three-instance PostgreSQL cluster, pooler, backups) overlays; restricted pod security; default-deny network policy | Implemented |
-| Scheduler availability | Runs inside the API by default or as its own service; any number of replicas; renewed job leases (a dead replica's job is taken over within 120 s); heartbeat on `/health`; a "scheduler stopped / stuck" banner on every screen | Implemented |
-| One bad item | Each reported e-mail and incident runs in its own savepoint: a failure rolls back alone, is retried on the next three runs, then handed to an analyst | Implemented |
-| Job failures | Retries with back-off; dead letter after 3 failed runs raises a finding; replay from the console | Implemented |
-| A tool down | That tool's evidence is shown as *unavailable* by name; workflows continue; a verdict is never silently changed | Implemented |
-| A tool misconfigured | Isolated from every workflow with the reason; all other tools keep working | Implemented |
-| LLM down | Circuit breaker; deterministic text immediately; no figure or decision changes | Implemented |
-| Database saturation / failover | Connection pool with pre-ping and recycling; 503 with `Retry-After`; optional statement timeout | Implemented |
-| Backup and restore | Database point-in-time backups (with the database blob store, the only thing to back up); `SOC_DATA_KEY` escrowed in two places; after restore `GET /api/v1/audit/verify` proves the audit chain intact and `blobs check` that every stored file resolves | Configured at deployment |
-| Recovery targets (RPO / RTO) | Set by the organisation; what each layer contributes and the failover drill are in the HA reference (replica or node loss: nothing lost; synchronous database failover: no committed transaction lost) | Configured at deployment |
-
-## 8 Technology stack
-
-| Component | Technology |
-|---|---|
-| Language / runtime | Python 3.11 |
-| Web framework / server | FastAPI, Uvicorn |
-| Data access | SQLAlchemy 2.0 (same code on PostgreSQL and SQLite) |
-| Database | PostgreSQL 16 (production); SQLite (development and demonstrations only) |
-| HTTP client | httpx (timeouts, connection pooling, TLS verification) |
-| Tokens | PyJWT (RS256 / JWKS validation), MSAL |
-| Cryptography | `cryptography` Fernet / MultiFernet (AES-128-CBC + HMAC-SHA256, key rotation) |
-| Documents | python-docx, python-pptx |
-| Console | Vanilla JavaScript, no framework and no runtime npm dependencies |
-| ML engine (optional) | scikit-learn, XGBoost, LightGBM, LangGraph (no GPU, no PyTorch) |
-| Quality gates | ruff, bandit, pip-audit, automated test suites on SQLite and PostgreSQL, Playwright browser tour with axe-core accessibility scan |
+| inventory | 1 h | the AD / CMDB baseline first, then the control tools' inventories |
+| incident | 5 min | the SIEM's alerts into cases |
+| dlp | 5 min | DLP intake, computed disposition, cases; investigation and the AI's shadow decision after the commit; breach assessments |
+| crosstool | 5 min | one case per person where two or more tools agree |
+| posture | 1 h | tool health; the day's Dome Score |
+| config_snapshot | 24 h | configuration exports of the tools that offer them |
+| weekly_reports | 7 days | the CISO weekly brief |
+| intelligence, retention, self_check, notify, actions | 10 min - 24 h | correlation, pruning, consistency, notifications, approved actions |

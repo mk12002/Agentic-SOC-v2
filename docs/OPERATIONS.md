@@ -1,4 +1,12 @@
-# Operations runbook
+# Operations runbook - CyberDome for NAM
+
+How to run, configure, monitor and administer the platform in NAM's environment. Everything here applies to the
+**NAM product scope** (`SOC_PRODUCT_SCOPE=nam`, the build's default): NAM's tools, the CyberDome modules (Dome
+Connect, Dome Graph, Dome Agents, Dome Score, Dome Comply, the pilot scorecard) and the platform essentials (cases,
+approvals and actions, the autonomy policy, the AI gateway and its usage policy, watch lists, ownership,
+notifications, reports, access, audit). Where the inherited modules of the platform core still show through (the
+`full` scope), it is said so. Architecture: [ARCHITECTURE.md](ARCHITECTURE.md); the AI and its guardrails:
+[AI_AND_AUTONOMY.md](AI_AND_AUTONOMY.md); deploying into NAM's environment: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 
 ## Run
 
@@ -58,10 +66,11 @@ and per feature the model (by name, from `SOC_LLM_MODELS`), the longest answer a
 answer* confirms which listed models the endpoint serves. Each change is versioned and audited and applies to
 the next model call. Over a limit the platform answers without the model and tells the person why. The same screen
 shows use and cost per feature and per person and advises small or large per feature from measured quality figures.
-Details and sizing: [LLM_TOKENS_AND_COST.md](LLM_TOKENS_AND_COST.md) sections 4 and 4b.
+Details: [AI_AND_AUTONOMY.md](AI_AND_AUTONOMY.md) (features, budgets, where the model may run for NAM).
 
 **An organisation's own LLM gateway** (one internal endpoint in front of Claude, Gemini and OpenAI models) is a
-configuration change, not a code change - full walkthrough in `docs/CLIENT_DEPLOYMENT_GUIDE.md` section 5:
+configuration change, not a code change - full walkthrough in [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) section 6. For NAM the
+model runs in NAM's environment or an Indian cloud region, or is off (CLAUDE.md §0.4, rule 8):
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -75,31 +84,29 @@ configuration change, not a code change - full walkthrough in `docs/CLIENT_DEPLO
 | `SSL_CERT_FILE` | empty | CA bundle for every outbound TLS connection (connectors to internal consoles too) |
 
 Check: `GET /api/v1/llm/status`; live test: `SOC_LIVE_LLM=1 pytest soc_platform/tests/test_live_llm.py` (costs
-tokens; a full demo run is about 50k). Prompts (redacted) and responses are kept for `SOC_LLM_LOG_RETENTION_DAYS`.
+tokens). Prompts (redacted) and responses are kept for `SOC_LLM_LOG_RETENTION_DAYS`.
 
 ## Jobs
 
 | Job | Default interval | Does |
 |---|---|---|
 | inventory | 1 h | read the device and people baseline (directory export) and the control tools' inventories (EDR agents, DLP agents, disk encryption) - first on a fresh start, so hosts that later events only name resolve onto these records |
-| vulnerability | 6 h | ingest, consolidate, enrich, prioritise, Wiz misconfigurations; keep the risk register current (new P1 CVEs proposed, entries updated / marked remediated) |
-| incident | 5 min | ingest alerts (and Entra directory audits, inventory first), cluster, investigate - activity such as sign-ins, DNS and domain logons is read per investigation, not bulk-synced; reassess open incidents when KEV-listed exposure appeared on their hosts since they were scored; commit the cases, then add the model's explanations in parallel |
-| phishing | 2 min | pull reported mail, analyse; commit the verdicts, then add the model's explanations in parallel |
-| dlp | 5 min | read the directory, sign-in risk, agent and encryption inventories and the DLP incidents; judge each new incident (computed disposition), open cases for escalations; commit in batches, then investigate each new alert with read-only look-ups and store the model's own decision per alert (at most `SOC_DLP_AI_MAX_PER_RUN`); demote a decision type whose agreement with analysts slipped |
+| incident | 5 min | ingest alerts pushed by the SIEM (generic webhook) and any incident-capable tool, cluster, investigate; commit the cases, then add the model's explanations in parallel. Cross-tool cases are never reassessed here (the `crosstool` job owns them) |
+| dlp | 5 min | read the directory, sign-in risk, agent and encryption inventories and the DLP incidents; judge each new incident (computed disposition), open cases for escalations; commit in batches, then investigate each new alert with read-only look-ups and store the model's own decision per alert (at most `SOC_DLP_AI_MAX_PER_RUN`); demote a decision type whose agreement with analysts slipped; open a breach assessment for every DLP case with personal data |
+| crosstool | 5 min | join each person's signals from the tools (DLP alert, risky sign-in, a control off on the sending device, an endpoint alert, a privileged group): one case per person where two or more tools agree, severity from how many agree; recommend revoke sessions / require MFA, and isolation when three or more agree (nothing runs by default) |
 | config_snapshot | 24 h | read the configuration of every tool that exports it; keep a new snapshot when it changed; a change outside a recorded change window is reported on tool health |
 | posture | 1 h | read what each tool reports about its own health (certificates, jobs, directory import); store the day's posture score |
-| follow_up | 24 h | ITSM ticket sync (+ closure validation), weekly follow-up per remediation plan (`SOC_VM_FOLLOWUP_DAYS`, default 7), exception expiry |
 | intelligence | 10 min | risk + correlation + drift, insight narration |
-| daily_report | 24 h | daily exposure report (full scope only) |
-| weekly_reports | 7 days | NAM scope: the CyberDome weekly CISO brief (Word). Full scope: weekly VM report (Word) and weekly management deck (PowerPoint). In Reports |
+| weekly_reports | 7 days | the CyberDome weekly CISO brief (Word), in Reports |
 | retention | 24 h | prune raw payloads / emails / prompts / access log / old telemetry events per policy |
 | self_check | 1 h | platform consistency checks (see below) |
 | notify | 1 min | send new findings at or above the threshold to the configured Teams / Slack / webhook channels; retry failures |
 | actions | 1 min | run approved actions still waiting (e.g. approved by policy inside a job item, or left by a stopped process); mark any action stuck in `executing` longer than `SOC_ACTION_STUCK_SECONDS` (900) as `unverified` with a high finding - never re-run it |
 
 When several jobs are due at once (first start) they run in this order: inventory first, so the hosts that later
-events only name resolve onto the baseline's records; then vulnerability, so incidents are scored knowing which hosts
-are exposed. Intervals: `SOC_JOB_<NAME>_SECONDS` (`SOC_JOB_NOTIFY_SECONDS` for notify, `SOC_JOB_ACTIONS_SECONDS` for actions). Every run is recorded (`GET /api/v1/jobs`, Integrations screen). A job
+events only name resolve onto the baseline's records (found by running the demo: a laptop first created from an
+event could not be matched with confidence to its directory record). `GET /api/v1/jobs` lists only the jobs of the
+scope; the inherited `vulnerability`, `phishing`, `follow_up` and `daily_report` jobs are not scheduled in the NAM scope. Intervals: `SOC_JOB_<NAME>_SECONDS` (`SOC_JOB_NOTIFY_SECONDS` for notify, `SOC_JOB_ACTIONS_SECONDS` for actions). Every run is recorded (`GET /api/v1/jobs`, Integrations screen). A job
 failing 3 runs in a row is marked **dead_letter** and raises a high insight; fix the cause and use
 *Run now* / `POST /api/v1/jobs/{name}/run`. Jobs are idempotent, so replays never duplicate incidents or actions.
 
@@ -111,7 +118,7 @@ marks it **unverified** and raises "Action outcome unknown" - check the target i
 the result on the case. Autonomous actions approved by the policy inside a job are run right after the job commits;
 if the kill switch came on in between, they go back to waiting for a person.
 
-**Deferred explanations.** The incident and phishing jobs decide verdict, severity, evidence and recommendations
+**Deferred explanations.** The incident and cross-tool jobs decide verdict, severity, evidence and recommendations
 without the model, commit, and only then ask the model for the written explanations, all of a run's cases at once
 (`SOC_LLM_CONCURRENCY`). A case is usable seconds earlier; its page says "the written explanation is being prepared"
 until the model's text arrives. If a run stops between the two steps, the next run finishes the explanations
@@ -149,11 +156,8 @@ SOC_PUBLIC_URL=https://soc.example    # optional: messages link to the console
 | `SOC_LLM_CONCURRENCY` | 4 | Model calls in flight at once for batches (finding narratives, report sections); keep under the provider's rate limit |
 | `SOC_BRIEF_CACHE_SECONDS` | 900 | Reuse an unchanged situation brief |
 | `SOC_LLM_EXPLAIN_AUTO_CLOSED` | 0 | 1 = the model also explains reports that auto-close |
+| `SOC_JOB_CROSSTOOL_SECONDS` | 300 | interval of the `crosstool` job |
 | `SOC_PRODUCT_SCOPE` | nam | What this deployment offers (`core/scope.py`). `nam`: CyberDome for NAM - NAM's tools (Forcepoint DLP, Silverfort, Trend Micro, Trellix ePO, the directory export, ServiceNow / Jira / ownership CSV, the generic SIEM / SOAR webhook) and their modules, plus the platform essentials. `full`: every inherited module too (phishing and its ML engine, vulnerability management, cloud posture, shadow IT, supplier risk, ATT&CK coverage, the earlier estate's tools). Out of scope = not listed, built or synced; jobs not scheduled; routes 404; screens hidden; report sections not offered. No data changes when it is switched |
-| `SOC_PHISHING_ENGINE` | auto | The trained ML engine analyses reported e-mail with the heuristic analyser: `auto` = when the engine's libraries are installed (`requirements/phishing.txt`: scikit-learn, XGBoost, LangGraph; no PyTorch), `1` = on, `0` = heuristic only |
-| `SOC_PHISHING_SANDBOX` | 0 | 1 = also run the engine's sandbox agent (only with an isolated detonation host configured; without one its static fallback measured no better than chance) |
-| `SOC_PHISHING_ENGINE_LOG_LEVEL` | WARNING | Log level of the in-process engine (it logs every decision step at INFO) |
-| `SOC_VM_FOLLOWUP_DAYS` | 7 | At most one follow-up per remediation plan per this many days |
 | `SOC_EMBEDDED_SCHEDULER` | 1 | The API server runs the scheduler itself; 0 when a separate scheduler service runs the jobs |
 | `SOC_SCHEDULER_START_DELAY` | 5 | Seconds after start-up before the built-in scheduler begins |
 | `SOC_SCHEDULER_STALE_SECONDS` | 180 | No scheduler heartbeat for this long: `/health` reports `stale` and every screen shows "Scheduler stopped" |
@@ -165,13 +169,13 @@ SOC_PUBLIC_URL=https://soc.example    # optional: messages link to the console
 | `SOC_BLOB_STORE` | file | Where reported e-mails and reports are stored: `file` (`SOC_RAW_PAYLOAD_DIR` / `SOC_REPORT_OUTPUT_DIR`; one host or a shared volume) or `database` (PostgreSQL; every replica, covered by the database's HA and backups). `config check` warns about `file` in production. Move existing files with `python -m soc_platform blobs migrate` (HIGH_AVAILABILITY.md section 5) |
 | `SOC_SELF_CHECK_CONFIRM_SECONDS` | 2 | The self-check re-runs a failing check before alerting |
 
-Failure behaviour for each dependency: [FAILURE_MODES.md](FAILURE_MODES.md). Cost and budget sizing:
-[LLM_TOKENS_AND_COST.md](LLM_TOKENS_AND_COST.md).
+Failure behaviour for each dependency: [FAILURE_MODES.md](FAILURE_MODES.md). Model budgets:
+[AI_AND_AUTONOMY.md](AI_AND_AUTONOMY.md).
 
 ## Sample estates
 
 `scripts/build_estate_variant.py OUT --seed N [--scale X] [--messy]` generates a different organisation (names,
-machines, IP plan, suppliers, volumes) with its own tenant connector settings (`fixtures/settings.json`). `--messy`
+machines, IP plan, volumes - the NAM tools' fixtures included) with its own tenant connector settings (`fixtures/settings.json`). `--messy`
 adds what a real tenant has and a demo does not: event volume (sign-ins, DNS, low-severity EDR alerts, more findings),
 accented and non-Latin names, renamed users, leavers with live devices, re-imaged and stale machines, hostname case
 and FQDN differences between tools, missing and null optional fields, epoch-millisecond times, ServiceNow custom
@@ -245,11 +249,10 @@ PostgreSQL in production.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `SOC_WATERMARK_OVERLAP_MINUTES` (or a connector's `watermark_overlap_minutes` setting) | 30 | Event streams (sign-ins, audits, alerts, DNS, Sentinel incidents) resume from the newest change time seen, minus this overlap: logs are indexed minutes late, and asking exactly from the mark would lose them. Re-read records are de-duplicated. A time more than an hour in the future (a device with a wrong clock) never moves the mark |
+| `SOC_WATERMARK_OVERLAP_MINUTES` (or a connector's `watermark_overlap_minutes` setting) | 30 | Event streams (DLP incidents, risky sign-ins, endpoint alerts, health reports) resume from the newest change time seen, minus this overlap: logs are indexed minutes late, and asking exactly from the mark would lose them. Re-read records are de-duplicated. A time more than an hour in the future (a device with a wrong clock) never moves the mark |
 | `SOC_SYNC_MAX_PAGES` | 1000 | Pages one stream reads per sync. A larger backlog is not dropped: the stream keeps its place and the next sync continues (the sync report says `truncated`) |
 | `SOC_RESOLUTION_AUTO_THRESHOLD` | 0.85 | Score at which a weak-hint host match merges without analyst review. 0.75 lets "same unique hostname and OS, nothing else" merge: on the 400-host stress estate the unresolved share fell from 5.4 % to 2.2 % with no false merge. Decide on the client's shadow-mode review queue; 0.6 is the floor |
 | `SOC_CONNECTOR_RATE_SHARE` | 1 (5 in the compose file) | How many processes call the tools at once (API workers + a separate scheduler service). Each process holds its own request budget per tool, so each takes 1/N of it and together they stay within the rate the vendor allows |
-| Umbrella `dns_sync` | security | `security`: only DNS queries in Umbrella's security categories (allowed or blocked) are stored - the only DNS events any analysis uses; a tenant makes tens of millions of queries a day. `all`: every query (small tenants). "Did anyone reach this site?" and shadow IT always ask Umbrella live |
 
 Each page of a sync is committed as it is stored: an interrupted backfill resumes after its last page, and a long
 sync never holds one database transaction open (on PostgreSQL a sync of tens of thousands of records once ran the lock
@@ -269,14 +272,14 @@ risk figure decays from.
 
 `scripts/measure_scale.py --scales 1,20,40 [--db postgresql://...]` builds messy estates of growing size (see Sample
 estates) and reports, per stage, time and SQL statements, statements per synced record and the open review queue.
-Measured (laptop, SQLite): 40x = 250 people, 192 laptops, 21,675 records - sync 149 s (about 146 records/s, flat
-from 20x), 29 statements per record at every size, vulnerability refresh 56 s, incident pipeline 48 s (time mostly
-spent waiting on each tool's request budget, about 1.5 s per new incident), intelligence refresh 24 s, overview
-30 ms, self-check 0.3 s. PostgreSQL: sync about 75 records/s (one network round trip per statement).
+Measured on the platform core before the NAM modules (laptop, SQLite, full scope): 40x = 250 people, 192 laptops,
+21,675 records - sync 149 s (about 146 records/s, flat from 20x), 29 statements per record at every size. The NAM
+jobs (`dlp`, `crosstool`, `posture`) have not been measured at that scale yet: run `measure_scale.py` on a messy
+estate before the pilot and record the figures here.
 
-## Recording the client's real responses (record-and-sanitise)
+## Recording NAM's real responses (record-and-sanitise)
 
-The demo fixtures are built from vendor documentation. To test against the shapes of the client's real tenants, put a
+The demo fixtures are built from vendor documentation. To test against the shapes of NAM's real tenants, put a
 tool in the **Recording** stage (Integrations -> Configure; it reads live and records, and offers no actions), or set
 `SOC_RECORD_FIXTURES_DIR=<folder>` to record every live tool. Recordings go to `SOC_RECORD_FIXTURES_DIR`, else to
 `recordings/` next to the raw payload folder. The pseudonyms are keyed with `SOC_RECORD_SALT` (random, at least 16
@@ -284,11 +287,11 @@ characters, never stored with the recording) or, when that is unset, with a key 
 Recording stage needs no extra secret in production. Each recorded connector writes `<folder>/<connector>.json` in
 the fixture format, sanitised as it is written: request headers and any token / secret / password / key field are
 never recorded; people, accounts and machines become stable pseudonyms (keyed with the salt - not reversible); the
-client's own domains and the host names under them are pseudonymised wherever they appear; internal IPs map into
+NAM's own domains and the host names under them are pseudonymised wherever they appear; internal IPs map into
 10.250.0.0/16 and public ones into 198.18.0.0/15; ids keep their shape; free text becomes `[text, N chars]`. Vendor
 vocabulary (severities, categories, states), timestamps, counts, file hashes and external (attacker) domains are
 kept: they are what tests need. `_scan.json` lists anything still looking like an e-mail address or IP - review it,
-and the files, before a recording leaves the client. `SOC_RECORD_MAX_CALLS` (default 200) caps each file. Unset the
+and the files, before a recording leaves NAM. `SOC_RECORD_MAX_CALLS` (default 200) caps each file. Unset the
 folder when done.
 
 ## Logs, traces and diagnostics
@@ -335,7 +338,7 @@ rows could not be written.
 the pilot, a lead records the baseline for each KPI - from ServiceNow and scanner history, and a short time study for
 analyst effort - with its source (`PUT /api/v1/value/inputs`, `{"kpi", "kind": "baseline" | "target" | "measured",
 "value", "note"}`). During the pilot, time-study figures are entered as `measured`; everything else is measured by the
-platform. The monthly board pack and the CISO weekly brief include the scorecard. Definitions: FEATURES.md 7.0.
+platform. The monthly board pack and the CISO weekly brief include the scorecard. Definitions: [FEATURES.md](FEATURES.md), *Value scorecard*. NAM's own pilot KPIs are on the *Pilot scorecard* (below).
 
 ## Monitoring
 
@@ -373,18 +376,18 @@ events `*.processing_failed` with `final: true` (an item left to an analyst afte
   the console has its own app registration. v2.0 (`requestedAccessTokenVersion: 2`) and v1 access tokens of the
   tenant are both accepted, with a minute of clock-skew leeway. An application's own token (client credentials: no
   delegated `scp`, or `idtyp=app`) is treated as a **service** - it never gets approve, policy or access permissions
-  whatever app roles it holds. Step-by-step: `docs/CLIENT_DEPLOYMENT_GUIDE.md` section 3.
+  whatever app roles it holds. Step-by-step: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) section 4.
 * The console keeps the access token for the browser tab only (sessionStorage): closing the tab ends it.
-* Roles come from Entra app roles `SOC.<Role>` or `SOC.<Role>.<Domain>` (Domain = Phishing | Incident |
-  Vulnerability) plus platform grants (Access screen / `/api/v1/admin/roles`), which are time-bound and audited.
+* Roles come from Entra app roles `SOC.<Role>` or `SOC.<Role>.<Domain>` (Domain = Dlp | Incident; the inherited Phishing
+  and Vulnerability domains exist only in the full scope) plus platform grants (Access screen / `/api/v1/admin/roles`), which are time-bound and audited.
   Nobody can grant or revoke their own access, and a domain-scoped administrator can grant only their own domains.
   A **privileged** grant (lead, admin, automation_admin) must end within 90 days and takes effect only when a
   *second* administrator - not its proposer, not its recipient - approves it (Access screen *Approve* /
   `POST /api/v1/admin/roles/{id}/approve`): one administrator cannot make a second account of their own a lead.
   Prefer Entra PIM for standing privileged roles.
 * **Each role keeps its own scope.** A user *sees* every domain any of their roles covers, but a permission counts
-  only where the role that grants it applies. For example, `SOC.Lead.Phishing` plus `SOC.Auditor` reads all domains
-  but approves phishing actions only, and a platform grant of auditor on all domains never widens a scoped lead.
+  only where the role that grants it applies. For example, `SOC.Lead.Dlp` plus `SOC.Auditor` reads all domains
+  but approves data-protection decisions only, and a platform grant of auditor on all domains never widens a scoped lead.
   Decisions that span domains (the autonomy policy, compliance evidence export, correlated findings) need an
   all-domain role. `GET /api/v1/me` shows `role_scopes`.
 * Step-up MFA: with `SOC_REQUIRE_MFA=1` (default in prod) approvals, policy, kill switch, access management and
@@ -396,7 +399,7 @@ events `*.processing_failed` with `final: true` (an item left to an analyst afte
 
 ## Ownership mapping (cloud resources and hosts the CMDB does not hold)
 
-* *Cloud posture -> Ownership mapping* (`GET /api/v1/ownership`, any reader; `GET /api/v1/ownership/export` as CSV).
+* API (the Cloud posture screen that carries it is not offered in the NAM scope): `GET /api/v1/ownership`, any reader; `GET /api/v1/ownership/export` as CSV).
   Changing it needs `manage_ownership` - the **lead**, **admin** and **automation_admin** roles; a person, never an
   API key.
 * **Upload** (`POST /api/v1/ownership/upload`, body `content_b64`, `filename`, `note`, `dry_run`): .xlsx or CSV, 5 MB,
@@ -404,7 +407,7 @@ events `*.processing_failed` with `final: true` (an item left to an analyst afte
   `Subscription` / `Account` / `Project`, `Team` (required), optional `Owner`, `Environment`, `Criticality`, `Cloud`,
   `Resource type`, `Note`. `dry_run` returns every unusable row and the coverage (unowned misconfigurations and
   findings it would give an owner). An upload replaces the mapping as a new version and re-applies ownership to
-  open misconfigurations and findings at once; the `vulnerability` job applies it at every refresh after.
+  open items at once; case enrichment reads it whenever a host's owner is looked up.
 * **Clear** (`POST /api/v1/ownership/clear`, body `reason`). Versions are kept (`ownership_mappings`).
 * Precedence: ServiceNow and the `cmdb_csv` connector first; the mapping only where they give no team. Within the
   mapping: exact name > name pattern > subscription; ties go to the earlier row.
@@ -438,9 +441,9 @@ These modules read the data-protection stack: the directory export (the device a
 DLP, Silverfort, Trend Micro and Trellix ePO. All five connectors run in **fake mode only** for now: their endpoint
 paths and response shapes are placeholders until each tool's version and licensed API are confirmed (every path is
 a `<stream>_path` setting; `python -m soc_platform preflight NAME` lists what is still to confirm). None of them adds
-an enrichment look-up, an action or an alert to the phishing, incident or vulnerability workflows.
+an enrichment look-up or an alert kind to the incident workflow (Trend Micro alerts are their own kind, `edr_alert`).
 
-**Jobs.** `inventory` (1 h, `SOC_JOB_INVENTORY_SECONDS`, first in the order), `dlp` (5 min, `SOC_JOB_DLP_SECONDS`) and `posture` (1 h, `SOC_JOB_POSTURE_SECONDS`) and `config_snapshot` (24 h, `SOC_JOB_CONFIG_SNAPSHOT_SECONDS`) - see the Jobs table.
+**Jobs.** `inventory` (1 h, `SOC_JOB_INVENTORY_SECONDS`, first in the order), `dlp` (5 min, `SOC_JOB_DLP_SECONDS`), `crosstool` (5 min, `SOC_JOB_CROSSTOOL_SECONDS`) and `posture` (1 h, `SOC_JOB_POSTURE_SECONDS`) and `config_snapshot` (24 h, `SOC_JOB_CONFIG_SNAPSHOT_SECONDS`) - see the Jobs table.
 
 **Settings.**
 
@@ -570,12 +573,61 @@ scope); needs all-domain scope.
   PowerPoint) are standard reports built from the same document; report sections `posture`, `control_coverage`,
   `tool_health`, `data_protection`, `ai_autonomy`, `config_changes`, `governance`.
 
-## Tuning (noise, attention, exercises, phishing auto-close)
+**Cross-tool cases (M8)** - `GET /api/v1/crosstool` (`read` in `incident`), `POST /api/v1/crosstool/run`
+(`investigate`); the cards on the Dome Score screen; the cases themselves are incident cases.
+
+* Signals are structured facts only: an escalated or personal-data DLP alert (Forcepoint), a high / critical risky
+  sign-in within 24 h of it (Silverfort), a control off on the sending device (encryption, EDR or DLP agent), an
+  endpoint alert on that device or by the person within 24 h (Trend Micro `alerts` stream, record kind `edr_alert`), a
+  privileged group in the directory. Message text never counts.
+* Rules: X1 risky sign-in + leak, X2 leak from a device with a control off, X3 endpoint alert + leak, X4 privileged
+  person + personal data. A case needs two different tools; severity is high for 2, critical for 3 or more.
+* One open case per person (`crosstool_cases`); new signals join it; a re-run adds nothing; a closed case is not
+  reopened (a new one is).
+* Actions go through `ActionService` and the policy: `identity.revoke_sessions`, `identity.require_mfa` (reversible,
+  reverse `identity.release_mfa`) on Silverfort; `endpoint.isolate` on Trend Micro only when three or more tools agree,
+  four-eyes always. All L2 (recommend) by default. The vendor calls are placeholders (fake mode) until the APIs are
+  confirmed.
+
+**Dome Score weights** - the *Score formula* card on the Dome Score screen; `GET /api/v1/posture/weights`,
+`POST .../preview` (stores nothing), `POST /api/v1/posture/weights` (`document`, `reason`; a lead or automation admin
+with all-domain scope), `POST .../{id}/approve | reject` (a second lead; the proposer may withdraw). The document holds
+the five domain weights (0-100, whole numbers; 0 leaves a measured domain out) and five penalties (points per item and
+a cap). Until a version is approved the built-in draft applies and every screen says so. Audited as
+`posture.weights_*`; the daily score stores the version it used and "why it moved" says when the weights changed.
+
+**Pilot scorecard (M13)** - *Operate -> Pilot scorecard*; `GET /api/v1/pilot`. DLP alerts reaching an analyst (the
+week up to the newest alert), DLP alerts per day, outages found by users first (from the outage log), the share the
+model decided, model cost per alert, AI agreement per decision type and re-checks of AI closures (reported apart).
+`POST /api/v1/pilot/baseline/{kpi}` takes the current value as the baseline (week 2); `POST /api/v1/pilot/figures`
+sets a baseline or target (`approve_policy`, all domains) - no target is preset. `GET | POST /api/v1/pilot/outages`
+(`investigate`) is the outage log.
+
+**Dome Comply (M12)** - *Govern -> Dome Comply*; `GET /api/v1/comply` (`read`, all domains).
+
+* The control catalogue is a versioned document (`compliance_catalogues`): the built-in one is a DRAFT of control
+  areas to be replaced or validated by NAM's compliance team; it quotes no clause. `GET | POST
+  /api/v1/comply/catalogue`, `.../{id}/approve | reject` (two leads). Each control maps to evidence tests the platform
+  computes (coverage, tool health, log retention, MFA policy for privileged accounts, recorded changes, DLP triage
+  time, reportability decisions, report deadlines, audit chain) or to the platform's own governance tests. A test is
+  pass, fail or no evidence; the screen shows the share of controls with current evidence and names the rest. The
+  platform never states compliance.
+* Personal-data incidents: every DLP case with personal data gets a breach assessment (`compliance_assessments`). A
+  lead decides, in person and with a reason, whether it is reportable (`POST /api/v1/comply/assessments/{id}/decide`);
+  that decision starts the deadlines in the catalogue's `clocks` and cannot be changed afterwards. Deadlines carry
+  their source and stay "to verify" until NAM's compliance team confirms them; one without hours shows "not set".
+  `.../draft` writes the report from the case's structured facts (the model when allowed, every sentence cited -
+  feature `compliance.draft`, large - else by rule); `.../report` records each submission with its reference. The
+  platform sends nothing.
+* `POST /api/v1/comply/pack` (`export_evidence`): the audit pack - controls (JSON and CSV), assessments, the catalogue,
+  the full audit trail and a Word summary - downloaded like any report.
+
+## Tuning of the incident workflow (noise, attention, exercises)
 
 * *Govern -> Tuning* (`GET /api/v1/tuning`, any reader; it shows the rules of the domains in the reader's scope): rules proposed, in force and past; the noise threshold and auto-close settings in force; suggestions computed from analysts' decisions; the kinds this person may propose; and the detections and tools a rule may name.
-* Changing tuning needs `tune_detections` - the **lead** role, a person, never an API key, with step-up MFA - in the rule's domain. `phishing_autoclose` is a phishing rule, `vuln_priority` a vulnerability rule, and an `action_demote` rule belongs to the domain it names; every other kind is an incident rule. Proposer and approver must be **different leads**.
+* Changing tuning needs `tune_detections` - the **lead** role, a person, never an API key, with step-up MFA - in the rule's domain. In the NAM scope the rules apply to the incident domain (the SIEM's alerts and the cross-tool cases); DLP rule changes are a separate, engineer-made lifecycle (*Rule changes for the DLP tool* above). An `action_demote` rule belongs to the domain it names; every other kind is an incident rule. Proposer and approver must be **different leads**.
 * `POST /api/v1/tuning/draft` (`request`: the change in words) returns a draft rule and stores nothing. It uses the model feature `tuning.draft` (small, person-triggered; switch it off or cap it on *AI usage* like any feature) and falls back to the platform's own reading of the request. When the model does not answer (a usage limit, an outage, or the endpoint's content filter refusing a prompt-injection attempt), the draft says so in its notes. A person without incident scope gets no alert titles in the prompt.
-* `POST /api/v1/tuning/preview` (`kind`, `params`) shows the effect on past data and stores nothing. Incident kinds look at the last 90 days of alerts (ending at the newest alert). Phishing auto-close looks at every analysed report.
+* `POST /api/v1/tuning/preview` (`kind`, `params`) shows the effect on past data and stores nothing. Incident kinds look at the last 90 days of alerts (ending at the newest alert).
 * `POST /api/v1/tuning` proposes (with `reason`; the preview is computed again and kept with the rule for the approver).
 * `POST /api/v1/tuning/{id}/approve | reject | revoke` (`note`; a reason is required to reject or revoke). Revoking needs one lead and takes effect at once.
 
@@ -585,18 +637,15 @@ scope); needs all-domain scope.
 * `noise_threshold`: `benign_percent` 60-100, `min_decisions` 2-50, `days` 7-180.
 * `raise_severity`: `host` and / or `user` (required), optional `detection` and `tool`, `levels` 1 or 2. It applies when an incident is assessed or re-assessed. Severity is raised after the verdict is judged, and the scoring factors record `raised_by_tuning_rule`.
 * `exercise`: `host` and / or `user` (required), optional `detection` and `tool`; `expires_days` 1-30, default 7. It applies when new incidents are clustered: the title gets the prefix `[Exercise]` and the case attribute `exercise` holds the rule id.
-* `phishing_autoclose`: `min_confidence_percent` 50-95, `sample_percent` 5-50. It is read whenever the phishing service starts (each request and job run).
-* `vuln_priority`: `weight_cvss`, `weight_epss`, `weight_kev`, `weight_exposure`, `weight_criticality` (each 0-60, adding up to 100; defaults 30 / 25 / 20 / 10 / 15) and `sla_p1` 1-30, `sla_p2` 1-60, `sla_p3` 1-180, `sla_p4` 1-365 days (never shrinking from P1 to P4; defaults 7 / 15 / 30 / 90). Approving or revoking it re-prioritises every open finding at once; the vulnerability job applies it at every refresh. A finding's factors record the weights when they are not the defaults.
-* `action_demote`: `domain` (incident | phishing | vulnerability), `action_type` (one the platform has recommended), optional `detection` (incident actions), `host`, `user`. It applies to new recommendations: they are capped at recommend (L2), carry `result.tuning_demoted` (rule id and description) and the policy reason "usually rejected here (tuning rule #N)". Critical and deception cases are not covered. Suggestions need at least 5 human decisions on that action in that context in 30 days (ending at the newest decision), at least 80 % rejected.
-* Every kind takes `expires_days` (1-365, default 90; exercises 1-30, default 7). A newer noise threshold or auto-close rule supersedes the one in force.
+* `action_demote`: `domain` (incident), `action_type` (one the platform has recommended), optional `detection` (incident actions), `host`, `user`. It applies to new recommendations: they are capped at recommend (L2), carry `result.tuning_demoted` (rule id and description) and the policy reason "usually rejected here (tuning rule #N)". Critical and deception cases are not covered. Suggestions need at least 5 human decisions on that action in that context in 30 days (ending at the newest decision), at least 80 % rejected.
+* Every kind takes `expires_days` (1-365, default 90; exercises 1-30, default 7). A newer noise threshold supersedes the one in force.
 
 **Guardrails (in code)**
 
 * high and critical alerts, deception alerts, exercises and alerts on a host with a KEV-listed vulnerability are never suppressed.
 * 1 in 10 incidents a rule would suppress stays open (a stable hash of its alerts) and is investigated in full.
 * An analyst disposition of malicious or suspicious on a case a rule suppressed or sampled pauses the rule (`tuning.paused`). A paused rule is proposed again if it is still wanted.
-* A clicked or gateway-flagged report is never auto-closed.
-* An incident is always scored from its alerts' own severity (`alert_severity`), so re-assessing it never stacks a raise or the KEV boost.
+* An incident is always scored from its alerts' own severity (`alert_severity`), so re-assessing it never stacks a raise.
 
 **Audit events:** `tuning.drafted`, `tuning.proposed` (rule, settings, reason, preview), `tuning.activated`, `tuning.rejected`, `tuning.revoked`, `tuning.paused`. Rules live in the `tuning_rules` table (created automatically on start-up).
 
@@ -656,7 +705,6 @@ write to a tool, also **pause** that tool (Integrations). `SOC_KILL_SWITCH=1` fo
 | Reported emails (and raw vendor payloads when enabled) | `SOC_BLOB_STORE`: the `blobs` table, or `SOC_RAW_PAYLOAD_DIR` | Encrypted (Fernet), SHA-256 checked on read (database store), retention with legal hold |
 | Generated reports, post-incident reports, compliance packs | `SOC_BLOB_STORE`: the `blobs` table, or `SOC_REPORT_OUTPUT_DIR` (on the database store the folder is scratch only) | Encrypted; decrypted only on an authorised, scope-checked download |
 | Attack stories | Not stored - rebuilt from records on request; only the deep-analysis result is cached on the case | - |
-| Phishing ML engine stores (optional) | As configured in the engine deployment | See engine docs |
 
 ## Data protection
 
@@ -707,7 +755,7 @@ changes layered on top. Admins change tools on **Integrations**, without editing
 
 | Step | Who | What happens |
 |---|---|---|
-| 1. Secrets | platform engineer | Put the tool's secrets in the vault (`<NAME>_FILE`) or environment under the names *Configure* shows (convention `<CONNECTOR>_<SETTING>`, e.g. `CROWDSTRIKE_CLIENT_SECRET`). The console never asks for, stores or shows a secret: it shows *set / not set* and when the vault file last changed. |
+| 1. Secrets | platform engineer | Put the tool's secrets in the vault (`<NAME>_FILE`) or environment under the names *Configure* shows (convention `<CONNECTOR>_<SETTING>`, e.g. `SILVERFORT_API_KEY`). The console never asks for, stores or shows a secret: it shows *set / not set* and when the vault file last changed. |
 | 2. Configure | `automation_admin` or `admin` (manage_connectors) | Non-secret settings (URLs, tenant ids, mailbox, field mappings...), the **stage**, on/off, and a note for the approver. Every value is checked (URL, true/false, number, one of a list, JSON mapping); a misspelled setting gets "did you mean ...?". |
 | 3. Preflight | automatic | Proposing a live stage, switching a live tool on, or changing a live tool's settings runs the preflight on the *proposed* configuration: configuration, start-up, sign-in, every stream (the permission it needs, parsing, how fresh the newest record is, expected volume) and the write permissions actions will need. Errors refuse the proposal and show what to fix; warnings go to the approver. |
 | 4. Approve | `lead` (approve_policy, MFA), never the proposer | The approval re-checks the configuration and that the preflight still matches it (same settings, same secrets present, less than 7 days old). A proposal made before another change was approved must be proposed again. |
@@ -730,10 +778,12 @@ misbehaves. Switching it back on is a normal proposal. Everything a paused, misc
 done becomes a manual recommendation; approving an action whose tool is no longer able to act is refused with that
 reason.
 
-**Organisation lists**: the key **suppliers** (vendor e-mail compromise) and the **sanctioned services** (shadow
-IT) are edited on the same screen (*Suppliers & sanctioned services*) and approved the same way; an approved list
-replaces `config/suppliers.yaml` / `config/sanctioned_services.yaml` everywhere (phishing, supplier risk, shadow IT,
-reports), and proposing it empty-handed (`null` through the API) gives the file's list back. Domains are checked.
+**Organisation lists**: the **partners** (`config/suppliers.yaml`: each partner's domains) and the **sanctioned
+services** (`config/sanctioned_services.yaml`) are what the DLP triage classifies a destination by - data sent to a
+partner's domain is `partner`, to a sanctioned service `sanctioned`, to neither `external` (or `personal_mail`).
+They are edited on Integrations (*Suppliers & sanctioned services*) and approved like a tool change; an approved list
+replaces the file's everywhere, and proposing it empty-handed (`null` through the API) gives the file's list back.
+Domains are checked.
 
 **History**: every version is kept (who proposed, who approved, what changed). *Restore* proposes an earlier version
 (approved like any change). **Export** gives the configuration in force as one YAML file (secrets only as `${VAR}`

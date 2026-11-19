@@ -70,6 +70,9 @@ def api(request, tmp_path_factory, estate_configs):
     def ok(r):
         assert r.status_code == 200, (str(r.request.url), r.status_code, r.text[:500])
 
+    # the device and people baseline first, as the scheduler's first job reads it: a laptop an incident names only by a
+    # DNS event is otherwise created before the directory lists it, and stays a second record of the same name
+    ok(c.post("/api/v1/jobs/inventory/run", headers=ops))
     for step in ("/api/v1/vm/refresh", "/api/v1/incidents/run", "/api/v1/phishing/ingest", "/api/v1/dlp/run"):
         ok(c.post(step, headers=lead))
     for f in cfg["uploads"]:

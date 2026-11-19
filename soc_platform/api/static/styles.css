@@ -223,7 +223,7 @@ textarea { height: auto; padding: 8px 10px; }
 .field label { font-size: 12px; font-weight: 560; color: var(--text-2); }
 .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
-.seg { display: inline-flex; background: var(--surface-3); border-radius: 8px; padding: 3px; gap: 2px; }
+.seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; background: var(--surface-3); border-radius: 8px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 560; color: var(--text-2); padding: 5px 12px;
   border-radius: 6px; cursor: pointer; }
 /* counts inside segmented tabs keep AA contrast on the tinted track */
@@ -420,14 +420,50 @@ tr.adetail > td { background: var(--surface-2); }
 .dom-tile.off { opacity: .72; }
 .dom-score { font-size: 30px; font-weight: 700; margin: 6px 0 6px; display: flex; align-items: baseline; gap: 8px; }
 .delta { font-size: 12px; font-weight: 650; padding: 1px 7px; border-radius: 999px; }
-.delta.up { color: var(--c-low); background: color-mix(in srgb, var(--c-low) 14%, transparent); }
+.delta.up { color: var(--low); background: color-mix(in srgb, var(--c-low) 14%, transparent); }
 .delta.down { color: var(--c-critical); background: color-mix(in srgb, var(--c-critical) 14%, transparent); }
-.gain { font-weight: 700; color: var(--c-low); min-width: 46px; text-align: right; margin-right: 10px; }
+.gain { font-weight: 700; color: var(--low); min-width: 46px; text-align: right; margin-right: 10px; }
 .ladder { display: inline-flex; gap: 2px; }
 .ladder .rung { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); color: var(--text-3, var(--muted)); }
 .ladder .rung:first-child { border-radius: 999px 0 0 999px; } .ladder .rung:last-child { border-radius: 0 999px 999px 0; }
 .ladder .rung.done { color: var(--text); }
 .ladder .rung.on { background: var(--dome); border-color: var(--dome); color: #ffffff; font-weight: 650; }
-.tag.hot { border-color: var(--c-high); color: var(--c-high); }
-.hot-text { color: var(--c-high); }
+.tag.hot { border-color: var(--c-high); color: var(--high); }
+.hot-text { color: var(--high); }
 @media (max-width: 560px) { .user .who, #kill-status { display: none; } .topbar .search-box { min-width: 0; width: 140px; } }
+.callout.stackc { display: block; }
+
+/* collapsible side menu: a rail of icons when folded (names on hover), its header alone on a narrow screen */
+.shell { transition: grid-template-columns .18s ease; }
+.shell.collapsed { --sidebar: 64px; }
+.side-nav { display: flex; flex-direction: column; gap: 4px; }
+.brand { position: relative; }
+.brand-text { min-width: 0; flex: 1; }
+.side-toggle { margin-left: auto; flex: none; width: 30px; height: 30px; }
+.side-toggle svg { transition: transform .18s ease; }
+.shell.collapsed .sidebar { padding: 16px 8px; overflow-x: hidden; }
+.shell.collapsed .brand { flex-direction: column; gap: 8px; padding: 4px 0 12px; }
+.shell.collapsed .brand-text, .shell.collapsed .nav-label, .shell.collapsed .sidebar-foot { display: none; }
+.shell.collapsed .side-toggle { margin: 0; }
+.shell.collapsed .side-toggle svg { transform: scaleX(-1); }
+.shell.collapsed .nav-group { padding: 8px 0 4px; }
+.shell.collapsed .nav-group span { display: none; }
+.shell.collapsed .nav-group::after { content: ""; display: block; height: 1px; background: var(--border); margin: 4px 6px; }
+.shell.collapsed .nav-item { justify-content: center; padding: 9px 0; position: relative; }
+.shell.collapsed .nav-item .count { position: absolute; top: 2px; right: 4px; padding: 0 4px; font-size: 10px; }
+@media (max-width: 860px) {
+  .shell, .shell.collapsed { --sidebar: 100%; }
+  .sidebar { flex-direction: column; }
+  .brand { padding-bottom: 8px; }
+  .side-nav { flex-direction: row; flex-wrap: wrap; }
+  .side-nav .nav-item { width: auto; }
+  .shell.collapsed .brand { flex-direction: row; padding: 4px 8px 0; }
+  .shell.collapsed .brand-text { display: block; }
+  .shell.collapsed .side-nav { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .shell, .side-toggle svg { transition: none; } }
+
+/* a warning inside a line of text (rule-change previews) */
+.warn-text { color: var(--high); font-weight: 600; }
+/* a link inside running text is underlined, not told apart by colour alone (WCAG 1.4.1) */
+.foot a, .list-row .grow a, .t-sub a, .callout a, p a { text-decoration: underline; text-underline-offset: 2px; }

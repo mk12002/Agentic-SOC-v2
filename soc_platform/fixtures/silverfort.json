@@ -96,6 +96,14 @@
     "next_page_token": null
    },
    "status": 200
+  },
+  {
+   "method": "POST",
+   "path": "^/api/v1/users/[^/]+/(sessions/revoke|mfa)$",
+   "body": {
+    "status": "ok"
+   },
+   "status": 200
   }
  ]
 }

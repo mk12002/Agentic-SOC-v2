@@ -79,7 +79,19 @@ def trend_micro() -> None:
     items += [agent(20 + i, HOSTS[k]["hostname"], HOSTS[k]["ip"], HOSTS[k]["serial"], HOSTS[k]["os"])
               for i, k in enumerate(SERVERS)]
     items.append(agent(40, UNLISTED["hostname"], UNLISTED["ip"], UNLISTED["serial"], "Windows 10 IoT Enterprise"))
-    write("trend_micro", [route("GET", r"^/api/v1/endpoints$", _page(items))])
+    guid = {k: f"tm-agent-{i:04d}" for i, k in enumerate(LAPTOPS) if k not in NO_EDR}
+
+    def alert(n: int, who: str, at: str, sev: str, title: str, category: str, action: str) -> dict:
+        return {"id": f"tm-alert-{n:04d}", "created_at": f"{D}{at}Z", "updated_at": f"{D}{at}Z", "severity": sev,
+                "title": title, "category": category, "action": action, "status": "new", "user": USERS[who]["upn"],
+                "endpoint": {"agent_guid": guid[who], "name": LAPTOPS[who]["hostname"], "ip": LAPTOPS[who]["ip"]}}
+
+    # alert-title level only: the phished person's laptop packs many documents just after the risky sign-in
+    alerts = [alert(1, "jane", "09:08:40", "medium", "Archive utility compressed many documents", "data staging", "logged"),
+              alert(2, "li", "13:30:05", "low", "Potentially unwanted application", "pua", "quarantined")]
+    write("trend_micro", [route("GET", r"^/api/v1/endpoints$", _page(items)),
+                          route("GET", r"^/api/v1/alerts$", _page(alerts)),
+                          route("POST", r"^/api/v1/endpoints/[^/]+/(isolate|restore)$", {"status": "accepted"})])
 
 
 def trellix_epo() -> None:
@@ -119,7 +131,8 @@ def silverfort() -> None:
                 {"id": "sf-pol-risky-mfa", "name": "MFA on high-risk sign-in", "enabled": True, "action": "mfa",
                  "applies_to": "All users", "risk_threshold": "high"}]
     write("silverfort", [route("GET", r"^/api/v1/risk/events$", _page(items)),
-                         route("GET", r"^/api/v1/policies$", _page(policies))])
+                         route("GET", r"^/api/v1/policies$", _page(policies)),
+                         route("POST", r"^/api/v1/users/[^/]+/(sessions/revoke|mfa)$", {"status": "ok"})])
 
 
 def forcepoint_dlp() -> None:
@@ -140,12 +153,19 @@ def forcepoint_dlp() -> None:
               {"id": "fp-sync-policy-deploy", "type": "sync_job", "name": "Policy deployment to endpoints", "status": "ok",
                "last_run": f"{D}07:00:00Z", "interval_minutes": 1440, "reported_at": at}]
 
+    # each classifier's type as the configuration reports it (placeholder vocabulary: see forcepoint_dlp.py)
+    ctype = {"India PAN": "regex", "Investor account number": "exact_data_match", "Credit card number (wide)": "regex",
+             "Customer contact list": "file_fingerprint", "Salary figures": "regex", "Legal privilege marking": "keyword",
+             "Source code": "machine_learning", "Confidential marking": "keyword", "Employee directory": "file_fingerprint",
+             "Aadhaar number": "regex", "Passport number": "regex"}
+
     def inc(n: int, who: str, at: str, severity: str, channel: str, action: str, policy: str, rule: str,
             classifiers: list[tuple[str, int]], dest_kind: str, dest: str, *, subject: str | None = None,
-            files: list[str] | None = None, resolution: str | None = None, size: int = 48_000) -> dict:
+            files: list[str] | None = None, resolution: str | None = None, size: int = 48_000, ocr: bool = False) -> dict:
         return {"id": 881000 + n, "event_time": f"{D}{at}Z", "updated_at": f"{D}{at}Z", "severity": severity,
                 "channel": channel, "action": action, "status": "CLOSED" if resolution else "NEW", "policy": policy,
-                "rule": rule, "classifiers": [{"name": c, "matches": m} for c, m in classifiers],
+                "rule": rule, "classifiers": [{"name": c, "matches": m, "type": ctype[c], **({"ocr": True} if ocr else {})}
+                                              for c, m in classifiers],
                 "source": {"user": USERS[who]["upn"], "hostname": LAPTOPS[who]["hostname"] if who in LAPTOPS else None,
                            "ip": LAPTOPS[who]["ip"] if who in LAPTOPS else None},
                 "destination": {"kind": dest_kind, "value": dest}, "subject": subject, "file_names": files or [],
@@ -160,7 +180,7 @@ def forcepoint_dlp() -> None:
             files=["investor_master_q3.xlsx"], size=2_400_000),
         *[inc(10 + i, "priya", f"08:{5 + 7 * i:02d}:10", "LOW", "EMAIL", "PERMITTED", card[0], card[1], card[2], "email",
               partner, subject=f"Remittance advice for invoice {4471 + i}", files=[f"remittance_{4471 + i}.pdf"],
-              resolution="False Positive" if i < 4 else None) for i in range(6)],
+              resolution="False Positive" if i < 4 else None, ocr=True) for i in range(6)],   # scanned PDFs
         inc(20, "arun", "10:05:40", "MEDIUM", "WEB", "PERMITTED", "Customer lists", "Customer contact list to cloud storage",
             [("Customer contact list", 240)], "url", "https://www.dropbox.com/upload", files=["client_contacts.csv"]),
         inc(21, "meera", "11:20:15", "LOW", "EMAIL", "PERMITTED", "HR records", "Salary data in mail",
@@ -186,7 +206,8 @@ def forcepoint_dlp() -> None:
     seen["Passport scans to cloud storage"] = {"policy": "Investor personal data", "severity": "medium", "channel": "web",
                                                "classifiers": ["Passport number"]}
     rules = [{"id": f"fp-rule-{n + 1:03d}", "name": name, "policy": r["policy"], "enabled": True, "channel": r["channel"],
-              "classifiers": r["classifiers"], "threshold": 1, "action": "audit" if r["severity"] == "low" else "block",
+              "classifiers": r["classifiers"], "classifier_types": {c: ctype[c] for c in r["classifiers"]},
+              "ocr_enabled": True, "threshold": 1, "action": "audit" if r["severity"] == "low" else "block",
               "severity": r["severity"], "excluded_destinations": [], "modified_at": "2026-08-01T10:00:00Z"}
              for n, (name, r) in enumerate(sorted(seen.items()))]
     write("forcepoint_dlp", [route("GET", r"^/api/v1/incidents$", _page(incidents)),

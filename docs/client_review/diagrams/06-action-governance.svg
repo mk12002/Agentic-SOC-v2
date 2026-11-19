@@ -1,74 +1,80 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" font-family="Segoe UI, Arial, sans-serif" font-size="14">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" font-family="Segoe UI, Arial, sans-serif" font-size="14">
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
     <style>
+      .zone{fill:#f1f5f9;stroke:#94a3b8;stroke-dasharray:6 4}
       .box{fill:#ffffff;stroke:#334155;stroke-width:1.3}
-      .chk{fill:#e0ecff;stroke:#2f6bb3;stroke-width:1.3}
+      .core{fill:#e0ecff;stroke:#2f6bb3;stroke-width:1.5}
+      .ext{fill:#fff7e8;stroke:#c2410c;stroke-width:1.2}
+      .later{fill:#ffffff;stroke:#94a3b8;stroke-width:1.2;stroke-dasharray:5 4}
       .hum{fill:#fef9c3;stroke:#a16207;stroke-width:1.3}
       .stop{fill:#fef2f2;stroke:#b91c1c;stroke-width:1.2}
       .ok{fill:#ecfdf3;stroke:#15803d;stroke-width:1.3}
+      .ai{fill:#f3e8ff;stroke:#7e22ce;stroke-width:1.3}
       .h{font-weight:600;fill:#0f172a}
       .t{font-weight:600;fill:#1e293b;font-size:13.5px}
       .s{fill:#475569;font-size:12px}
       .line{stroke:#475569;stroke-width:1.5;fill:none;marker-end:url(#a)}
+      .dash{stroke:#475569;stroke-width:1.3;fill:none;stroke-dasharray:5 4;marker-end:url(#a)}
       .lbl{fill:#1e293b;font-size:12px;font-weight:600}
     </style>
   </defs>
-  <rect width="1200" height="600" fill="#ffffff"/>
+  <rect width="1200" height="640" fill="#ffffff"/>
   <text x="30" y="36" class="h" font-size="20">Human approval controls - from recommendation to a tool write</text>
   <text x="30" y="58" class="s">The action layer is the only code path that writes to a tool; by default a person approves every action (L2).</text>
-
-  <rect x="20" y="86" width="190" height="96" rx="10" class="box"/><text x="34" y="112" class="t">Recommendation</text><text x="34" y="134" class="s">from a workflow (computed in</text><text x="34" y="150" class="s">code) or an analyst request;</text><text x="34" y="166" class="s">idempotency key de-duplicates</text>
-
-  <rect x="240" y="86" width="210" height="96" rx="10" class="chk"/><text x="254" y="112" class="t">Tool stage ceiling</text><text x="254" y="134" class="s">fixtures / recording / read-only:</text><text x="254" y="150" class="s">manual step only · recommend:</text><text x="254" y="166" class="s">never above L2 · automate: policy</text>
-
-  <rect x="480" y="86" width="250" height="96" rx="10" class="chk"/><text x="494" y="112" class="t">Autonomy policy decision</text><text x="494" y="134" class="s">preconditions · hard target limit ·</text><text x="494" y="150" class="s">kill switch · destructive → max L3 ·</text><text x="494" y="166" class="s">VIP / critical · target count · four-eyes</text>
-
-  <rect x="760" y="86" width="200" height="96" rx="10" class="hum"/><text x="774" y="112" class="t">Human approval</text><text x="774" y="134" class="s">permission per role, in the</text><text x="774" y="150" class="s">action's domain; step-up MFA;</text><text x="774" y="166" class="s">no self-approval; never API key</text>
-
-  <rect x="990" y="86" width="190" height="96" rx="10" class="ok"/><text x="1004" y="112" class="t">Execute once</text><text x="1004" y="134" class="s">preconditions re-checked;</text><text x="1004" y="150" class="s">conditional update = exactly</text><text x="1004" y="166" class="s">once; result recorded</text>
-
-  <rect x="480" y="222" width="250" height="70" rx="10" class="stop"/><text x="494" y="246" class="t">Blocked</text><text x="494" y="266" class="s">precondition failed or more targets</text><text x="494" y="282" class="s">than the hard limit - recorded</text>
-  <rect x="760" y="222" width="200" height="70" rx="10" class="stop"/><text x="774" y="246" class="t">Rejected</text><text x="774" y="266" class="s">by the approver, with a</text><text x="774" y="282" class="s">reason - recorded</text>
-  <rect x="990" y="222" width="190" height="70" rx="10" class="box"/><text x="1004" y="246" class="t">Rollback</text><text x="1004" y="266" class="s">linked reverse action (release,</text><text x="1004" y="282" class="s">enable, restore, unblock)</text>
-
-  <rect x="20" y="330" width="1160" height="64" rx="10" class="box"/>
-  <text x="34" y="354" class="t">Audit chain - every step above is an append-only, SHA-256-linked audit event (who, what, when, why, trace id); tampering breaks the chain at the edited record.</text>
-  <text x="34" y="376" class="s">Verification on demand (/api/v1/audit/verify) and hourly by the platform self-check; full export as JSON Lines to the organisation's SIEM.</text>
-
-  <rect x="20" y="420" width="370" height="160" rx="10" class="box"/>
-  <text x="34" y="444" class="t">Levels</text>
-  <text x="34" y="466" class="s">L0 observe · L1 enrich · L2 recommend (default)</text>
-  <text x="34" y="484" class="s">L3 approve · L4 autonomous</text>
-  <text x="34" y="506" class="s">Four-eyes by default: disable account, isolate host.</text>
-  <text x="34" y="524" class="s">Never above L3 (destructive): mail purge, password</text>
-  <text x="34" y="542" class="s">reset, secret rotation, confirm-compromised.</text>
-  <text x="34" y="564" class="s">Per-request target limits on every action type.</text>
-
-  <rect x="410" y="420" width="370" height="160" rx="10" class="box"/>
-  <text x="424" y="444" class="t">Changing the rules</text>
-  <text x="424" y="466" class="s">Autonomy policy and tool configuration: proposed</text>
-  <text x="424" y="484" class="s">by one person, approved by another (MFA);</text>
-  <text x="424" y="502" class="s">versioned; validated field by field; a tool must</text>
-  <text x="424" y="520" class="s">pass its preflight before it can go live.</text>
-  <text x="424" y="542" class="s">Promotion evidence: shadow-mode agreement</text>
-  <text x="424" y="560" class="s">between recommendations and analyst decisions.</text>
-
-  <rect x="800" y="420" width="380" height="160" rx="10" class="stop"/>
-  <text x="814" y="444" class="t">Stopping it</text>
-  <text x="814" y="466" class="s">Kill switch: stops all autonomous execution at once;</text>
-  <text x="814" y="484" class="s">durable, every replica. Every action needs a person.</text>
-  <text x="814" y="506" class="s">Pause a tool: no write reaches it, approved or not;</text>
-  <text x="814" y="524" class="s">immediate, audited; resuming needs approval.</text>
-  <text x="814" y="546" class="s">Without a tool's write permission an approved</text>
-  <text x="814" y="564" class="s">action fails cleanly and is recorded.</text>
-
-  <path d="M210,134 L238,134" class="line"/>
-  <path d="M450,134 L478,134" class="line"/>
-  <path d="M730,134 L758,134" class="line"/><text x="731" y="154" class="lbl" font-size="11">L2/L3</text>
-  <path d="M960,134 L988,134" class="line"/>
-  <path d="M605,182 L605,220" class="line"/>
-  <path d="M860,182 L860,220" class="line"/>
-  <path d="M1085,182 L1085,220" class="line"/>
-  <path d="M605,86 L605,74 L1085,74 L1085,84" class="line"/><text x="800" y="70" class="lbl">L4 only, never for destructive types</text>
+  <rect x="20" y="86" width="216" height="100" rx="10" class="box"/>
+  <text x="32" y="110" class="t">Recommendation</text>
+  <text x="32" y="130" class="s">from a workflow (DLP case,</text>
+  <text x="32" y="147" class="s">cross-tool case), computed</text>
+  <path d="M238,136 L254,136" class="line"/>
+  <rect x="256" y="86" width="216" height="100" rx="10" class="core"/>
+  <text x="268" y="110" class="t">Tool stage ceiling</text>
+  <text x="268" y="130" class="s">fake / record / read: none;</text>
+  <text x="268" y="147" class="s">recommend: never above L2</text>
+  <path d="M474,136 L490,136" class="line"/>
+  <rect x="492" y="86" width="216" height="100" rx="10" class="core"/>
+  <text x="504" y="110" class="t">Autonomy policy</text>
+  <text x="504" y="130" class="s">preconditions · blast radius ·</text>
+  <text x="504" y="147" class="s">kill switch · destructive ·</text>
+  <path d="M710,136 L726,136" class="line"/>
+  <rect x="728" y="86" width="216" height="100" rx="10" class="hum"/>
+  <text x="740" y="110" class="t">People approve</text>
+  <text x="740" y="130" class="s">permission in the action&#x27;s</text>
+  <text x="740" y="147" class="s">domain; MFA; four-eyes = 2</text>
+  <path d="M946,136 L962,136" class="line"/>
+  <rect x="964" y="86" width="216" height="100" rx="10" class="ok"/>
+  <text x="976" y="110" class="t">Execute once</text>
+  <text x="976" y="130" class="s">claimed exactly once; recorded</text>
+  <text x="976" y="147" class="s">before and after the tool call</text>
+  <text x="504" y="178" class="s">containment: always 2 people</text>
+  <rect x="492" y="220" width="216" height="70" rx="10" class="stop"/>
+  <text x="504" y="244" class="t">Blocked</text>
+  <text x="504" y="264" class="s">precondition failed or</text>
+  <text x="504" y="281" class="s">over the hard limit</text>
+  <rect x="728" y="220" width="216" height="70" rx="10" class="stop"/>
+  <text x="740" y="244" class="t">Rejected</text>
+  <text x="740" y="264" class="s">by an approver, with a reason</text>
+  <rect x="964" y="220" width="216" height="70" rx="10" class="box"/>
+  <text x="976" y="244" class="t">Rollback</text>
+  <text x="976" y="264" class="s">a reverse action, itself</text>
+  <text x="976" y="281" class="s">under the policy</text>
+  <rect x="20" y="320" width="1160" height="64" rx="10" class="box"/>
+  <text x="32" y="344" class="t">Audit chain - every step above is an append-only, SHA-256-linked event (who, what, when, why, trace id); tampering breaks the chain at the edited record.</text>
+  <text x="32" y="364" class="s">Verified on demand and hourly; heads anchored in the log pipeline; exported as JSON Lines to NAM&#x27;s SIEM.</text>
+  <rect x="20" y="410" width="560" height="210" rx="10" class="box"/>
+  <text x="32" y="434" class="t">Containment (policy.CONTAINMENT)</text>
+  <text x="32" y="454" class="s">isolate a host (Trend Micro)</text>
+  <text x="32" y="471" class="s">disable an account · reset a password</text>
+  <text x="32" y="488" class="s">confirm a compromise · rotate a privileged secret</text>
+  <text x="32" y="505" class="s">always four-eyes, never autonomous - whatever a policy</text>
+  <text x="32" y="522" class="s">document says; a document that tries is refused</text>
+  <text x="32" y="539" class="s">reversible actions (revoke sessions, require MFA): L2 by default</text>
+  <rect x="600" y="410" width="580" height="210" rx="10" class="ai"/>
+  <text x="612" y="434" class="t">The AI&#x27;s authority is earned, per decision type</text>
+  <text x="612" y="454" class="s">shadow: decides beside the analyst, nothing happens</text>
+  <text x="612" y="471" class="s">recommend: pre-filled, overruling needs a reason</text>
+  <text x="612" y="488" class="s">decide: refused in code in this version</text>
+  <text x="612" y="505" class="s">promotion: NAM&#x27;s target met + a second lead approves</text>
+  <text x="612" y="522" class="s">demotion: agreement drop or outcome shift - automatic</text>
+  <text x="612" y="539" class="s">close only where the computed disposition agrees</text>
 </svg>

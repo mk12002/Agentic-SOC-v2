@@ -1,7 +1,7 @@
-# High availability, scaling and disaster recovery
+# High availability, scaling and disaster recovery - CyberDome for NAM
 
 How the platform runs with **no single point of failure**, on premises or in the cloud, and what each failure does.
-Read with `CLIENT_DEPLOYMENT_GUIDE.md` (hosting, sign-in, tools) and `OPERATIONS.md` (settings, monitoring, backups).
+Read with [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) (hosting in NAM's environment or an Indian cloud region, sign-in, NAM's tools) and [OPERATIONS.md](OPERATIONS.md) (settings, monitoring, backups). For NAM the Azure overlay is deployed in an Indian region (Central India or South India) so the database, its backups and the model stay in India (CLAUDE.md §0.4 rule 8).
 
 The short version: the application keeps **no state on a host or in a process**. Everything durable - cases, evidence,
 actions, the audit chain, job leases, the kill switch, stored e-mails and reports - is in PostgreSQL. So any number of
@@ -41,7 +41,7 @@ of each and a highly available PostgreSQL.
 | A failover does not surface as errors | Connection pool with pre-ping and recycling (`SOC_DB_POOL_RECYCLE`, 1800 s); saturation or an unreachable database answers 503 + Retry-After | `test_traffic.py`, `FAILURE_MODES.md` |
 | Deploys and drains never drop capacity | Rolling updates with `maxUnavailable: 0`; disruption budgets; a `preStop` pause so the load balancer stops routing before shutdown; graceful shutdown finishes requests in flight and the job in hand | `test_deployment_manifests.py` |
 | Signed-in analysts keep working through an Entra outage | Signing keys already seen are kept per process; only a new key id needs Entra | `test_high_availability.py` |
-| A crash between the two steps of a job loses nothing | The incident and phishing jobs commit the cases, then write the model explanations; explanations still pending are picked up by the next run | `test_incident.py` |
+| A crash between the two steps of a job loses nothing | The incident and cross-tool jobs commit the cases, then write the model explanations; explanations still pending are picked up by the next run | `test_incident.py` |
 | A crash or failover during a tool call never re-runs or hides an action | `executing` and its audit record are committed before the tool is called, the outcome after; no transaction (or audit-chain lock) is open during the call. An action left `executing` is marked `unverified` with a finding by the actions job, never run again | `test_core_governance.py` |
 | A stuck process cannot hold locks for ever | Production defaults: `statement_timeout` 300 s, `idle_in_transaction_session_timeout` 600 s | `test_go_live_hardening.py` (settings), `OPERATIONS.md` |
 
@@ -73,14 +73,14 @@ cost and the organisation's operating model - the application does not change.
  | zone, automatic failover, point-in-time restore,             |
  | geo-redundant backup                                         |
  +--------------------------------------------------------------+
- Key Vault (CSI driver + workload identity) | Azure Monitor / Prometheus | the client's ACR
+ Key Vault (CSI driver + workload identity) | Azure Monitor / Prometheus | NAM's ACR
 ```
 
 * The Azure resources themselves are code: `deploy/azure/main.bicep` (VNet with subnets for the gateway, AKS,
   PostgreSQL and private endpoints; private AKS with Entra-only sign-in, workload identity, Key Vault CSI with
   rotation, AGIC and Azure Policy; Flexible Server 16 zone-redundant with 35-day geo-redundant backup, TLS only,
   `pg_trgm` allowed; Key Vault with purge protection and no public access; ACR; every resource's logs to one Log
-  Analytics workspace). SKUs follow INFRASTRUCTURE_AND_COSTS.md section 10. Internal console: AGIC drives the
+  Analytics workspace). SKUs are chosen at deployment (DEPLOYMENT_GUIDE.md). Internal console: AGIC drives the
   organisation's existing Application Gateway (`existingAppGatewayId`; its owner grants the AGIC identity Contributor
   on it). Internet-facing (`internetFacing=true`): a zone-redundant WAF v2 gateway in prevention mode (OWASP 3.2, bot
   rules, a per-client rate limit shared across replicas, TLS 1.2+) is created - decision D5. The template compiles
@@ -116,7 +116,7 @@ PostgreSQL and `SOC_BLOB_STORE=database` (the compose default). Same guarantees 
 added by adding VMs. Kubernetes adds self-healing, rolling deploys and autoscaling on top.
 On Azure, with two `Standard_D2s_v5` VMs in two zones and a zone-redundant PostgreSQL Flexible Server, this costs
 about $554 a month on demand and $351 with 1-year reservations - the recommended size for a small SOC
-(`INFRASTRUCTURE_AND_COSTS.md` section 10.1a).
+(DEPLOYMENT_GUIDE.md section 2).
 
 A single host running the whole compose file (`deploy/docker-compose.yml` as shipped) is right for a demo or a pilot:
 it is a single point of failure by design.
@@ -181,9 +181,9 @@ HPA maximum or the workers means raising `max_connections` (or putting PgBouncer
 ### 4.2 Sizing
 
 The base requests - 1 vCPU per API pod running one worker process, 250m for the scheduler - fit three 2-vCPU nodes
-(one per zone) with room for the cluster's own pods; the sizing basis, the prices and the reason for every
-availability choice are in `INFRASTRUCTURE_AND_COSTS.md` section 10. They are starting values: confirm them with a
-load test with the organisation's
+(one per zone) with room for the cluster's own pods; the deployment
+options for NAM are in [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md). They are starting values: confirm them with a
+load test with NAM's
 number of analysts (`scripts/load_test.py`; measured results so far are in `OPERATIONS.md` - Server and database under
 load) and from connector volume (`scripts/measure_scale.py`).
 

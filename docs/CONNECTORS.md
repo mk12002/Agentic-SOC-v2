@@ -1,113 +1,79 @@
-# Connectors
+# Connectors - CyberDome for NAM
 
 Generated from the connector manifests by `scripts/build_connector_docs.py` - regenerate after changing a connector.
+It lists the connectors of the NAM product scope (`core/scope.py:NAM_CONNECTORS`); the platform core's other
+connectors exist only in the `full` scope and are not part of NAM's deployment.
 
-Every connector runs in one of two modes, set per connector in `config/connectors.yaml`:
+## NAM's tools and their state
 
-* **fake** - replays vendor-shaped fixture responses (`soc_platform/fixtures/<name>.json`) through exactly the same
-  parsing, normalisation, lookup and action code as live mode. Used for development, tests and demos.
-* **live** - calls the vendor API with the credentials in the config (use `${ENV}` or `<NAME>_FILE` vault mounts,
-  never literals).
+| Tool | Role | Phase | Connector | State |
+|---|---|---|---|---|
+| Forcepoint DLP | data protection | 1 | `forcepoint_dlp` | fake mode; placeholder API |
+| Silverfort | identity (IAM) | 1 | `silverfort` | fake mode; placeholder API; actions are placeholders |
+| Trend Micro (product to confirm) | endpoint | 1 | `trend_micro` | fake mode; placeholder API; isolate is a placeholder |
+| Trellix ePO | disk encryption | 1 | `trellix_epo` | fake mode; placeholder API |
+| AD / CMDB export | device and people baseline | 1 | `directory_export` (+ `cmdb_csv` ownership file) | fake mode; placeholder file shape |
+| Arcon | privileged access | 2 | - | not built (the platform core's PAM connector is the pattern) |
+| Cloudflare | WAF | 2 | - | not built |
+| SIEM (product unknown) | logs | 2 | `generic_siem` (webhook) | generic; a product connector once known |
+| SOAR (product unknown) | execution | 2-3 | - | not built (M9) |
+| ServiceNow / Jira | tickets | - | `servicenow`, `jira` | inherited, unchanged |
 
-**Verification status.** Every connector is implemented against the vendor's documented API and verified end to end
-on fixtures shaped like the documented responses (`soc_platform/tests/test_connectors.py`). Request and response
-formats were audited field by field against the vendors' public API references and public reference integrations
-(round 14 in `docs/TEST_REPORT.md` lists what that audit corrected). The public feeds (NVD, EPSS, CISA KEV) are also
-verified live. Beyond the documented shapes, every connector passes a conformance suite
-(`soc_platform/tests/test_connector_conformance.py`, round 16): reading across pages in its vendor's own paging style,
-resuming the next sync correctly (a time watermark with an overlap for late logs, or a fresh read - never an expired
-continuation token), throttling with `Retry-After`, a refused token renewed once, a missing permission reported at
-once, and every field of every record missing, null or of the wrong type (a malformed field is conformed to the
-stream's documented shape and reported, never fatal to the record). The demo fixtures are one scripted scenario, far smaller and
-tidier than a tenant; `scripts/build_estate_variant.py --messy --scale N` generates large, disorderly estates for
-volume tests, and record-and-sanitise (`SOC_RECORD_FIXTURES_DIR`) turns the first live responses into fixtures.
-The vendor connectors have **not yet been run against the client's tenants**: do that per connector with
-the *Preflight* button (Integrations screen), `python -m soc_platform preflight <name>` or
-`POST /api/v1/config/connectors/{name}/preflight`, which checks sign-in, every stream and the permission it needs,
-parsing, data freshness and volume, and says how to fix each failure. Items under *To confirm* are licence or
-permission questions for the client (A01, A03). Step-by-step onboarding of every tool in the client's environment:
-`docs/CLIENT_DEPLOYMENT_GUIDE.md`.
+**Placeholders.** NAM's tool versions, editions and licensed APIs are not yet known, and a connector is never built
+from memory of a vendor's API. The five NAM connectors therefore share `connectors/tools/_paged.py`: every endpoint
+path is a `<stream>_path` setting, the page shape `{"items", "next_page_token"}` is a placeholder and the confidence
+is `Unknown`. When the vendor's documentation for NAM's installed version is in hand, only `fetch_page` and `_live`
+change; the fixtures are rebuilt from recorded, sanitised responses (record-and-sanitise). Each module says what is
+UNVERIFIED in its docstring.
+
+**Modes and stages.** Every connector runs vendor-shaped fixtures through the same parsing, normalisation and action
+code as live mode (`fake`). A tool then moves one approved step at a time: `record` (live reads saved as sanitised
+fixtures), `read` (live, no actions), `recommend` (actions offered, never above L2), `automate` (the autonomy policy
+decides). Phase 1 and 2 connectors run at `read` / `recommend`; a write is requested per action in Phase 3 through the
+SOAR backend behind `ActionService`.
+
+**Conformance.** Every connector passes `test_connector_conformance.py` (paging in its own style, resume from a
+watermark never a continuation token, `Retry-After`, a refused token renewed once, a missing permission reported at
+once, every field missing, null or of the wrong type) and `test_live_wire.py` (built as a live tool over HTTP from the
+fixtures: same records, credentials on every request). The NAM connectors also pass `test_connector_nam_stack.py`
+(paging and resume, one device across four tools, nothing added to other workflows beyond the planned actions).
+
+**Before a tool goes live:** *Preflight* (Integrations), `python -m soc_platform preflight <name>` or
+`POST /api/v1/config/connectors/{name}/preflight` checks the configuration, sign-in, every stream and the permission
+it needs, parsing, freshness and volume, and says how to fix each failure. Onboarding NAM's tools step by step:
+[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) section 5.
 
 **Onboarding a tool (live):**
 
-1. Create a dedicated service principal / API client with the read scopes listed (write scopes only for the
-   actions you intend to approve).
+1. Create a dedicated service account / API client with the read scopes (write scopes only for actions NAM accepts).
 2. Put the secrets in the vault (or environment) under the names *Integrations -> Configure* shows (convention
    `<CONNECTOR>_<SETTING>`); they are never typed into the console.
-3. *Configure*: the non-secret settings and the stage **Recording** or **Read-only**; propose. The preflight runs on the
-   proposal; a lead approves; it applies within seconds, no restart. (Or `stage: read` in `config/connectors.yaml`.)
-4. Check the Integrations screen: records ingested, freshness, reconciliation against the tool's own total.
-5. Promote to **Recommend** (actions offered, never above L2), later **Automate** (the autonomy policy decides).
+3. *Configure*: the non-secret settings (the confirmed endpoint paths included) and the stage **Recording** or
+   **Read-only**; propose. The preflight runs on the proposal; a lead approves; it applies within seconds.
+4. Check Integrations: records ingested, freshness, reconciliation against the tool's own total.
+5. Promote to **Recommend**, and in Phase 3 to **Automate**, per action NAM accepts.
 
-**Adding a tool that has no connector:** `python -m soc_platform connector new <name> --category <cat> --tool "Vendor
-Product"` writes a connector that already follows the platform's rules, its fixtures, its paging test and a switched-off
-config entry; adapt the endpoints and fields, then `python -m soc_platform connector check <name>`.
+**Adding a tool that has no connector** (Arcon, Cloudflare, the SIEM or SOAR product):
+`python -m soc_platform connector new <name> --category <cat> --tool "Vendor Product"` writes a connector that already
+follows the platform's rules, its fixtures, its paging test and a switched-off config entry; then add the name to
+`scope.NAM_CONNECTORS` and run `python -m soc_platform connector check <name>`.
+
+## All connectors of the NAM scope
 
 
 | Connector | Tool | Category | Streams | Lookups | Actions | Confidence |
 |---|---|---|---|---|---|---|
-| `avanan` | Avanan (Check Point Harmony Email) | email | security_events | email_message, domain | email.gateway_quarantine, email.gateway_restore | Low-Medium |
-| `canary` | Thinkst Canary | deception | incidents, devices | ip, host | canary.acknowledge | High |
-| `cisa_kev` | CISA KEV catalogue | intel | catalog | cve | - | High |
 | `cmdb_csv` | Ownership mapping (CSV) | cmdb | cmdb | host | - | High |
-| `crowdstrike` | CrowdStrike Falcon | edr | alerts, hosts, vulnerabilities | host, hash, domain, ip, user | endpoint.collect_forensics, endpoint.isolate, endpoint.release | High |
-| `defender_endpoint` | Microsoft Defender for Endpoint | edr | alerts, machines, vulnerabilities | host, ip, hash, domain, user | endpoint.collect_forensics, endpoint.isolate, endpoint.release, endpoint.scan, indicator.block, indicator.unblock | High |
-| `defender_identity` | Microsoft Defender for Identity | identity | alerts, logon_events | user, ip | - | Medium |
-| `defender_office365` | Microsoft Defender for Office 365 | email | reported_messages, email_alerts | email_message, user, domain, url, hash | email.block_sender, email.campaign_purge, email.reporter_feedback, email.restore, email.tag, email.unblock_sender, notify.email | High |
-| `delinea_privilege_manager` | Delinea Privilege Manager | pam | elevation_events | user, host | - | Medium |
-| `delinea_secret_server` | Delinea Secret Server | pam | secret_audits | user | pam.rotate_secret | Medium |
-| `entra` | Microsoft Entra ID | identity | users, signins, risky_users, risk_detections, directory_audits | user, ip | identity.confirm_compromised, identity.disable_account, identity.enable_account, identity.reset_password, identity.revoke_sessions | High |
-| `epss` | FIRST EPSS | intel | - | cve | - | High |
+| `directory_export` | Directory export (devices and users) | directory | devices, users | - | - | Unknown |
+| `forcepoint_dlp` | Forcepoint DLP | dlp | dlp_incidents, endpoints, health | - | - | Unknown |
 | `generic_siem` | Generic SIEM/SOAR webhook | siem | pushed | - | - | High |
 | `jira` | Jira (ITSM) | itsm | tickets | - | ticket.create, ticket.update | Unknown |
-| `nvd` | NIST NVD | intel | recent_cves | cve | - | High |
-| `rapid7` | Rapid7 InsightVM / Nexpose | vuln | assets, findings, exceptions | host, ip, cve | - | Medium-High |
-| `sentinel` | Microsoft Sentinel | siem | incidents | - | - | Unknown |
 | `servicenow` | ServiceNow (ITSM + CMDB) | itsm | tickets, cmdb | host | ticket.create, ticket.update | Unknown |
-| `threat_intel` | Threat intelligence fusion | intel | - | ip, domain, url, hash | - | High |
-| `umbrella` | Cisco Umbrella | dns | dns_activity | domain, host, ip | dns.block_domain, dns.unblock_domain | Medium-High |
-| `wiz` | Wiz | cloud | resources, vulnerabilities, issues | host, cve | - | High |
+| `silverfort` | Silverfort | identity | risk_events | - | identity.release_mfa, identity.require_mfa, identity.revoke_sessions | Unknown |
+| `trellix_epo` | Trellix ePO (drive encryption) | encryption | systems, health | - | - | Unknown |
+| `trend_micro` | Trend Micro endpoint security | edr | endpoints, alerts | - | endpoint.isolate, endpoint.release | Unknown |
 
 ## Per-connector setup
-
-### Avanan (Check Point Harmony Email) (`avanan`)
-
-Security events, per-message verdicts and actions for reconciliation; quarantine/restore.
-
-- Vendor: Check Point · focus areas: phishing
-- Read scopes: Infinity Portal API key for the Email & Collaboration service (read events and entities)
-- Write scopes (only for approved actions): same API key with a read-write role: quarantine / restore
-- To confirm with the client: API availability and scope under current licence (fallbacks: journaling, shared mailbox, export)
-- Configuration:
-  - `api_url` (optional): Smart API gateway URL (region specific)
-  - `client_id` (secret): Infinity Portal API client id
-  - `access_key` (secret): API access key
-  - `fallback` (optional): shared_mailbox | export if the API is not licensed
-  - `sync_from` (optional): First sync starts here (ISO time; default 2026-01-01T00:00:00Z)
-
-### Thinkst Canary (`canary`)
-
-Canary and Canarytoken incidents and device inventory; high-fidelity deception signal.
-
-- Vendor: Thinkst · focus areas: incident
-- Read scopes: API auth token (read-only where available)
-- Write scopes (only for approved actions): acknowledge incidents
-- To confirm with the client: API token provisioning
-- Configuration:
-  - `domain_hash`: Console hash (<hash>.canary.tools)
-  - `auth_token` (secret): API auth token
-  - `user_domain` (optional): UPN suffix for Canary usernames
-
-### CISA KEV catalogue (`cisa_kev`)
-
-Known Exploited Vulnerabilities catalogue; additions trigger exposure assessment.
-
-- Vendor: CISA · focus areas: vulnerability, incident
-- Read scopes: see vendor docs / to confirm
-- Write scopes (only for approved actions): -
-- To confirm with the client: -
-- Configuration:
-  - none
 
 ### Ownership mapping (CSV) (`cmdb_csv`)
 
@@ -116,138 +82,41 @@ Maintained hostname-pattern to owner/platform-team/criticality mapping on a moun
 - Vendor: internal · focus areas: vulnerability, incident
 - Read scopes: see vendor docs / to confirm
 - Write scopes (only for approved actions): -
-- To confirm with the client: -
+- To confirm with NAM: -
 - Configuration:
   - `path`: CSV path: hostname,owner,platform_team,environment,criticality,serial_number
 
-### CrowdStrike Falcon (`crowdstrike`)
+### Directory export (devices and users) (`directory_export`)
 
-Detections, host inventory, Spotlight vulnerabilities, IOC lookup, containment and RTR collection.
+The baseline of joined devices and people that control coverage is reconciled against.
 
-- Vendor: CrowdStrike · focus areas: incident, vulnerability, phishing
-- Read scopes: Alerts:read, Hosts:read, Vulnerabilities (Spotlight):read, IOC Management:read
-- Write scopes (only for approved actions): Hosts:write, Real time response:read
-- To confirm with the client: API client scopes; Spotlight/Exposure licence; RTR response policy
-- Configuration:
-  - `base_url` (optional): API base (e.g. https://api.eu-1.crowdstrike.com)
-  - `client_id` (secret): OAuth2 API client id
-  - `client_secret` (secret): OAuth2 API client secret
-  - `user_domain` (optional): Domain appended to bare user names to form a UPN
-
-### Microsoft Defender for Endpoint (`defender_endpoint`)
-
-Alerts, device inventory, TVM vulnerabilities, advanced hunting, isolation, scans, custom indicators.
-
-- Vendor: Microsoft · focus areas: incident, vulnerability, phishing
-- Read scopes: Alert.Read.All, Machine.Read.All, Vulnerability.Read.All, AdvancedQuery.Read.All, Ti.Read.All, Machine.ReadWrite.All (only for 'which device had this IP' - findbyip requires it)
-- Write scopes (only for approved actions): Machine.Isolate, Machine.Scan, Machine.CollectForensics, Ti.ReadWrite.All
-- To confirm with the client: Licence tier (P2 for advanced hunting/TVM); app permissions; hunting quota
-- Configuration:
-  - `tenant_id`: Entra tenant id
-  - `client_id` (secret): App registration (client) id
-  - `client_secret` (secret) (optional): App registration secret (or use client_certificate)
-  - `client_certificate` (secret) (optional): App registration certificate: one PEM with the private key and the certificate (recommended over a secret; mount it with <CONNECTOR>_CLIENT_CERTIFICATE_FILE)
-  - `login_base` (optional): Sign-in authority (national clouds only; default https://login.microsoftonline.com)
-  - `user_domain` (optional): UPN suffix for alert users
-  - `mde_base` (optional): API base: https://api.security.microsoft.com (default) or a regional host such as https://eu.api.security.microsoft.com
-
-### Microsoft Defender for Identity (`defender_identity`)
-
-On-premises Active Directory identity alerts and domain logon events (Defender XDR, through Graph).
-
-- Vendor: Microsoft · focus areas: incident
-- Read scopes: SecurityAlert.Read.All, ThreatHunting.Read.All
+- Vendor: internal · focus areas: dlp
+- Read scopes: read access to the device and user export
 - Write scopes (only for approved actions): -
-- To confirm with the client: Defender for Identity licence and sensor coverage of the domain controllers; Graph app permissions SecurityAlert.Read.All and ThreatHunting.Read.All
+- To confirm with NAM: Which system is the baseline (Active Directory, CMDB or endpoint-management export), how it is served and how often it is refreshed; the admin groups that mark a privileged account
 - Configuration:
-  - `tenant_id`: Entra tenant id
-  - `client_id` (secret): App registration (client) id
-  - `client_secret` (secret) (optional): App registration secret (or use client_certificate)
-  - `client_certificate` (secret) (optional): App registration certificate: one PEM with the private key and the certificate (recommended over a secret; mount it with <CONNECTOR>_CLIENT_CERTIFICATE_FILE)
-  - `login_base` (optional): Sign-in authority (national clouds only; default https://login.microsoftonline.com)
-  - `user_domain` (optional): UPN suffix for bare account names
-  - `lookback_days` (optional): Days of logon events read on the first sync (default 7)
-  - `hunting_page_size` (optional): Rows per advanced-hunting call (default 1000)
-  - `graph_base` (optional): Microsoft Graph base (national clouds only)
+  - `base_url`: URL of the service that serves the export
+  - `api_key` (secret): API key
+  - `privileged_groups` (optional): Groups whose members are privileged (default: the built-in admin groups)
+  - `devices_path` (optional): Endpoint path of the devices stream (default /api/v1/devices; to be confirmed against the installed version)
+  - `users_path` (optional): Endpoint path of the users stream (default /api/v1/users; to be confirmed against the installed version)
 
-### Microsoft Defender for Office 365 (`defender_office365`)
+### Forcepoint DLP (`forcepoint_dlp`)
 
-User-reported mail, email alerts, message trace & campaign hunting, click telemetry, remediation.
+Data-loss incidents, endpoint agent check-ins, and the product's certificates and sync jobs.
 
-- Vendor: Microsoft · focus areas: phishing, incident
-- Read scopes: Mail.Read (reporting mailbox, app-access-policy scoped), SecurityAlert.Read.All, ThreatHunting.Read.All
-- Write scopes (only for approved actions): SecurityAnalyzedMessage.ReadWrite.All, Mail.ReadWrite (scoped), Mail.Send (SOC mailbox), Exchange.ManageAsApp (tenant allow/block list)
-- To confirm with the client: Licence tier for advanced hunting and Safe Links click telemetry; Graph app permissions; Exchange app-access policy scoping the SOC mailbox
-- Configuration:
-  - `tenant_id`: Entra tenant id
-  - `client_id` (secret): App registration (client) id
-  - `client_secret` (secret) (optional): App registration secret (or use client_certificate)
-  - `client_certificate` (secret) (optional): App registration certificate: one PEM with the private key and the certificate (recommended over a secret; mount it with <CONNECTOR>_CLIENT_CERTIFICATE_FILE)
-  - `login_base` (optional): Sign-in authority (national clouds only; default https://login.microsoftonline.com)
-  - `reporting_mailbox`: Mailbox receiving user-reported messages / SOC mailbox
-  - `graph_base` (optional): Microsoft Graph base (national clouds only)
-
-### Delinea Privilege Manager (`delinea_privilege_manager`)
-
-Elevation and application-control events.
-
-- Vendor: Delinea · focus areas: incident
-- Read scopes: see vendor docs / to confirm
+- Vendor: Forcepoint · focus areas: dlp
+- Read scopes: incident read (reports / REST API role), endpoint status read, system health read
 - Write scopes (only for approved actions): -
-- To confirm with the client: API access approval; the elevation-events and token paths from the console's own Swagger page (Help > API Reference) - not in public documentation
+- To confirm with NAM: Version and licensed REST API; the incident export call and its date filters; whether endpoint check-ins, job state and certificate expiry can be read; classifier names for PAN / Aadhaar
 - Configuration:
-  - `base_url`: Privilege Manager URL
-  - `client_id` (secret): API client id
-  - `client_secret` (secret): API client secret
-  - `user_domain` (optional): UPN suffix
-  - `events_path` (optional): Elevation events endpoint (default /Tms/api/v1/events/elevation)
-
-### Delinea Secret Server (`delinea_secret_server`)
-
-Secret access audit, privileged sessions, standing privilege; credential rotation.
-
-- Vendor: Delinea · focus areas: incident
-- Read scopes: View Secret Audit, View Launched Sessions
-- Write scopes (only for approved actions): Change Password Now on target secrets
-- To confirm with the client: API access approval (privileged access data needs extra governance); the audit and sessions paths and the rotation call against the instance's own REST API reference - a tenant-wide secret-audit list is not in Delinea's public documentation
-- Configuration:
-  - `base_url`: Secret Server URL
-  - `username` (secret): API user
-  - `password` (secret): API user password
-  - `user_domain` (optional): UPN suffix
-  - `audit_path` (optional): Secret audit endpoint (default /api/v1/secret-audits)
-  - `sessions_path` (optional): Launched sessions endpoint (default /api/v1/launched-sessions)
-  - `sync_from` (optional): First sync starts here (ISO date; default: everything)
-  - `account_owners` (optional): Approved admin-account -> person map, e.g. {"adm-first.last": "first.last@example.com"}; shared accounts stay unmapped
-
-### Microsoft Entra ID (`entra`)
-
-Users, sign-ins, risky users and detections, directory and Azure roles, MFA, inbox rules; session revoke and account control.
-
-- Vendor: Microsoft · focus areas: incident, phishing
-- Read scopes: User.Read.All, AuditLog.Read.All, IdentityRiskyUser.Read.All, IdentityRiskEvent.Read.All, GroupMember.Read.All, RoleManagement.Read.Directory, UserAuthenticationMethod.Read.All, MailboxSettings.Read
-- Write scopes (only for approved actions): User.RevokeSessions.All, User.EnableDisableAccount.All, IdentityRiskyUser.ReadWrite.All, User-PasswordProfile.ReadWrite.All
-- To confirm with the client: Entra ID P2 for Identity Protection risk data; write permissions for response actions; the Reader role on the Azure subscriptions (or a management group) for Azure role assignments
-- Configuration:
-  - `tenant_id`: Entra tenant id
-  - `client_id` (secret): App registration (client) id
-  - `client_secret` (secret) (optional): App registration secret (or use client_certificate)
-  - `client_certificate` (secret) (optional): App registration certificate: one PEM with the private key and the certificate (recommended over a secret; mount it with <CONNECTOR>_CLIENT_CERTIFICATE_FILE)
-  - `login_base` (optional): Sign-in authority (national clouds only; default https://login.microsoftonline.com)
-  - `azure_subscriptions` (optional): Azure subscription ids to read role assignments from (comma-separated; empty = every subscription the app can read)
-  - `graph_base` (optional): Microsoft Graph base (national clouds only)
-  - `arm_base` (optional): Azure Resource Manager base (national clouds only)
-
-### FIRST EPSS (`epss`)
-
-Exploit Prediction Scoring System probabilities per CVE.
-
-- Vendor: FIRST · focus areas: vulnerability
-- Read scopes: see vendor docs / to confirm
-- Write scopes (only for approved actions): -
-- To confirm with the client: -
-- Configuration:
-  - none
+  - `base_url`: Forcepoint Security Manager API URL
+  - `api_key` (secret): API token of a read-only application account
+  - `user_domain` (optional): UPN suffix for bare user names
+  - `dlp_incidents_path` (optional): Endpoint path of the dlp incidents stream (default /api/v1/incidents; to be confirmed against the installed version)
+  - `endpoints_path` (optional): Endpoint path of the endpoints stream (default /api/v1/endpoints; to be confirmed against the installed version)
+  - `health_path` (optional): Endpoint path of the health stream (default /api/v1/system/health; to be confirmed against the installed version)
+  - `config_path` (optional): Endpoint path of the configuration export (default /api/v1/policies/rules; to be confirmed against the installed version)
 
 ### Generic SIEM/SOAR webhook (`generic_siem`)
 
@@ -256,7 +125,7 @@ Normalises alerts pushed to /api/v1/ingest/alerts from any SIEM/SOAR.
 - Vendor: any · focus areas: incident
 - Read scopes: see vendor docs / to confirm
 - Write scopes (only for approved actions): -
-- To confirm with the client: -
+- To confirm with NAM: -
 - Configuration:
   - `field_map` (optional): Mapping of platform fields to payload keys
 
@@ -267,57 +136,13 @@ Remediation tickets as Jira issues with comments/status sync.
 - Vendor: Atlassian · focus areas: vulnerability, incident
 - Read scopes: Browse projects
 - Write scopes (only for approved actions): Create issues, Add comments, Transition issues
-- To confirm with the client: Only if the client uses Jira (Q03)
+- To confirm with NAM: Only if NAM uses Jira (Q03)
 - Configuration:
   - `base_url`: https://<site>.atlassian.net
   - `email`: Integration user email
   - `api_token` (secret): API token
   - `project_key` (optional): Project key
   - `issue_type` (optional): Issue type for new tickets (default Task)
-
-### NIST NVD (`nvd`)
-
-CVE metadata (CVSS, CWE, references) from the NVD CVE API 2.0.
-
-- Vendor: NIST · focus areas: vulnerability
-- Read scopes: see vendor docs / to confirm
-- Write scopes (only for approved actions): -
-- To confirm with the client: -
-- Configuration:
-  - `api_key` (secret) (optional): Optional NVD API key (raises rate limit)
-  - `since` (optional): Read CVEs modified since this ISO time (default: full catalogue pages)
-
-### Rapid7 InsightVM / Nexpose (`rapid7`)
-
-Asset inventory and vulnerability findings from the Security Console API (or CSV export fallback).
-
-- Vendor: Rapid7 · focus areas: vulnerability, incident
-- Read scopes: Security Console: read-only user / API key
-- Write scopes (only for approved actions): -
-- To confirm with the client: Authoritative product/version; live API availability
-- Configuration:
-  - `console_url`: Security Console URL, e.g. https://ivm.example.local:3780
-  - `username` (secret): Read-only API user
-  - `password` (secret): API user password
-  - `verify_tls` (optional): Verify console TLS certificate
-  - `export_csv` (optional): Fallback: path to a findings CSV export (legacy Nexpose)
-
-### Microsoft Sentinel (`sentinel`)
-
-Sentinel incidents (if Sentinel is the client's SIEM).
-
-- Vendor: Microsoft · focus areas: incident
-- Read scopes: Microsoft Sentinel Reader on the workspace (Azure RBAC)
-- Write scopes (only for approved actions): -
-- To confirm with the client: Whether a SIEM exists and which (Q01)
-- Configuration:
-  - `tenant_id`: Entra tenant id
-  - `client_id` (secret): App registration (client) id
-  - `client_secret` (secret) (optional): App registration secret (or use client_certificate)
-  - `client_certificate` (secret) (optional): App registration certificate: one PEM with the private key and the certificate (recommended over a secret)
-  - `subscription_id`: Azure subscription holding the Sentinel workspace
-  - `resource_group`: Resource group of the Log Analytics workspace
-  - `workspace`: Log Analytics workspace name
 
 ### ServiceNow (ITSM + CMDB) (`servicenow`)
 
@@ -326,7 +151,7 @@ Remediation/incident tickets with bidirectional status; CMDB ownership and criti
 - Vendor: ServiceNow · focus areas: vulnerability, incident
 - Read scopes: itil (read the ticket table), cmdb_read (CMDB CI table)
 - Write scopes (only for approved actions): itil (create and update tickets, work notes)
-- To confirm with the client: Which ITSM system; API access; workflow ownership (Q03)
+- To confirm with NAM: Which ITSM system; API access; workflow ownership (Q03)
 - Configuration:
   - `instance_url`: https://<instance>.service-now.com
   - `client_id` (secret) (optional): OAuth client id
@@ -336,49 +161,48 @@ Remediation/incident tickets with bidirectional status; CMDB ownership and criti
   - `ticket_table` (optional): incident | sn_vul_vulnerable_item | custom
   - `cmdb_table` (optional): CMDB CI table
 
-### Threat intelligence fusion (`threat_intel`)
+### Silverfort (`silverfort`)
 
-VirusTotal, AbuseIPDB, OTX, URLhaus, ThreatFox, MalwareBazaar, GreyNoise, Shodan - fused verdict.
+Risky authentications per person: the identity context of a data-loss alert.
 
-- Vendor: multiple · focus areas: phishing, incident, vulnerability
-- Read scopes: see vendor docs / to confirm
+- Vendor: Silverfort · focus areas: dlp
+- Read scopes: read access to authentication risk events
+- Write scopes (only for approved actions): revoke sessions and set MFA requirements for a user
+- To confirm with NAM: How authentication risk is exported (REST API or log forwarder), the risk levels and factors reported, and - for the action rollout - the calls that revoke sessions and force MFA
+- Configuration:
+  - `base_url`: Silverfort console API URL
+  - `api_key` (secret): API token of an application that reads risk (and revokes sessions / sets MFA, once actions are on)
+  - `user_domain` (optional): UPN suffix for bare user names
+  - `risk_events_path` (optional): Endpoint path of the risk events stream (default /api/v1/risk/events; to be confirmed against the installed version)
+  - `config_path` (optional): Endpoint path of the configuration export (default /api/v1/policies; to be confirmed against the installed version)
+
+### Trellix ePO (drive encryption) (`trellix_epo`)
+
+Disk-encryption state of every managed device, and the server's certificates and tasks.
+
+- Vendor: Trellix · focus areas: dlp
+- Read scopes: system tree read, drive encryption query, server health read
 - Write scopes (only for approved actions): -
-- To confirm with the client: client-approved intelligence sources and licensing
+- To confirm with NAM: ePO version and web API access; the query for drive-encryption state; whether certificate expiry and server-task results can be read
 - Configuration:
-  - `virustotal_api_key` (secret) (optional): virustotal API key
-  - `abuseipdb_api_key` (secret) (optional): abuseipdb API key
-  - `otx_api_key` (secret) (optional): otx API key
-  - `greynoise_api_key` (secret) (optional): greynoise API key
-  - `shodan_api_key` (secret) (optional): shodan API key
-  - `abusech_auth_key` (secret) (optional): abuse.ch Auth-Key (URLhaus/ThreatFox/MalwareBazaar)
+  - `base_url`: ePO server API URL
+  - `api_key` (secret): Credential of a read-only ePO user
+  - `systems_path` (optional): Endpoint path of the systems stream (default /api/v1/systems; to be confirmed against the installed version)
+  - `health_path` (optional): Endpoint path of the health stream (default /api/v1/server/health; to be confirmed against the installed version)
+  - `config_path` (optional): Endpoint path of the configuration export (default /api/v1/policies; to be confirmed against the installed version)
 
-### Cisco Umbrella (`umbrella`)
+### Trend Micro endpoint security (`trend_micro`)
 
-DNS/proxy activity (did the user reach the site?), categories, domain blocking via destination lists.
+EDR agent inventory and detections: which devices are protected, when each agent last reported, what it detected; device isolation behind two approvers.
 
-- Vendor: Cisco · focus areas: phishing, incident
-- Read scopes: reports.aggregations:read, reports.customerDNS:read, policies.destinationLists:read
-- Write scopes (only for approved actions): policies.destinations:write
-- To confirm with the client: API key provisioning; reporting retention window
+- Vendor: Trend Micro · focus areas: dlp
+- Read scopes: endpoint inventory read, detections read
+- Write scopes (only for approved actions): isolate and restore endpoints
+- To confirm with NAM: Which product and version (Apex One or Vision One) and its API; the detections feed; and - for the action rollout - the isolate / restore calls
 - Configuration:
-  - `api_key` (secret): Umbrella API key
-  - `api_secret` (secret): API secret
-  - `block_list_id` (optional): Destination list id used for blocks
-  - `dns_sync` (optional): DNS activity stored: security (security categories only) or all
-  - `sync_from` (optional): First sync starts here (default -1days)
-
-### Wiz (`wiz`)
-
-Cloud inventory, vulnerability findings, internet exposure and misconfiguration issues (GraphQL).
-
-- Vendor: Wiz · focus areas: vulnerability, incident
-- Read scopes: read:resources, read:vulnerabilities, read:issues
-- Write scopes (only for approved actions): -
-- To confirm with the client: Service account provisioning; scope of cloud coverage
-- Configuration:
-  - `api_url`: Tenant API endpoint, e.g. https://api.eu1.app.wiz.io
-  - `client_id` (secret): Service account client id
-  - `client_secret` (secret): Service account secret
-  - `auth_url` (optional): Token URL
-  - `lookup_max_pages` (optional): Max GraphQL pages per lookup (default 20)
+  - `base_url`: API URL of the console (region specific)
+  - `api_key` (secret): API key of a role that reads endpoints and detections (and isolates, once actions are on)
+  - `user_domain` (optional): UPN suffix for bare user names
+  - `endpoints_path` (optional): Endpoint path of the endpoints stream (default /api/v1/endpoints; to be confirmed against the installed version)
+  - `alerts_path` (optional): Endpoint path of the alerts stream (default /api/v1/alerts; to be confirmed against the installed version)
 

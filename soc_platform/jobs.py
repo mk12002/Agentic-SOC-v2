@@ -15,7 +15,8 @@ import os
 import socket
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, Self
 
@@ -33,6 +34,7 @@ JOBS: dict[str, tuple[str, int]] = {
     "incident": ("SOC_JOB_INCIDENT_SECONDS", 300),
     "phishing": ("SOC_JOB_PHISHING_SECONDS", 120),
     "dlp": ("SOC_JOB_DLP_SECONDS", 300),
+    "crosstool": ("SOC_JOB_CROSSTOOL_SECONDS", 300),
     "posture": ("SOC_JOB_POSTURE_SECONDS", 3600),
     "config_snapshot": ("SOC_JOB_CONFIG_SNAPSHOT_SECONDS", 24 * 3600),
     "follow_up": ("SOC_JOB_FOLLOWUP_SECONDS", 24 * 3600),
@@ -120,9 +122,22 @@ def _body(name: str, s: Session) -> dict[str, Any]:
         investigated = svc.investigate_committing(svc.investigate_pending())
         decided = svc.ai_decide_committing(svc.ai_pending())
         demoted = svc.decisions.check_drift()
+        from soc_platform.reporting.breach import BreachAssessments
+
+        assessments = BreachAssessments(s).sync()          # every personal-data case gets its reportability decision
         return {"synced": sum(ing["synced"].values()), "sync_errors": len(ing["errors"]), **out,
                 "investigated": investigated, "ai_decided": decided,
-                "demoted": [d["decision_type"] for d in demoted]}
+                "demoted": [d["decision_type"] for d in demoted], "assessments_opened": assessments}
+    if name == "crosstool":              # one person, several tools agreeing: one case; actions recommended, not run
+        from soc_platform.intelligence.crosstool import CrossToolService
+
+        x = CrossToolService(s, sv["incident"].registry)
+        out = x.run()
+        s.commit()
+        _run_pending_actions(s)          # an action the policy lets run alone (none by default: L2 recommends)
+        from soc_platform.api.app import llm
+
+        return {**out, "narrated": x.narrate(llm(s))}   # the written account follows, no write lock held
     if name == "posture":
         from soc_platform.connectors.base import SyncRunner
         from soc_platform.core.context_store import ContextStore
@@ -426,6 +441,25 @@ class _LeaseKeeper:
                     return
                 except Exception as exc:  # noqa: BLE001 - a missed renewal is retried next tick; logged, never raised
                     event("job.lease_renew_failed", 30, job=self.name, error=f"{type(exc).__name__}: {exc}"[:300])
+
+
+@contextmanager
+def held(name: str, *, db: Any = None) -> Iterator[bool]:
+    """Hold job ``name``'s lease (renewed) while a person runs the same work by hand (``POST /dlp/run``,
+    ``/crosstool/run``): the scheduled job and the click then never run at once and both open a case for one person.
+    Yields False, holding nothing, when the job (or another click) is running."""
+    from soc_platform.core.db import get_database
+    from soc_platform.core.observability import TRACE
+
+    db = db or get_database()
+    if not _lease(db, name):
+        yield False
+        return
+    try:
+        with _LeaseKeeper(db, name, _holder(), TRACE.get() or f"manual-{name}"):
+            yield True
+    finally:
+        _lease(db, name, release=True)
 
 
 def run_job(name: str, *, db: Any = None, trigger: str = "schedule", sleep: Callable[[float], None] = time.sleep,

@@ -1,5 +1,5 @@
 # Default deny, then only what the platform needs. Kubernetes policies filter by address and port, not host name:
-# restrict outbound HTTPS to the connector endpoints at the egress firewall (CLIENT_DEPLOYMENT_GUIDE.md egress list).
+# restrict outbound HTTPS to the connector endpoints at the egress firewall (DEPLOYMENT_GUIDE.md section 5.11 egress list).
 # The database is reached through a policy each overlay adds ("soc-database-egress": the managed server's subnet on
 # Azure, the CloudNativePG pods on-prem) - never "port 5432 anywhere".
 apiVersion: networking.k8s.io/v1

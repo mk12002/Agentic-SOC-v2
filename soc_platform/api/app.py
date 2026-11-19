@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import DataError, OperationalError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SQLATimeoutError
@@ -701,9 +701,12 @@ def auth_config() -> dict[str, str]:
     """What the console needs to start single sign-on (public values only: tenant, client id, scope)."""
     import os
 
+    from soc_platform.core import scope
+
     st = get_settings()
     if st.auth_mode != "entra":
-        return {"mode": st.auth_mode}
+        # the dev sign-in form offers only the data scopes of the product scope (no phishing scope in NAM's)
+        return {"mode": st.auth_mode, "product_scope": scope.current()}
     audience = st.entra_audience or ""
     # one app registration can be both the API (audience api://<app-id>) and the console's SPA client
     client = os.environ.get("SOC_ENTRA_SPA_CLIENT_ID") or audience.removeprefix("api://")
@@ -2246,6 +2249,8 @@ def incident_investigate(cid: str, p: Principal = Depends(need(Perm.INVESTIGATE,
     case = s.get(Case, cid)
     if case is None or case.domain != "incident":
         raise HTTPException(404, "unknown incident")
+    if (case.attributes or {}).get("crosstool"):        # its assessment is the cross-tool rules', not this pipeline's
+        raise HTTPException(409, "a cross-tool case is reassessed by the cross-tool rules (POST /api/v1/crosstool/run)")
     return _services(s)["incident"].investigate(cid)
 
 
@@ -3035,12 +3040,18 @@ def dlp_decide(alert_id: str, body: DlpDecisionBody, p: Principal = Depends(need
 
 @app.post("/api/v1/dlp/run")
 def dlp_run(p: Principal = Depends(need(Perm.INVESTIGATE, "dlp")), s: Session = Depends(db_session, scope="function")):
-    """Read the DLP incidents and their context now, judge the new ones, then let the model decide them."""
-    svc = _dlp(s)
-    ing = svc.ingest()
-    out = svc.process_committing()               # alerts and cases saved first: no write lock while the model answers
-    investigated = svc.investigate_committing(svc.investigate_pending())
-    decided = svc.ai_decide_committing(svc.ai_pending())
+    """Read the DLP incidents and their context now, judge the new ones, then let the model decide them. Holds the
+    ``dlp`` job's lease meanwhile: the scheduled run and this one never judge the same alerts at once."""
+    from soc_platform import jobs
+
+    with jobs.held("dlp") as mine:
+        if not mine:
+            raise HTTPException(409, "the DLP run is in progress (scheduled or started by someone else); try again shortly")
+        svc = _dlp(s)
+        ing = svc.ingest()
+        out = svc.process_committing()           # alerts and cases saved first: no write lock while the model answers
+        investigated = svc.investigate_committing(svc.investigate_pending())
+        decided = svc.ai_decide_committing(svc.ai_pending())
     return {"ingested": ing["synced"], "errors": ing["errors"], **out, "investigated": investigated, "ai_decided": decided}
 
 
@@ -3233,7 +3244,7 @@ def config_record(tool: str, step: str, body: ChangeBody | None = None,
 
 class RuleChangeBody(BaseModel):
     rule: str = Field(min_length=1, max_length=256)
-    kind: str = Field(pattern=r"^(exclude_destination|raise_threshold)$")
+    kind: str = Field(pattern=r"^(exclude_destination|raise_threshold|exclude_ocr|use_edm|use_fingerprint)$")
     params: dict[str, Any] = Field(default_factory=dict)
     reason: str = Field(default="", max_length=2000)
     drafted_by: str = Field(default="lead", pattern=r"^(lead|suggestion)$")
@@ -3298,3 +3309,293 @@ def dlp_tuning_step(proposal_id: int, verb: str, body: RuleChangeStepBody | None
     except (KeyError, PermissionError, ValueError) as exc:
         raise _decision_error(exc) from exc
     return svc.view(row)
+
+
+# ----------------------------------------------------------------------------- cross-tool cases (M8)
+
+
+@app.get("/api/v1/crosstool")
+def crosstool_overview(_: Principal = Depends(need(Perm.READ, "incident")), s: Session = Depends(db_session, scope="function")):
+    """Cases where two or more tools agree about one person, with the rules that joined them."""
+    from soc_platform.intelligence.crosstool import CrossToolService
+
+    return CrossToolService(s, registry()).overview()
+
+
+@app.post("/api/v1/crosstool/run")
+def crosstool_run(_: Principal = Depends(need(Perm.INVESTIGATE, "incident")), s: Session = Depends(db_session, scope="function")):
+    """Apply the cross-tool rules now, under the ``crosstool`` job's lease (one run at a time: never two cases for one
+    person)."""
+    from soc_platform import jobs
+    from soc_platform.intelligence.crosstool import CrossToolService
+
+    with jobs.held("crosstool") as mine:
+        if not mine:
+            raise HTTPException(409, "the cross-tool run is in progress; try again shortly")
+        out = CrossToolService(s, registry()).run()
+        s.commit()                               # saved while the lease is held
+    return out
+
+
+# ----------------------------------------------------------------------------- Dome Score weights
+
+
+class WeightsBody(BaseModel):
+    document: dict[str, Any]
+    reason: str = Field(default="", max_length=2000)
+
+
+class WeightsStepBody(BaseModel):
+    note: str = Field(default="", max_length=2000)
+
+
+@app.get("/api/v1/posture/weights")
+def weights_overview(_: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends(db_session, scope="function")):
+    from soc_platform.intelligence.posture_weights import WeightsStore
+
+    return WeightsStore(s).overview()
+
+
+@app.post("/api/v1/posture/weights/preview")
+def weights_preview(body: WeightsBody, _: Principal = Depends(need(Perm.READ, "*")),
+                    s: Session = Depends(db_session, scope="function")):
+    """The score now under the current and the proposed weights. Stores nothing."""
+    from soc_platform.intelligence.posture_weights import WeightsStore
+
+    try:
+        return WeightsStore(s).preview(body.document)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/v1/posture/weights")
+def weights_propose(body: WeightsBody, p: Principal = Depends(need(Perm.READ, "*")),
+                    s: Session = Depends(db_session, scope="function")):
+    from soc_platform.intelligence.posture_weights import WeightsStore
+
+    st = WeightsStore(s)
+    try:
+        return st.view(st.propose(p.acting_in("*"), body.document, body.reason))
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+
+
+@app.post("/api/v1/posture/weights/{wid}/{verb}")
+def weights_step(wid: int, verb: str, body: WeightsStepBody | None = None, p: Principal = Depends(need(Perm.READ, "*")),
+                 s: Session = Depends(db_session, scope="function")):
+    from soc_platform.intelligence.posture_weights import WeightsStore
+
+    if verb not in ("approve", "reject") or not -2**31 < wid < 2**31:
+        raise HTTPException(404, "not found")
+    st, body = WeightsStore(s), body or WeightsStepBody()
+    try:
+        row = st.approve(wid, p.acting_in("*"), body.note) if verb == "approve" else st.reject(wid, p.acting_in("*"), body.note)
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+    return st.view(row)
+
+
+# ----------------------------------------------------------------------------- pilot scorecard (M13)
+
+
+class PilotFigureBody(BaseModel):
+    kpi: str = Field(min_length=1, max_length=64)
+    kind: str = Field(pattern=r"^(baseline|target)$")
+    value: float
+    note: str = Field(default="", max_length=500)
+
+
+class OutageBody(BaseModel):
+    tool: str = Field(min_length=1, max_length=64)
+    found_by: str = Field(pattern=r"^(users|platform)$")
+    found_at: datetime | None = None
+    summary: str = Field(default="", max_length=500)
+
+
+@app.get("/api/v1/pilot")
+def pilot_scorecard(_: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends(db_session, scope="function")):
+    from soc_platform.reporting.pilot import scorecard
+
+    return scorecard(s)
+
+
+@app.post("/api/v1/pilot/figures")
+def pilot_figure(body: PilotFigureBody, p: Principal = Depends(need(Perm.APPROVE_POLICY, "*")),
+                 s: Session = Depends(db_session, scope="function")):
+    """A baseline or a target, set by a lead (no target is preset)."""
+    from soc_platform.reporting.pilot import set_figure
+
+    try:
+        return set_figure(s, body.kpi, body.kind, body.value, note=body.note, by=p.id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/v1/pilot/baseline/{kpi}")
+def pilot_baseline(kpi: str, p: Principal = Depends(need(Perm.APPROVE_POLICY, "*")),
+                   s: Session = Depends(db_session, scope="function")):
+    """Take the KPI's current measured value as its baseline (the pilot's week-2 measurement)."""
+    from soc_platform.reporting.pilot import KPIS, capture_baseline
+
+    if kpi not in KPIS:
+        raise HTTPException(404, "unknown pilot KPI")
+    try:
+        return capture_baseline(s, kpi, by=p.id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/v1/pilot/outages")
+def pilot_outages(_: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends(db_session, scope="function")):
+    from soc_platform.reporting.pilot import outages
+
+    return {"items": outages(s)}
+
+
+@app.post("/api/v1/pilot/outages")
+def pilot_log_outage(body: OutageBody, p: Principal = Depends(need(Perm.INVESTIGATE, "*")),
+                     s: Session = Depends(db_session, scope="function")):
+    from soc_platform.reporting.pilot import log_outage
+
+    try:
+        row = log_outage(s, tool=body.tool, found_by=body.found_by, found_at=body.found_at, summary=body.summary, by=p.id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"id": row.id}
+
+
+# ----------------------------------------------------------------------------- Dome Comply (M12)
+
+
+class CatalogueBody(BaseModel):
+    document: dict[str, Any]
+    reason: str = Field(default="", max_length=2000)
+
+
+class DecideBody(BaseModel):
+    reportable: StrictBool                       # a regulatory decision: "yes" or 1 is not read as true
+    reason: str = Field(default="", max_length=2000)
+
+
+class ReportedBody(BaseModel):
+    clock: str = Field(min_length=1, max_length=64)
+    reference: str = Field(default="", max_length=120)
+
+
+@app.get("/api/v1/comply")
+def comply_overview(_: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends(db_session, scope="function")):
+    """Every control of the catalogue in force with its evidence, and the personal-data incidents' assessments."""
+    from soc_platform.reporting.breach import BreachAssessments
+    from soc_platform.reporting.regimes import evaluate
+
+    BreachAssessments(s).sync()
+    return {"evidence": evaluate(s, registry(), get_settings()), "assessments": BreachAssessments(s).list()}
+
+
+@app.post("/api/v1/comply/pack")
+def comply_pack(p: Principal = Depends(need(Perm.EXPORT_EVIDENCE, "*")), s: Session = Depends(db_session, scope="function")):
+    """The audit pack (zip): controls and evidence, assessments, catalogue, the full audit trail."""
+    from soc_platform.domains.vulnerability.models import ReportRun
+    from soc_platform.reporting.breach import BreachAssessments
+    from soc_platform.reporting.regimes import pack
+
+    BreachAssessments(s).sync()
+    ref, ev = pack(s, registry(), get_settings(), get_settings().report_output_dir)
+    run = ReportRun(kind="compliance", path=str(ref), metrics=ev["summary"], generated_by=p.id)
+    s.add(run)
+    s.flush()
+    AuditLog(s).append(actor_type=p.actor_type, actor_id=p.id, event_type="compliance.audit_pack",
+                       subject_type="report", subject_id=run.id, payload=ev["summary"])
+    return {"id": run.id, "summary": ev["summary"]}
+
+
+@app.get("/api/v1/comply/catalogue")
+def comply_catalogue(_: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends(db_session, scope="function")):
+    from soc_platform.reporting.regimes import CatalogueStore
+
+    st = CatalogueStore(s)
+    doc, src = st.active()
+    pend = st.pending()
+    return {"active": doc, "source": src,
+            "pending": None if pend is None else {"id": pend.id, "proposed_by": pend.proposed_by, "reason": pend.reason,
+                                                  "controls": len(pend.document.get("controls", []))}}
+
+
+@app.post("/api/v1/comply/catalogue")
+def comply_catalogue_propose(body: CatalogueBody, p: Principal = Depends(need(Perm.READ, "*")),
+                             s: Session = Depends(db_session, scope="function")):
+    from soc_platform.reporting.regimes import CatalogueStore
+
+    try:
+        row = CatalogueStore(s).propose(p.acting_in("*"), body.document, body.reason)
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+    return {"id": row.id, "status": row.status}
+
+
+@app.post("/api/v1/comply/catalogue/{cid}/{verb}")
+def comply_catalogue_step(cid: int, verb: str, body: WeightsStepBody | None = None,
+                          p: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends(db_session, scope="function")):
+    from soc_platform.reporting.regimes import CatalogueStore
+
+    if verb not in ("approve", "reject") or not -2**31 < cid < 2**31:
+        raise HTTPException(404, "not found")
+    try:
+        row = CatalogueStore(s).decide(cid, p.acting_in("*"), approve=verb == "approve", note=(body or WeightsStepBody()).note)
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+    return {"id": row.id, "status": row.status}
+
+
+def _assessment_in_scope(s: Session, p: Principal, aid: int):
+    from soc_platform.reporting.breach import BreachAssessment
+
+    row = s.get(BreachAssessment, aid) if -2**31 < aid < 2**31 else None
+    if row is None:
+        raise HTTPException(404, "unknown assessment")
+    _case_in_scope(s, p, row.case_id)
+    return row
+
+
+@app.post("/api/v1/comply/assessments/{aid}/decide")
+def comply_decide(aid: int, body: DecideBody, p: Principal = Depends(need(Perm.READ, "dlp")),
+                  s: Session = Depends(db_session, scope="function")):
+    """A person decides whether a personal-data incident is reportable; the deadlines start now."""
+    from soc_platform.reporting.breach import BreachAssessments
+
+    _assessment_in_scope(s, p, aid)
+    svc = BreachAssessments(s)
+    try:
+        return svc.view(svc.decide(aid, p, reportable=body.reportable, reason=body.reason))
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+
+
+@app.post("/api/v1/comply/assessments/{aid}/draft")
+def comply_draft(aid: int, p: Principal = Depends(need(Perm.READ, "dlp")), s: Session = Depends(db_session, scope="function")):
+    """The report drafted from the case's structured facts: by the model when allowed (every sentence cited), else by
+    rule. A person reviews and sends it; the platform sends nothing."""
+    from soc_platform.reporting.breach import BreachAssessments
+
+    _assessment_in_scope(s, p, aid)
+    s.commit()                      # nothing held while the model writes
+    gw = llm(s, p)
+    svc = BreachAssessments(s)
+    try:
+        return _with_notice(svc.view(svc.draft(aid, p, gw)), gw)
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc
+
+
+@app.post("/api/v1/comply/assessments/{aid}/report")
+def comply_reported(aid: int, body: ReportedBody, p: Principal = Depends(need(Perm.READ, "dlp")),
+                    s: Session = Depends(db_session, scope="function")):
+    """A person records that a report was submitted, with its reference."""
+    from soc_platform.reporting.breach import BreachAssessments
+
+    _assessment_in_scope(s, p, aid)
+    svc = BreachAssessments(s)
+    try:
+        return svc.view(svc.record_report(aid, p, clock=body.clock, reference=body.reference))
+    except (KeyError, PermissionError, ValueError) as exc:
+        raise _decision_error(exc) from exc

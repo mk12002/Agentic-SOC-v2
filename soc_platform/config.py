@@ -68,7 +68,7 @@ class Settings(BaseModel):
     llm_api_version: str = "2024-10-21"
     llm_model_version: str | None = None  # pinned; change-controlled
     llm_approved_endpoints: list[str] = Field(default_factory=list)
-    llm_monthly_token_budget: int = 50_000_000   # sized for a small-to-mid SOC (docs/LLM_TOKENS_AND_COST.md)
+    llm_monthly_token_budget: int = 50_000_000   # sized for a small-to-mid SOC (docs/AI_AND_AUTONOMY.md)
     llm_redact_pii: bool = True
     # Internal mail domains: identities in these domains are pseudonymised before any LLM call (PH-T06, R10)
     org_domains: list[str] = Field(default_factory=list)

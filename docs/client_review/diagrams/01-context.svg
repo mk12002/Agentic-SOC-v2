@@ -3,97 +3,105 @@
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
     <style>
       .zone{fill:#f1f5f9;stroke:#94a3b8;stroke-dasharray:6 4}
-      .box{fill:#ffffff;stroke:#334155;stroke-width:1.4}
-      .core{fill:#e0ecff;stroke:#2f6bb3;stroke-width:1.6}
+      .box{fill:#ffffff;stroke:#334155;stroke-width:1.3}
+      .core{fill:#e0ecff;stroke:#2f6bb3;stroke-width:1.5}
       .ext{fill:#fff7e8;stroke:#c2410c;stroke-width:1.2}
+      .later{fill:#ffffff;stroke:#94a3b8;stroke-width:1.2;stroke-dasharray:5 4}
+      .hum{fill:#fef9c3;stroke:#a16207;stroke-width:1.3}
+      .stop{fill:#fef2f2;stroke:#b91c1c;stroke-width:1.2}
+      .ok{fill:#ecfdf3;stroke:#15803d;stroke-width:1.3}
+      .ai{fill:#f3e8ff;stroke:#7e22ce;stroke-width:1.3}
       .h{font-weight:600;fill:#0f172a}
-      .s{fill:#475569;font-size:12.5px}
-      .z{fill:#334155;font-weight:600;font-size:13px}
+      .t{font-weight:600;fill:#1e293b;font-size:13.5px}
+      .s{fill:#475569;font-size:12px}
       .line{stroke:#475569;stroke-width:1.5;fill:none;marker-end:url(#a)}
-      .lbl{fill:#334155;font-size:12px}
+      .dash{stroke:#475569;stroke-width:1.3;fill:none;stroke-dasharray:5 4;marker-end:url(#a)}
+      .lbl{fill:#1e293b;font-size:12px;font-weight:600}
     </style>
   </defs>
   <rect width="1200" height="720" fill="#ffffff"/>
-  <text x="30" y="36" class="h" font-size="20">High-level architecture - system context</text>
-  <text x="30" y="58" class="s">Everything inside the dashed boundary runs in the organisation's own environment. Arrows show who opens the connection.</text>
-
-  <!-- organisation boundary -->
-  <rect x="20" y="78" width="760" height="620" rx="14" class="zone"/>
-  <text x="38" y="102" class="z">Organisation environment (client-hosted)</text>
-
-  <!-- users -->
-  <rect x="50" y="125" width="200" height="74" rx="10" class="box"/>
-  <text x="66" y="152" class="h">SOC analysts, leads,</text>
-  <text x="66" y="170" class="h">admins, auditors</text>
-  <text x="66" y="189" class="s">browser, Entra SSO + MFA</text>
-
-  <!-- platform -->
-  <rect x="300" y="125" width="450" height="300" rx="12" class="core"/>
-  <text x="318" y="152" class="h" font-size="16">Agentic SOC platform</text>
-  <text x="318" y="174" class="s">API + web console · scheduler · workflows - 2+ replicas each, stateless</text>
-  <rect x="318" y="190" width="200" height="54" rx="8" class="box"/><text x="330" y="212" class="h">Workflows</text><text x="330" y="231" class="s">phishing · incident · vulnerability</text>
-  <rect x="532" y="190" width="200" height="54" rx="8" class="box"/><text x="544" y="212" class="h">Intelligence</text><text x="544" y="231" class="s">risk · correlation · attack story</text>
-  <rect x="318" y="256" width="200" height="54" rx="8" class="box"/><text x="330" y="278" class="h">Governance</text><text x="330" y="297" class="s">RBAC · approvals · audit chain</text>
-  <rect x="532" y="256" width="200" height="54" rx="8" class="box"/><text x="544" y="278" class="h">LLM gateway</text><text x="544" y="297" class="s">redaction · grounding · budgets</text>
-  <rect x="318" y="322" width="414" height="54" rx="8" class="box"/><text x="330" y="344" class="h">Connector SDK (21 connectors)</text><text x="330" y="363" class="s">read by default; writes only as approved action requests</text>
-  <text x="318" y="405" class="s">Phishing ML engine runs in-process, strictly offline</text>
-
-  <!-- data -->
-  <rect x="300" y="450" width="215" height="70" rx="10" class="box"/>
-  <text x="316" y="476" class="h">PostgreSQL 16 (HA standby)</text><text x="316" y="495" class="s">cases, entities, audit chain,</text><text x="316" y="511" class="s">access log, model-call log</text>
-  <rect x="535" y="450" width="215" height="70" rx="10" class="box"/>
-  <text x="551" y="476" class="h">Encrypted blob store</text><text x="551" y="495" class="s">e-mail, reports - in PostgreSQL</text><text x="551" y="511" class="s">in production (Fernet at rest)</text>
-  <rect x="50" y="450" width="200" height="70" rx="10" class="box"/>
-  <text x="66" y="476" class="h">Key Vault / secrets</text><text x="66" y="495" class="s">mounted as files (*_FILE);</text><text x="66" y="511" class="s">never in config or console</text>
-
-  <!-- internal tools -->
-  <rect x="50" y="560" width="300" height="110" rx="10" class="box"/>
-  <text x="66" y="586" class="h">On-premises tools (if used)</text>
-  <text x="66" y="607" class="s">Rapid7 InsightVM console</text>
-  <text x="66" y="625" class="s">Delinea Secret Server / Privilege Manager</text>
-  <text x="66" y="643" class="s">ownership CSV (fallback CMDB)</text>
-  <text x="66" y="661" class="s">client LLM gateway (internal endpoint)</text>
-
-  <rect x="400" y="560" width="350" height="110" rx="10" class="box"/>
-  <text x="416" y="586" class="h">Organisation services</text>
-  <text x="416" y="607" class="s">Microsoft Entra ID (sign-in, app roles)</text>
-  <text x="416" y="625" class="s">SIEM / log platform (stdout, audit export)</text>
-  <text x="416" y="643" class="s">Teams / Slack webhooks (optional)</text>
-  <text x="416" y="661" class="s">Monitoring (Prometheus /metrics)</text>
-
-  <!-- external -->
-  <rect x="830" y="125" width="345" height="200" rx="12" class="ext"/>
-  <text x="848" y="152" class="h">Security tools (vendor cloud APIs)</text>
-  <text x="848" y="176" class="s">Microsoft Defender: Endpoint · Office 365 · Identity</text>
-  <text x="848" y="196" class="s">Entra ID (Graph), Azure RM, Sentinel</text>
-  <text x="848" y="216" class="s">CrowdStrike Falcon · Wiz · Cisco Umbrella</text>
-  <text x="848" y="236" class="s">Check Point Avanan · Thinkst Canary</text>
-  <text x="848" y="256" class="s">ServiceNow / Jira</text>
-  <text x="848" y="284" class="lbl">HTTPS, outbound only, per-tool</text>
-  <text x="848" y="301" class="lbl">service identity, least privilege</text>
-
-  <rect x="830" y="350" width="345" height="130" rx="12" class="ext"/>
-  <text x="848" y="377" class="h">Public intelligence (no account data sent)</text>
-  <text x="848" y="401" class="s">NIST NVD · FIRST EPSS · CISA KEV (CVE ids)</text>
-  <text x="848" y="421" class="s">Optional threat-intel sources (indicators only),</text>
-  <text x="848" y="441" class="s">enabled per source with the organisation's approval</text>
-  <text x="848" y="464" class="lbl">HTTPS, outbound only</text>
-
-  <rect x="830" y="505" width="345" height="165" rx="12" class="ext"/>
-  <text x="848" y="532" class="h">Not used / never contacted</text>
-  <text x="848" y="556" class="s">No vendor-operated SaaS: the platform is not a</text>
-  <text x="848" y="574" class="s">hosted service and sends no telemetry home.</text>
-  <text x="848" y="598" class="s">No URL from e-mail content is ever fetched.</text>
-  <text x="848" y="622" class="s">The ML engine makes no network calls.</text>
-  <text x="848" y="646" class="s">No model is trained on the organisation's data.</text>
-
-  <!-- arrows -->
-  <path d="M250,162 L298,162" class="line"/><text x="252" y="152" class="lbl">HTTPS</text>
-  <path d="M752,230 L828,230" class="line"/>
-  <path d="M752,400 L828,410" class="line"/>
-  <path d="M400,425 L400,448" class="line"/>
-  <path d="M640,425 L640,448" class="line"/>
-  <path d="M300,392 L150,392 L150,448" class="line"/><text x="160" y="386" class="lbl">reads secrets</text>
-  <path d="M300,412 L275,412 L275,558" class="line"/>
-  <path d="M525,425 L525,558" class="line"/>
+  <text x="30" y="36" class="h" font-size="20">CyberDome for NAM - system context</text>
+  <text x="30" y="58" class="s">One layer above NAM&#x27;s security tools, inside NAM&#x27;s environment or an Indian cloud region. Reads first; acts only with people&#x27;s approval.</text>
+  <rect x="400" y="80" width="400" height="70" rx="10" class="hum"/>
+  <text x="412" y="104" class="t">NAM&#x27;s people</text>
+  <text x="412" y="124" class="s">SOC analysts and lead · CISO · engineers · compliance · auditors</text>
+  <text x="412" y="141" class="s">HTTPS · Entra ID sign-in · MFA for every decision</text>
+  <rect x="40" y="180" width="1120" height="270" rx="12" class="zone"/>
+  <text x="52" y="200" class="lbl">NAM&#x27;s environment or an Indian cloud region</text>
+  <rect x="340" y="210" width="520" height="210" rx="10" class="core"/>
+  <text x="352" y="234" class="t">CyberDome</text>
+  <text x="352" y="254" class="s">Dome Connect - tool health, configuration changes</text>
+  <text x="352" y="271" class="s">Dome Graph - control coverage against the AD baseline</text>
+  <text x="352" y="288" class="s">Dome Agents - DLP triage, investigator, rule changes</text>
+  <text x="352" y="305" class="s">Cross-tool cases - one case per person, N tools agree</text>
+  <text x="352" y="322" class="s">Dome Score - CISO view, adjustable weights</text>
+  <text x="352" y="339" class="s">Dome Comply - SEBI CSCRF, DPDP, CERT-In evidence; reportability</text>
+  <text x="352" y="356" class="s">Pilot scorecard · cases · approvals · audit chain</text>
+  <rect x="60" y="220" width="240" height="90" rx="10" class="box"/>
+  <text x="72" y="244" class="t">PostgreSQL</text>
+  <text x="72" y="264" class="s">all state, encrypted files,</text>
+  <text x="72" y="281" class="s">hash-chained audit log</text>
+  <rect x="60" y="330" width="240" height="90" rx="10" class="ai"/>
+  <text x="72" y="354" class="t">Model (optional)</text>
+  <text x="72" y="374" class="s">in NAM&#x27;s environment or an Indian</text>
+  <text x="72" y="391" class="s">region; pseudonymised prompts only</text>
+  <rect x="900" y="220" width="240" height="90" rx="10" class="ext"/>
+  <text x="912" y="244" class="t">Microsoft Entra ID</text>
+  <text x="912" y="264" class="s">sign-in, app roles,</text>
+  <text x="912" y="281" class="s">Conditional Access (MFA)</text>
+  <rect x="900" y="330" width="240" height="90" rx="10" class="ext"/>
+  <text x="912" y="354" class="t">Teams / Slack / webhook</text>
+  <text x="912" y="374" class="s">findings above a threshold</text>
+  <text x="912" y="391" class="s">(optional, https only)</text>
+  <path d="M600,150 L600,208" class="line"/>
+  <path d="M338,265 L302,265" class="line"/>
+  <path d="M338,375 L302,375" class="line"/>
+  <path d="M862,265 L898,265" class="line"/>
+  <path d="M862,375 L898,375" class="line"/>
+  <rect x="40" y="480" width="1120" height="220" rx="12" class="zone"/>
+  <text x="52" y="500" class="lbl">NAM&#x27;s security tools (Phase 1 read-only; Phase 2 dashed)</text>
+  <rect x="55" y="510" width="145" height="80" rx="10" class="box"/>
+  <text x="67" y="534" class="t">Forcepoint DLP</text>
+  <text x="67" y="554" class="s">incidents, agents,</text>
+  <text x="67" y="571" class="s">health, rules</text>
+  <path d="M127,508 L560,424" class="line"/>
+  <rect x="212" y="510" width="145" height="80" rx="10" class="box"/>
+  <text x="224" y="534" class="t">Silverfort</text>
+  <text x="224" y="554" class="s">risky</text>
+  <text x="224" y="571" class="s">authentications</text>
+  <path d="M284,508 L572,424" class="line"/>
+  <rect x="369" y="510" width="145" height="80" rx="10" class="box"/>
+  <text x="381" y="534" class="t">Trend Micro</text>
+  <text x="381" y="554" class="s">agents, alerts</text>
+  <text x="381" y="571" class="s">(isolate: 2 people)</text>
+  <path d="M441,508 L584,424" class="line"/>
+  <rect x="526" y="510" width="145" height="80" rx="10" class="box"/>
+  <text x="538" y="534" class="t">Trellix ePO</text>
+  <text x="538" y="554" class="s">encryption state,</text>
+  <text x="538" y="571" class="s">health, policies</text>
+  <path d="M598,508 L596,424" class="line"/>
+  <rect x="683" y="510" width="145" height="80" rx="10" class="box"/>
+  <text x="695" y="534" class="t">AD / CMDB export</text>
+  <text x="695" y="554" class="s">devices, people,</text>
+  <text x="695" y="571" class="s">policy groups</text>
+  <path d="M755,508 L608,424" class="line"/>
+  <rect x="840" y="510" width="145" height="80" rx="10" class="box"/>
+  <text x="852" y="534" class="t">SIEM</text>
+  <text x="852" y="554" class="s">pushes alerts</text>
+  <text x="852" y="571" class="s">(webhook)</text>
+  <rect x="997" y="510" width="145" height="80" rx="10" class="box"/>
+  <text x="1009" y="534" class="t">ServiceNow / Jira</text>
+  <text x="1009" y="554" class="s">tickets</text>
+  <text x="1009" y="571" class="s"></text>
+  <path d="M1069,508 L632,424" class="line"/>
+  <path d="M912,508 L620,424" class="line"/>
+  <rect x="220" y="610" width="240" height="70" rx="10" class="later"/>
+  <text x="232" y="634" class="t">Arcon (PAM)</text>
+  <text x="232" y="654" class="s">check-outs, sessions</text>
+  <rect x="480" y="610" width="240" height="70" rx="10" class="later"/>
+  <text x="492" y="634" class="t">Cloudflare (WAF)</text>
+  <text x="492" y="654" class="s">security events</text>
+  <rect x="740" y="610" width="240" height="70" rx="10" class="later"/>
+  <text x="752" y="634" class="t">SOAR</text>
+  <text x="752" y="654" class="s">executes approved actions</text>
 </svg>

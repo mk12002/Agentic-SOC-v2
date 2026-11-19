@@ -126,9 +126,14 @@ class Database:
         from soc_platform.domains.phishing import models as _ph  # noqa: F401
         from soc_platform.domains.vulnerability import models as _vm  # noqa: F401
         from soc_platform.intelligence import config_snapshots as _config  # noqa: F401
+        from soc_platform.intelligence import crosstool as _crosstool  # noqa: F401
         from soc_platform.intelligence import models as _intel  # noqa: F401
+        from soc_platform.intelligence import posture_weights as _weights  # noqa: F401
         from soc_platform.llm import usage_policy as _llm_policy  # noqa: F401
+        from soc_platform.reporting import breach as _breach  # noqa: F401
         from soc_platform.reporting import models as _rep  # noqa: F401
+        from soc_platform.reporting import pilot as _pilot  # noqa: F401
+        from soc_platform.reporting import regimes as _regimes  # noqa: F401
         from soc_platform.reporting import style as _style  # noqa: F401
 
     def create_all(self) -> None:
@@ -335,6 +340,20 @@ class Database:
             raise
         finally:
             s.close()
+
+
+def claim(session: Session, row: Any, statuses: tuple[str, ...] | list[str], **values: Any) -> bool:
+    """Exactly-once transition of ``row`` (a model with ``id`` and ``status``): ``UPDATE ... WHERE id = ? AND
+    status IN (...)``. True when this caller made the change; False when someone else decided the row first (it is
+    then refreshed to what they wrote). Checking the status in Python and then writing it let two people approving
+    at the same moment both succeed - each check saw 'proposed'."""
+    from sqlalchemy import update
+
+    model = type(row)
+    won = session.execute(update(model).where(model.id == row.id, model.status.in_(tuple(statuses))).values(**values)
+                          .execution_options(synchronize_session=False)).rowcount == 1
+    session.refresh(row)
+    return won
 
 
 @event.listens_for(Session, "before_flush")

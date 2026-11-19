@@ -1,6 +1,6 @@
 # Azure: AKS across three availability zones, Azure Database for PostgreSQL Flexible Server with zone-redundant HA
 # (outside the cluster), secrets from Key Vault (CSI driver, mounted as files), Application Gateway in front (WAF v2
-# when internet-facing). Sized for three 2-vCPU nodes, one per zone (INFRASTRUCTURE_AND_COSTS.md section 10).
+# when internet-facing). Sized for three 2-vCPU nodes, one per zone (HIGH_AVAILABILITY.md section 4.2).
 # The Azure resources themselves: deploy/azure/main.bicep.
 # Render: kubectl kustomize deploy/kubernetes/overlays/azure
 apiVersion: kustomize.config.k8s.io/v1beta1

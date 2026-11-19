@@ -4,7 +4,8 @@
 
 Every box lists real components (modules, technologies, tables, vendor API endpoints), not features. Text is checked
 against its box before anything is written: a line that would overflow stops the build with the box and the line.
-Numbered badges mark the flows explained in docs/ARCHITECTURE_COMPONENTS.md.
+Numbered badges mark the flows of the platform core (full scope). The NAM build's documentation does not use
+this diagram; docs/ARCHITECTURE.md and docs/client_review/diagrams/ describe CyberDome.
 """
 
 from __future__ import annotations

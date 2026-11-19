@@ -208,3 +208,24 @@ def test_the_same_item_on_the_same_evidence_is_one_decision_and_new_evidence_is_
         store.record("dlp.nothing", "dlp_alert", "y", evidence_hash="h", **kw)
     odd = store.record(T, "dlp_alert", "z", evidence_hash="h", **(kw | {"ai_outcome": "delete"}))
     assert odd.ai_outcome is None and odd.effective_outcome is None
+
+
+def test_rulings_in_the_same_clock_tick_as_a_promotion_are_ordered_around_it(session, monkeypatch):
+    """Regression: on Windows a promotion and the rulings just before it can share a timestamp, and drift then counted
+    pre-promotion rulings as made since (a demotion right after promotion, seen only in the full suite). With the clock
+    stopped every timestamp is equal - the order must still hold."""
+    from datetime import UTC, datetime
+
+    monkeypatch.setenv("SOC_CLOCK_FREEZE", datetime.now(UTC).replace(microsecond=0).isoformat())
+    test_falling_agreement_demotes_without_a_person(session)
+
+
+def test_a_newer_decision_in_the_same_clock_tick_is_still_the_newest(session, monkeypatch):
+    """Regression: two decisions on one item in one clock tick were ordered by their random ids, so "newest" was
+    sometimes the older one (seen only in the full suite). With the clock stopped the order must still hold."""
+    from datetime import UTC, datetime
+
+    monkeypatch.setenv("SOC_CLOCK_FREEZE", datetime.now(UTC).replace(microsecond=0).isoformat())
+    for _ in range(5):
+        test_the_same_item_on_the_same_evidence_is_one_decision_and_new_evidence_is_a_new_one(session)
+        session.rollback()

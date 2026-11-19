@@ -84,8 +84,25 @@ def test_the_api_has_no_route_screen_or_job_of_an_inherited_module(client, monke
         assert not set(client.get("/api/v1/jobs", headers=lead).json()["jobs"]) & scope.FULL_ONLY_JOBS
         assert client.post("/api/v1/jobs/vulnerability/run", headers=ops).status_code == 404
         assert client.get("/api/v1/dashboard/ciso", headers=lead).status_code == 200
+        # the dev sign-in form offers only the scope's data scopes (it reads the public sign-in config)
+        assert client.get("/api/v1/auth/config").json() == {"mode": "dev", "product_scope": "nam"}
         assert client.get("/api/v1/audit", headers=lead).status_code in (200, 403)    # the essentials stay
     finally:
         monkeypatch.setenv("SOC_PRODUCT_SCOPE", "full")
         appmod.registry.cache_clear()
     assert client.get("/api/v1/me", headers=lead).json()["product"] == {"scope": "full", "hidden_screens": []}
+
+
+def test_the_side_menu_folds_through_the_click_allow_list_and_says_so_to_screen_readers():
+    """The menu toggle runs through ``data-fn`` and the ALLOWED map (strict CSP: no inline handlers), names its state
+    (aria-expanded / aria-label) and remembers the choice per browser, never failing when storage is blocked."""
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parents[1] / "api" / "static"
+    js, css = (static / "app.js").read_text(encoding="utf-8"), (static / "styles.css").read_text(encoding="utf-8")
+    assert 'data-fn="toggleSidebar"' in js and "toggleSidebar," in js.split("const ALLOWED = {")[1].split("}")[0]
+    assert 'aria-expanded="${folded' in js and "aria-controls=\"side-nav\"" in js and 'title="${esc(label)}"' in js
+    body = js.split("function toggleSidebar()")[1].split("\n}\n")[0]
+    assert "try { localStorage.setItem" in body and "catch (e)" in body
+    assert ".shell.collapsed" in css and "onclick" not in js
+    assert "(AUTH || {}).product_scope !== 'nam'" in js.split('id="si-scope"')[1].split("</select>")[0]

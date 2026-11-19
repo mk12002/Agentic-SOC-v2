@@ -325,7 +325,7 @@ MANIFESTS = [
                 ConfigField("email", "Integration user email", kind="email"),
                 ConfigField("api_token", "API token", secret=True), ConfigField("project_key", "Project key", required=False),
                 ConfigField("issue_type", "Issue type for new tickets (default Task)", required=False)],
-        actions=_ticket_actions, confidence="Unknown", to_confirm="Only if the client uses Jira (Q03)",
+        actions=_ticket_actions, confidence="Unknown", to_confirm="Only if NAM uses Jira (Q03)",
         focus_areas=("vulnerability", "incident")),
     ConnectorManifest(
         name="cmdb_csv", tool="Ownership mapping (CSV)", vendor="internal", category="cmdb", dimension="ticketing",

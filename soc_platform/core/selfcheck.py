@@ -164,7 +164,7 @@ def llm_budget_alert(s: Session, settings: Any) -> dict[str, Any] | None:
              if b["exceeded"] else f"LLM token budget at {pct}% ({b['used']:,} of {b['budget']:,} tokens this month)")
     fields = {"title": title, "severity": "high" if b["exceeded"] else "medium", "score": 60.0 if b["exceeded"] else 40.0,
               "evidence": [{"ref": "llm_budget", "signal": "llm_budget", "source": "platform", "summary": title}],
-              "next_steps": ["Raise the monthly budget on the AI usage screen (sizing: docs/LLM_TOKENS_AND_COST.md)",
+              "next_steps": ["Raise the monthly budget on the AI usage screen (sizing: docs/AI_AND_AUTONOMY.md)",
                              ("Or reduce spend there: move features the usage table marks 'try small' to the small "
                               "tier, or lower per-user limits")]}
     if cur is None:

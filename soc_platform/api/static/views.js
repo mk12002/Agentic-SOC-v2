@@ -172,9 +172,12 @@ async function Cases(id) {
       <td>${esc(cap(c.verdict || 'pending'))}</td><td class="num">${c.confidence != null ? pct(c.confidence) : '–'}</td>
       <td>${esc(cap(c.status))}</td><td class="small">${c.assignee ? esc(c.assignee) : '<span class="muted">unassigned</span>'}</td><td class="muted">${dt(c.created_at)}</td></tr>`);
   const actions = (can('investigate') && inDomain('incident') ? btn('Run incident pipeline', 'runInc', [], '', 'play') : '') +
-    (can('investigate') && inDomain('phishing') ? btn('Pull reported email', 'runPh', [], '', 'phishing') : '');
+    (can('investigate') && inDomain('phishing') && offered('phishing') ? btn('Pull reported email', 'runPh', [], '', 'phishing') : '');
+  // only the domains this deployment offers (core/scope.py): NAM's has no phishing or vulnerability cases
+  const caseDomains = ['all', 'phishing', 'incident', 'vulnerability', 'dlp'].filter(f =>
+    ({phishing: offered('phishing'), vulnerability: offered('vulnerabilities')})[f] ?? true);
   setMainG(__g, page('Cases', 'Investigations across all domains. Open a case for the evidence, reasoning and recommended actions.', actions,
-    card(null, `<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div class="seg">${['all', 'phishing', 'incident', 'vulnerability', 'dlp'].map(f =>
+    card(null, `<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div class="seg">${caseDomains.map(f =>
       `<button class="${f === CASE_FILTER ? 'on' : ''}" data-fn="caseFilter" data-args="${arg(f)}">${domLabel(f)} <span class="muted">${f === 'all' ? csum.total : (csum.by_domain[f] || 0)}</span></button>`).join('')}</div>
       <div class="seg" style="margin-left:10px" role="group" aria-label="Owner">${[['all', 'Everyone', csum.total], ['me', 'Mine', csum.mine], ['unassigned', 'Unassigned', csum.unassigned]].map(([f, label, n]) =>
       `<button class="${f === OWNER_FILTER ? 'on' : ''}" data-fn="ownerFilter" data-args="${arg(f)}">${label} <span class="muted">${n}</span></button>`).join('')}</div></div>` +
@@ -885,7 +888,7 @@ async function AiUsage() {
         <input class="input" style="width:90px;margin-top:4px" id="wm-${esc(f.workflow)}" aria-label="Output cap for ${esc(f.workflow)}" placeholder="cap ${esc(P.max_output_tokens[f.tier] || '')}" value="${esc(r.max_output_tokens || '')}">
         <label class="inline small" style="margin-top:4px"><input type="checkbox" id="we-${esc(f.workflow)}"${r.enabled === false ? '' : ' checked'}> on</label>`
         : `<span class="tag" style="white-space:nowrap">${esc(f.model)}</span>${f.enabled ? '' : ' ' + chip('off', 'medium plain')}`}</td></tr>`; };
-  const lim = (id, v, ph, label) => `<input class="input" style="width:100%;max-width:130px" id="${id}" aria-label="${esc(label || id)}" value="${v == null ? '' : esc(v)}" placeholder="${esc(ph || '')}"${edit ? '' : ' readonly'}>`;
+  const lim = (id, v, ph, label) => `<input class="input" style="width:100%;max-width:130px;min-width:96px" id="${id}" aria-label="${esc(label || id)}" value="${v == null ? '' : esc(v)}" placeholder="${esc(ph || '')}"${edit ? '' : ' readonly'}>`;
   const roleRows = pol.roles.map(r => { const v = (P.roles || {})[r] || {}; return `<tr><td class="small">${esc(cap(r))}</td><td>${lim('rh-' + r, v.hourly_tokens, 'everyone', cap(r) + ' per hour')}</td><td>${lim('rd-' + r, v.daily_tokens, 'everyone', cap(r) + ' per day')}</td></tr>`; });
   const row2 = (label, a, b) => `<tr><td class="small">${label}</td><td>${a}</td><td>${b || ''}</td></tr>`;
   const userOver = Object.entries(P.users || {}).map(([k, v]) => `${k} | ${v.hourly_tokens ?? ''} | ${v.daily_tokens ?? ''}`).join('\n');
@@ -959,7 +962,7 @@ async function Policy() {
   const [p, cat, h] = await Promise.all([api('/api/v1/policy'), api('/api/v1/actions/catalog'), api('/health')]);
   setMainG(__g, page('Automation policy', `Versioned autonomy policy (active version ${esc(p.active_version || 'default')}). L0 observe · L1 enrich · L2 recommend · L3 approve · L4 autonomous. Destructive actions are never autonomous.`, '',
     `<div class="grid g-2">
-      ${card('Actions', table(['Action', 'Executes via', 'Level', 'Properties'], cat.map(a => `<tr><td class="mono small">${esc(a.action_type)}</td><td class="small muted">${esc(a.tool)}</td>
+      ${card('Actions', table(['Action', 'Executes via', 'Level', 'Properties'], cat.map(a => `<tr><td class="mono small">${esc(a.action_type)}</td><td class="small muted" style="white-space:normal;overflow-wrap:anywhere">${esc(String(a.tool || "").split(",").join(", "))}</td>
         <td><span class="chip plain ${a.level >= 4 ? 'high' : a.level === 3 ? 'medium' : ''}">L${a.level}</span></td><td class="small">${a.destructive ? chip('destructive', 'high plain') : ''} ${a.reversible ? chip('reversible', 'ok plain') : ''}</td></tr>`)), {flush: true})}
       <div class="stack">
         ${card('Kill switch', `<p class="small" style="margin-top:0">Halts every automated action on all replicas immediately. Stored durably; survives restarts.</p>
@@ -1684,7 +1687,7 @@ async function Ciso() {
     ['Personal-data incidents', `${nf(d.regulatory.personal_data_escalations)} escalated; a person decides reportability (DPDP / CERT-In)`, d.regulatory.personal_data_escalations > 0],
   ].map(([k, v, warn]) => `<div class="list-row small"><span class="strong" style="min-width:150px">${esc(k)}</span><span class="grow${warn ? ' hot-text' : ''}" style="white-space:normal">${v}</span></div>`).join('');
   const changes = d.changes.recent.map(c => `<div class="list-row small"><div class="grow">${esc(toolName(c.tool))}<div class="t-sub">${dt(c.at)} · ${nf(c.diff.count)} item(s) changed${c.reference ? ' · ' + esc(c.reference) : ''}</div></div>${c.planned ? status('ok', 'Recorded') : status('high', 'Unplanned')}</div>`).join('');
-  setMainG(__g, page('Dome Score', `The CISO view across ${nf(h.tools.length)} connected tools. Every figure is computed from stored records and opens onto its evidence; the score uses formula ${esc(p.formula_version)} with draft weights, to be agreed with the CISO.`,
+  setMainG(__g, page('Dome Score', `The CISO view across ${nf(h.tools.length)} connected tools. Every figure is computed from stored records and opens onto its evidence; the score uses formula ${esc(p.formula_version)}; weights: ${esc(p.weights_status)}.`,
     btn('Weekly brief', 'cisoReport', ['cyberdome_ciso_weekly'], 'ghost', 'download') + btn('Board report', 'cisoReport', ['cyberdome_board_monthly'], 'ghost', 'download') + btn('Refresh', 'refreshPage', [], 'ghost', 'refresh'),
     `<div class="grid ciso-hero">
       <div class="card"><div class="card-b" style="text-align:center">${domeGauge(p.score, p.band)}
@@ -1712,6 +1715,7 @@ async function Ciso() {
         ${x.noisy_rules.length ? `<div class="t-sub mt">Rules analysts keep closing: ${x.noisy_rules.map(r => esc(r.rule)).join(' · ')} · <a href="#/dlp">propose a change</a></div>` : ''}` : empty('No DLP alert yet.'), {sub: 'as of ' + esc(dt(w.as_of))})}
       ${card('People to look at first', people || empty('No escalated DLP alert in the last 30 days.'), {sub: 'escalated DLP alerts, 30 days'})}
     </div>
+    <div class="grid g-2e mt"><div id="ciso-cross"></div><div id="ciso-weights"></div></div>
     <div class="mt">${card('AI decisions: earned autonomy', types, {flush: true, sub: esc(d.autonomy.rule)})}</div>
     <div class="grid g-2e mt">
       ${card('Governance and assurance', gov, {right: go('#/audit', 'Audit log', 'small')})}
@@ -1723,6 +1727,7 @@ async function Ciso() {
       ${card('Devices to fix first', cov.available ? (cov.devices_short.map(r => `<div class="list-row small"><span class="score">${esc(r.rank)}</span><div class="grow">${entLink(r.entity_id, r.name)}<div class="t-sub">${esc(r.missing.map(m => m.label + ': ' + (STATE_LABEL[m.state] || m.state).toLowerCase()).join(' · '))}</div></div></div>`).join('') || empty('Every listed device has every expected control.')) : empty(cov.reason), {right: go('#/controls', 'All devices', 'small')})}
     </div>
     <div class="mt">${card('Open critical and high cases', d.cases.items.map(c => `<div class="list-row click" data-fn="goTo" data-args="${arg('#/cases/' + c.id)}">${chip(c.severity)}<div class="grow"><div class="t-title">${esc(c.title)}</div><div class="t-sub">${esc(domLabel(c.domain))} · ${esc(cap(c.status))} · ${c.owner ? 'owner ' + esc(c.owner) : 'no owner yet'} · opened ${dt(c.created_at)}</div></div></div>`).join('') || empty('No open critical or high case.'))}</div>`));
+  if (__g === GEN && typeof weightsCard === 'function') { weightsCard(); crossCard(); }
 }
 async function cisoExplain() {
   const el = $('#ciso-brief'); if (!el) return;
@@ -1929,7 +1934,10 @@ Object.assign(ALLOWED, {cfgOpen, cfgTake, cfgBefore, cfgAfter});
 // The platform proposes, a second lead approves, an engineer makes the change in the DLP tool, the platform checks it.
 const RC_STATUS = {proposed: ['medium', 'Awaiting a second lead'], approved: ['info', 'Approved - to be made in the tool'],
   applied: ['ok', 'Made in the tool'], rejected: ['high', 'Rejected'], withdrawn: ['info', 'Withdrawn']};
-const pvLine = pv => `hides ${nf(pv.hidden)} of ${nf(pv.rule_alerts)} alert(s) in ${esc(pv.days)} days: ${nf(pv.hidden_closed_benign)} closed as benign, ${nf(pv.hidden_undecided)} undecided, ${nf(pv.hidden_escalated)} escalated`;
+const pvLine = pv => (pv.effect === 'reclassifies'
+  ? `hides nothing by itself; the classifier matched ${nf(pv.affected)} of ${nf(pv.rule_alerts)} alert(s) in ${esc(pv.days)} days: ${nf(pv.affected_closed_benign)} closed as benign, ${nf(pv.affected_undecided)} undecided, ${nf(pv.affected_escalated)} escalated - the effect is measured after the change`
+  : `hides ${nf(pv.hidden)} of ${nf(pv.rule_alerts)} alert(s) in ${esc(pv.days)} days: ${nf(pv.hidden_closed_benign)} closed as benign, ${nf(pv.hidden_undecided)} undecided, ${nf(pv.hidden_escalated)} escalated`)
+  + ((pv.warnings || []).length ? `. <span class="warn-text">${esc(pv.warnings.join('; '))}</span>` : '');
 async function dlpTuning() {
   const el = $('#dlp-tuning'); if (!el) return;
   const t = await api('/api/v1/dlp/tuning');
@@ -1937,6 +1945,7 @@ async function dlpTuning() {
   const lead = can('tune_detections') && inDomain('dlp'), eng = can('manage_connectors');
   const sug = t.suggestions.map((x, i) => `<div class="list-row small"><div class="grow"><b>${esc(x.change)}</b><div class="t-sub">${esc(x.reason)}. Preview: ${pvLine(x.preview)}.</div>
     ${x.evidence.overrides_with_reasons.length ? `<div class="t-sub">Analysts overruling the AI said: ${esc(x.evidence.overrides_with_reasons.join(' · '))}</div>` : ''}</div>${lead ? btn('Propose', 'rcPropose', [i], 'sm') : ''}</div>`).join('');
+  const qual = (t.quality || []).map((x, i) => `<div class="list-row small"><div class="grow"><b>${esc(x.change)}</b><div class="t-sub">${esc(x.reason)}. Preview: ${pvLine(x.preview)}.</div></div>${lead ? btn('Propose', 'rcPropose', [i, 'quality'], 'sm') : ''}</div>`).join('');
   const rows = t.proposals.map(r => {
     const [k, label] = RC_STATUS[r.status] || ['info', r.status];
     const v = r.verification;
@@ -1947,11 +1956,12 @@ async function dlpTuning() {
       <td class="small">${esc(r.proposed_by)}${r.decided_by ? ` → ${esc(r.decided_by)}` : ''}</td><td>${acts}</td></tr>`;
   });
   el.innerHTML = card('Rule changes for the DLP tool', `${sug ? `<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div class="small strong">Suggested from analysts' rulings</div>${sug}</div>` : ''}`
+    + `${qual ? `<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div class="small strong">Classification quality</div><div class="t-sub">How the rule recognises the data: text read from images (OCR), number patterns that an exact data match (EDM) would replace, keywords that document fingerprints would replace</div>${qual}</div>` : ''}`
     + table(['Change', 'Status', 'Effect on past alerts', 'Took effect?', 'Proposed → decided', ''], rows, {empty: 'No rule change proposed yet.'}),
     {flush: true, sub: 'the platform never edits a rule in the tool: an engineer makes the approved change'});
 }
-async function rcPropose(i) {
-  const x = window.__rc.suggestions[i];
+async function rcPropose(i, list) {
+  const x = window.__rc[list === 'quality' ? 'quality' : 'suggestions'][i];
   await post('/api/v1/dlp/tuning', {rule: x.rule, kind: x.kind, params: x.params, reason: x.reason, drafted_by: 'suggestion'});
   toast('Proposed: a second lead approves it'); dlpTuning();
 }

@@ -18,11 +18,13 @@
       "classifiers": [
        {
         "name": "India PAN",
-        "matches": 3980
+        "matches": 3980,
+        "type": "regex"
        },
        {
         "name": "Investor account number",
-        "matches": 3980
+        "matches": 3980,
+        "type": "exact_data_match"
        }
       ],
       "source": {
@@ -55,7 +57,9 @@
       "classifiers": [
        {
         "name": "Credit card number (wide)",
-        "matches": 2
+        "matches": 2,
+        "type": "regex",
+        "ocr": true
        }
       ],
       "source": {
@@ -88,7 +92,9 @@
       "classifiers": [
        {
         "name": "Credit card number (wide)",
-        "matches": 2
+        "matches": 2,
+        "type": "regex",
+        "ocr": true
        }
       ],
       "source": {
@@ -121,7 +127,9 @@
       "classifiers": [
        {
         "name": "Credit card number (wide)",
-        "matches": 2
+        "matches": 2,
+        "type": "regex",
+        "ocr": true
        }
       ],
       "source": {
@@ -154,7 +162,9 @@
       "classifiers": [
        {
         "name": "Credit card number (wide)",
-        "matches": 2
+        "matches": 2,
+        "type": "regex",
+        "ocr": true
        }
       ],
       "source": {
@@ -187,7 +197,9 @@
       "classifiers": [
        {
         "name": "Credit card number (wide)",
-        "matches": 2
+        "matches": 2,
+        "type": "regex",
+        "ocr": true
        }
       ],
       "source": {
@@ -220,7 +232,9 @@
       "classifiers": [
        {
         "name": "Credit card number (wide)",
-        "matches": 2
+        "matches": 2,
+        "type": "regex",
+        "ocr": true
        }
       ],
       "source": {
@@ -253,7 +267,8 @@
       "classifiers": [
        {
         "name": "Customer contact list",
-        "matches": 240
+        "matches": 240,
+        "type": "file_fingerprint"
        }
       ],
       "source": {
@@ -286,7 +301,8 @@
       "classifiers": [
        {
         "name": "Salary figures",
-        "matches": 6
+        "matches": 6,
+        "type": "regex"
        }
       ],
       "source": {
@@ -319,7 +335,8 @@
       "classifiers": [
        {
         "name": "Legal privilege marking",
-        "matches": 12
+        "matches": 12,
+        "type": "keyword"
        }
       ],
       "source": {
@@ -352,7 +369,8 @@
       "classifiers": [
        {
         "name": "Source code",
-        "matches": 40
+        "matches": 40,
+        "type": "machine_learning"
        }
       ],
       "source": {
@@ -385,7 +403,8 @@
       "classifiers": [
        {
         "name": "Confidential marking",
-        "matches": 1
+        "matches": 1,
+        "type": "keyword"
        }
       ],
       "source": {
@@ -418,7 +437,8 @@
       "classifiers": [
        {
         "name": "Employee directory",
-        "matches": 300
+        "matches": 300,
+        "type": "file_fingerprint"
        }
       ],
       "source": {
@@ -451,7 +471,8 @@
       "classifiers": [
        {
         "name": "Aadhaar number",
-        "matches": 2
+        "matches": 2,
+        "type": "regex"
        }
       ],
       "source": {
@@ -610,6 +631,10 @@
       "classifiers": [
        "Aadhaar number"
       ],
+      "classifier_types": {
+       "Aadhaar number": "regex"
+      },
+      "ocr_enabled": true,
       "threshold": 1,
       "action": "audit",
       "severity": "low",
@@ -625,6 +650,10 @@
       "classifiers": [
        "Credit card number (wide)"
       ],
+      "classifier_types": {
+       "Credit card number (wide)": "regex"
+      },
+      "ocr_enabled": true,
       "threshold": 1,
       "action": "audit",
       "severity": "low",
@@ -640,6 +669,10 @@
       "classifiers": [
        "Confidential marking"
       ],
+      "classifier_types": {
+       "Confidential marking": "keyword"
+      },
+      "ocr_enabled": true,
       "threshold": 1,
       "action": "audit",
       "severity": "low",
@@ -655,6 +688,10 @@
       "classifiers": [
        "Customer contact list"
       ],
+      "classifier_types": {
+       "Customer contact list": "file_fingerprint"
+      },
+      "ocr_enabled": true,
       "threshold": 1,
       "action": "block",
       "severity": "medium",
@@ -670,6 +707,10 @@
       "classifiers": [
        "Employee directory"
       ],
+      "classifier_types": {
+       "Employee directory": "file_fingerprint"
+      },
+      "ocr_enabled": true,
       "threshold": 1,
       "action": "block",
       "severity": "medium",
@@ -686,6 +727,11 @@
        "India PAN",
        "Investor account number"
       ],
+      "classifier_types": {
+       "India PAN": "regex",
+       "Investor account number": "exact_data_match"
+      },
+      "ocr_enabled": true,
       "threshold": 1,
       "action": "block",
       "severity": "high",
@@ -701,6 +747,10 @@
       "classifiers": [
        "Passport number"
       ],
+      "classifier_types": {
+       "Passport number": "regex"
+      },
+      "ocr_enabled": true,
       "threshold": 1,
       "action": "block",
       "severity": "medium",
@@ -716,6 +766,10 @@
       "classifiers": [
        "Legal privilege marking"
       ],
+      "classifier_types": {
+       "Legal privilege marking": "keyword"
+      },
+      "ocr_enabled": true,
       "threshold": 1,
       "action": "block",
       "severity": "medium",
@@ -731,6 +785,10 @@
       "classifiers": [
        "Salary figures"
       ],
+      "classifier_types": {
+       "Salary figures": "regex"
+      },
+      "ocr_enabled": true,
       "threshold": 1,
       "action": "audit",
       "severity": "low",
@@ -746,6 +804,10 @@
       "classifiers": [
        "Source code"
       ],
+      "classifier_types": {
+       "Source code": "machine_learning"
+      },
+      "ocr_enabled": true,
       "threshold": 1,
       "action": "audit",
       "severity": "low",

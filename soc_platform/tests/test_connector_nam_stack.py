@@ -67,17 +67,29 @@ def test_every_endpoint_path_is_a_declared_setting_marked_to_be_confirmed():
         assert m.confidence == "Unknown" and m.to_confirm
 
 
-def test_the_stack_never_adds_lookups_actions_or_alerts_to_the_other_workflows(session):
-    """These tools feed the data-protection workflow only: no enrichment look-up, no action, and no record of a kind
-    the incident, phishing or risk pipelines read - so adding them changes none of those workflows' results."""
+ACTIONS = {"silverfort": {"identity.revoke_sessions", "identity.require_mfa", "identity.release_mfa"},
+           "trend_micro": {"endpoint.isolate", "endpoint.release"}}
+
+
+def test_the_stack_adds_no_lookup_or_alert_kind_the_other_workflows_read_and_only_the_planned_actions(session):
+    """These tools feed the data-protection and cross-tool workflows: no enrichment look-up and no record of a kind the
+    incident, phishing or risk pipelines read (endpoint alerts are ``edr_alert``, not ``alert``), so adding them changes
+    none of those workflows' results. Their actions are exactly the planned ones, recommended (L2) by default and
+    isolation four-eyes."""
+    from soc_platform.core.policy import DEFAULT_POLICY
+
     reg = ConnectorRegistry.all_fake()
     for name in NAMES:
         conn = reg.get(name)
-        assert not conn.lookups and not reg.manifests[name].actions(conn)
+        assert not conn.lookups
+        assert {a.action_type for a in reg.manifests[name].actions(conn)} == ACTIONS.get(name, set())
         for stream in conn.streams:
             sync(session, conn, stream)
     kinds = {k for (k,) in session.execute(select(Entity.kind).distinct()).all()}
-    assert kinds <= {"asset", "identity", "dlp_incident", "auth_risk", "tool_health"}, kinds
+    assert kinds <= {"asset", "identity", "dlp_incident", "auth_risk", "tool_health", "edr_alert"}, kinds
+    for t in set().union(*ACTIONS.values()):
+        assert DEFAULT_POLICY["actions"][t]["level"] == 2
+    assert DEFAULT_POLICY["actions"]["endpoint.isolate"]["four_eyes"] is True
 
 
 def test_one_device_seen_by_four_tools_is_one_record(session):

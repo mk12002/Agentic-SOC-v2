@@ -376,7 +376,7 @@ def test_send_test_message_is_for_integration_admins_and_audited(client, monkeyp
 def test_console_single_sign_on_config_is_public_and_only_in_entra_mode(client, monkeypatch):
     from soc_platform.config import get_settings
 
-    assert client.get("/api/v1/auth/config").json() == {"mode": "dev"}
+    assert client.get("/api/v1/auth/config").json() == {"mode": "dev", "product_scope": "full"}   # public, nothing secret
     monkeypatch.setenv("SOC_AUTH_MODE", "entra")
     monkeypatch.setenv("SOC_ENTRA_TENANT_ID", "11111111-2222-3333-4444-555555555555")
     monkeypatch.setenv("SOC_ENTRA_AUDIENCE", "api://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")

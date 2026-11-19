@@ -58,7 +58,7 @@ WORKFLOW = "dlp.disposition"
 # it cannot safely match (it would wait in the analyst queue and the device would drop out of the baseline)
 INVENTORY_STREAMS = (("directory_export", "users"), ("directory_export", "devices"), ("trend_micro", "endpoints"),
                      ("trellix_epo", "systems"), ("forcepoint_dlp", "endpoints"))
-CONTEXT_STREAMS = (*INVENTORY_STREAMS, ("silverfort", "risk_events"))
+CONTEXT_STREAMS = (*INVENTORY_STREAMS, ("silverfort", "risk_events"), ("trend_micro", "alerts"))
 INCIDENT_STREAMS = (("forcepoint_dlp", "dlp_incidents"),)
 SEV = ("informational", "low", "medium", "high", "critical")
 BULK_MATCHES = 100                       # this many matches of one classifier is a bulk transfer
@@ -101,16 +101,23 @@ def data_classes(classifiers: list[dict[str, Any]]) -> list[str]:
     return [label for label, rx in PERSONAL_DATA if rx.search(names)]
 
 
+_HOST = re.compile(r"(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)+")
+
+
 def _domain(kind: str | None, value: str | None) -> str | None:
-    v = str(value or "").strip().lower()
+    """The destination's host name - or None (an 'unknown' destination, judged as outside). Whatever follows an '@'
+    or names a URL's host is written by the sender, so only a real host name is kept: arbitrary text there once
+    reached the numbered facts, the breach-report draft and the model's narration as if it were a domain."""
+    v = str(value or "").strip().lower()[:2048]
     if not v:
         return None
     if "@" in v:
-        return v.rsplit("@", 1)[1].strip("> ")
-    m = re.match(r"^[a-z][a-z0-9+.-]{0,15}://([^/:?#\s]{1,253})", v)
-    if m:
-        return m.group(1)
-    return v if kind == "domain" and re.fullmatch(r"[a-z0-9.-]{1,253}", v) else None
+        host = v.rsplit("@", 1)[1].strip("> ")
+    else:
+        m = re.match(r"^[a-z][a-z0-9+.-]{0,15}://([^/:?#\s]{1,253})", v)
+        host = m.group(1) if m else (v if kind == "domain" else None)
+    host = (host or "").rstrip(".")
+    return host if _HOST.fullmatch(host) else None
 
 
 def _under(domain: str, names: set[str]) -> bool:

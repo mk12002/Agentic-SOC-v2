@@ -126,7 +126,7 @@ TEXT = {"SOC_HOST", "SOC_DB_RUNTIME_ROLE", "SOC_ENTRA_TENANT_ID", "SOC_ENTRA_AUD
         "SOC_RECORD_SALT", "SOC_LOG_FILE", "SOC_SCHEDULER_LIVENESS_FILE", "SOC_PHISHING_HOME", "SOC_PHISHING_ENGINE_LOG_LEVEL", "SOC_ENV_FILE",
         "SOC_JOB_ACTIONS_SECONDS", "SOC_JOB_DAILY_REPORT_SECONDS", "SOC_JOB_FOLLOWUP_SECONDS", "SOC_JOB_INCIDENT_SECONDS",
         "SOC_JOB_INTELLIGENCE_SECONDS", "SOC_JOB_NOTIFY_SECONDS", "SOC_JOB_PHISHING_SECONDS",
-        "SOC_JOB_DLP_SECONDS", "SOC_JOB_POSTURE_SECONDS", "SOC_JOB_INVENTORY_SECONDS",
+        "SOC_JOB_DLP_SECONDS", "SOC_JOB_CROSSTOOL_SECONDS", "SOC_JOB_POSTURE_SECONDS", "SOC_JOB_INVENTORY_SECONDS",
         "SOC_JOB_CONFIG_SNAPSHOT_SECONDS",
         "SOC_JOB_RETENTION_SECONDS", "SOC_JOB_SELF_CHECK_SECONDS", "SOC_JOB_VM_SECONDS", "SOC_JOB_WEEKLY_REPORTS_SECONDS"}
 JOB_SECONDS = {n for n in TEXT if n.startswith("SOC_JOB_")}
@@ -273,7 +273,7 @@ def check_environment(env: Mapping[str, str] | None = None) -> list[SettingProbl
     mode = lower.get("SOC_AUTH_MODE", "dev")
     if mode == "entra" and not (env.get("SOC_ENTRA_TENANT_ID") and env.get("SOC_ENTRA_AUDIENCE")):
         out.append(SettingProblem("error", "SOC_AUTH_MODE", "Entra sign-in needs SOC_ENTRA_TENANT_ID and SOC_ENTRA_AUDIENCE",
-                                  "set both (CLIENT_DEPLOYMENT_GUIDE.md section 3)"))
+                                  "set both (DEPLOYMENT_GUIDE.md section 4)"))
     env_name = lower.get("SOC_ENVIRONMENT")
     if not env_name and (mode == "entra" or lower.get("SOC_CONNECTOR_MODE") == "live"):
         # a real deployment that forgot SOC_ENVIRONMENT ran as "dev": step-up MFA off, encryption optional
@@ -314,7 +314,7 @@ def check_environment(env: Mapping[str, str] | None = None) -> list[SettingProbl
         db_url = _setting_value(env, "SOC_DATABASE_URL") or "sqlite"
         if db_url.startswith("sqlite"):
             out.append(SettingProblem("error", "SOC_DATABASE_URL", "production on SQLite (one host, no failover, no "
-                                      "point-in-time recovery)", "use PostgreSQL (CLIENT_DEPLOYMENT_GUIDE.md section 2.1)"))
+                                      "point-in-time recovery)", "use PostgreSQL (DEPLOYMENT_GUIDE.md section 3.1)"))
         elif _sslmode(db_url) not in {"verify-full", "verify-ca"}:
             out.append(SettingProblem("error", "SOC_DATABASE_URL", "the database connection does not verify the "
                                       "server's certificate (libpq's default 'prefer' can be downgraded or intercepted)",

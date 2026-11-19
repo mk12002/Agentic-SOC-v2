@@ -11,7 +11,7 @@ it, the conventions the code relies on, and the traps that have already cost tim
 This folder is a copy of the Agentic SOC platform that is being turned into **CyberDome for NAM**: an AI-first layer
 above an Indian asset manager's eight security tools. "NAM" is the working short name for that client; its full name
 is never written here. Sections 1-11 describe the **inherited platform core as it stands** (connectors, domains,
-tests, counts): all of it is still true of the code. The first version of M2-M7, M10 and M11 exists, and the rebrand is done, and the product is scoped to NAM (§0.4a) (status column below);
+tests, counts): all of it is still true of the code. The first version of M2-M8 and M10-M13 exists, and the rebrand is done, and the product is scoped to NAM (§0.4a) (status column below);
 the rest does not. When a NAM module lands, update this section's status column and the matching part of §2 / §4 / §6 in the same change.
 
 Sources (both under `docs/client_deck_nam/`, which is gitignored - never quote them into tracked files beyond what is
@@ -51,13 +51,13 @@ Paths are proposed; keep the layering of §4 (API → intelligence → domains �
 | M4 | DLP domain (Dome Agents) | Forcepoint incident intake, personal-data flags, computed disposition, case; backlog triage with identity, PAM and endpoint context | `CaseService`, `EnrichmentOrchestrator`, `jobs._isolated`, incident domain as the pattern | `domains/dlp/` (service, models), a `dlp` job, `dlp` in RBAC domains | v1: `domains/dlp/` (computed disposition, never-auto list, cases), `dlp` job, screen *Data protection*; no actions |
 | M5 | Earned autonomy (Dome Agents) | Decision-type registry; Shadow → Recommend → Decide per narrow type; AI decision record; shadow evaluator proposes promotion, drift demotes | `core/policy.py` (`PolicyStore` propose / approve), `intelligence/drift.py`, `tuning.QA_RATE` + `guard`, `llm/gateway.py` | `core/decisions.py` (registry, `ai_decisions` table), a `shadow_eval` job, `dlp.disposition` in `KNOWN_WORKFLOWS` | v1: `core/decisions.py` - shadow and recommend; **decide refused in code**; targets, two-lead promotion, drift demotion |
 | M6 | AI investigator (Dome Agents) | The model picks read-only look-ups from a fixed menu within a step and time budget; results go through enrichment; every finding cited | `intelligence/analyst.py` (`intelligence.plan` already picks tools), `core/enrichment.py` | menu + budgets for case investigation; `dlp.investigate` workflow | v1: `domains/dlp/investigator.py` - 7 read-only look-ups over the context store, model plans up to 5 in 2 rounds, rules plan without it; I-numbered findings the decision may cite |
-| M7 | DLP tuning proposals (Dome Agents) | Groups false positives per Forcepoint rule, proposes a change with its effect on past alerts; an engineer approves and makes it in Forcepoint; overrides at Recommend feed it | `core/tuning.py` (draft, preview, two leads, suggestions) | `dlp` in `tuning.DOMAINS`, DLP rule kinds, classification-quality findings | v1: `domains/dlp/tuning.py` - suggestions from rulings, 90-day preview, refusals, two leads, engineer records the change, verified from the config snapshot |
-| M8 | Cross-tool cases and actions | Rules joining risky sign-in + privileged check-out + DLP exfiltration + encryption off for one person; privileged session outside a change window; computed severity ("N tools agree"); reversible actions by AI, containment by two approvers | `intelligence/correlation.py`, `story.py`, `core/actions.py` | new rules; actions on the Silverfort / Arcon / Trend Micro connectors; `DEFAULT_POLICY` entries | not started |
+| M7 | DLP tuning proposals (Dome Agents) | Groups false positives per Forcepoint rule, proposes a change with its effect on past alerts; an engineer approves and makes it in Forcepoint; overrides at Recommend feed it | `core/tuning.py` (draft, preview, two leads, suggestions) | `dlp` in `tuning.DOMAINS`, DLP rule kinds, classification-quality findings | v1: `domains/dlp/tuning.py` - suggestions from rulings, classification-quality findings (`exclude_ocr`, `use_edm`, `use_fingerprint` from each classifier's type and OCR origin - placeholder fields), 90-day preview, refusals, two leads, engineer records the change, verified from the config snapshot |
+| M8 | Cross-tool cases and actions | Rules joining risky sign-in + privileged check-out + DLP exfiltration + encryption off for one person; privileged session outside a change window; computed severity ("N tools agree"); reversible actions by AI, containment by two approvers | `intelligence/correlation.py`, `story.py`, `core/actions.py` | new rules; actions on the Silverfort / Arcon / Trend Micro connectors; `DEFAULT_POLICY` entries | v1: `intelligence/crosstool.py` - rules X1-X4 over structured facts, one case per person (2 tools high, 3+ critical), Trend Micro `alerts` stream (`edr_alert`), Silverfort revoke / require MFA and Trend Micro isolate (placeholders, through `ActionService`, L2; isolate four-eyes); `crosstool` job. Arcon signals not yet |
 | M9 | SOAR execution backend | Approved actions are handed to NAM's SOAR and their outcome read back | `ActionService._execute`, idempotency keys, `reconcile_stuck` | a SOAR connector whose actions wrap the playbooks; still behind `ActionService` | blocked: product unknown |
-| M10 | Dome Score and CISO view | One posture score from a published, versioned formula over coverage, tool health, open cases and overdue items; five domain scores (identity, privileged access, endpoint, data protection, web); "why did it drop" answered from computed factors; monthly board report | `intelligence/risk.py`, `api/dashboards.py`, `intelligence/analyst.py`, `reporting/builder.py` | `intelligence/posture.py` (formula as a versioned, four-eyes document like the autonomy policy), CISO screen, board report | v1: `intelligence/posture.py` (`v1-draft` weights, bands, levers), daily snapshot, *CISO view* (`intelligence/ciso.py`: why it moved, what raises it, DLP week, people, AI ladder, governance, changes; brief by rule or cited AI), board report + weekly brief (`cyberdome_*` standard reports) |
+| M10 | Dome Score and CISO view | One posture score from a published, versioned formula over coverage, tool health, open cases and overdue items; five domain scores (identity, privileged access, endpoint, data protection, web); "why did it drop" answered from computed factors; monthly board report | `intelligence/risk.py`, `api/dashboards.py`, `intelligence/analyst.py`, `reporting/builder.py` | `intelligence/posture.py` (formula as a versioned, four-eyes document like the autonomy policy), CISO screen, board report | v1: `intelligence/posture.py` + adjustable weights (`posture_weights.py`: versioned, previewed, two leads), CISO view (`ciso.py`), board report + weekly brief |
 | M11 | Change baseline (Dome Score) | Snapshot of a tool's configuration before a change "where the tool can export it"; drift between snapshots; posture before / after | `core/blobstore.py`, `core/connector_config.py` versioning pattern | `config_snapshots` table, snapshot stream per capable connector, diff view | v1: `intelligence/config_snapshots.py` - Forcepoint, Silverfort, Trellix exports (placeholder paths), daily job, before / after change with Dome Score, unplanned changes on tool health |
-| M12 | Compliance packs (Dome Comply) | Control catalogue for SEBI CSCRF, DPDP and CERT-In mapped to evidence tests; share of controls with current evidence, the rest named; audit pack; personal-data DLP case opens a breach assessment; 6-hour clock from a person's "reportable"; AI drafts the report; 180-day log retention checked per tool | `reporting/compliance.py` (`build_evidence`, `build_pack`), `core/audit_export.py`, `reporting/builder.py` | `reporting/regimes/` (catalogue as versioned data), `compliance_assessments` table, clock, draft workflow | not started |
-| M13 | Pilot scorecard | DLP alerts reaching an analyst against the week-2 baseline, outages found by users, AI agreement per decision type; QA re-checks reported separately | `reporting/value.py` (baseline / target / measured) | new KPIs | not started |
+| M12 | Compliance packs (Dome Comply) | Control catalogue for SEBI CSCRF, DPDP and CERT-In mapped to evidence tests; share of controls with current evidence, the rest named; audit pack; personal-data DLP case opens a breach assessment; 6-hour clock from a person's "reportable"; AI drafts the report; 180-day log retention checked per tool | `reporting/compliance.py` (`build_evidence`, `build_pack`), `core/audit_export.py`, `reporting/builder.py` | `reporting/regimes/` (catalogue as versioned data), `compliance_assessments` table, clock, draft workflow | v1: `reporting/regimes.py` (DRAFT catalogue as versioned data, 11 evidence tests + the platform's, evidence share, audit pack) + `reporting/breach.py` (assessment per personal-data case, a lead's reportability decision, clocks from the catalogue with source and 'to verify', cited AI draft, submissions recorded). NAM's control list and confirmed deadlines not yet |
+| M13 | Pilot scorecard | DLP alerts reaching an analyst against the week-2 baseline, outages found by users, AI agreement per decision type; QA re-checks reported separately | `reporting/value.py` (baseline / target / measured) | new KPIs | v1: `reporting/pilot.py` - KPIs measured over the week up to the newest alert, baseline capture, lead-set targets (none preset), outage log, AI agreement per type, QA re-checks apart |
 
 ### 0.3 Build order (follows the deck's rollout gates)
 
@@ -158,6 +158,23 @@ code is a separate decision (it would mean rewriting much of the inherited suite
 * **The CISO view is one document** (`intelligence/ciso.py`): the Dome Score screen, the CyberDome report sections
   and the plain-words brief all read it. "What raises the score" (`posture.levers`) and "why it moved" (`movement`)
   are arithmetic on the formula's own factors; the brief is by rule unless a person asks the model (`posture.explain`).
+* **Cross-tool cases read facts, never text** (`intelligence/crosstool.py`): the DLP alert's own facts (identity risk,
+  device gaps, privileged) plus `edr_alert` events; endpoint alerts are their own kind so the incident pipeline is
+  unchanged. The risk engine's `EDR_TOOLS` must list every EDR connector (it once called a Trend Micro laptop
+  "without EDR").
+* **The Dome Score's weights are a document** (`posture_weights.py`): `posture(config=...)` previews; nothing else
+  reads `WEIGHTS` (the draft) - use `posture()["weights"]`.
+* **Reportability is a person's decision and it stands** (`reporting/breach.py`): deciding again would restart the
+  regulatory clocks, so it is refused; clocks come from the catalogue with their source and stay "to verify".
+* **Every governed approval is an exactly-once claim** (`core/db.claim`: `UPDATE ... WHERE status IN (...)`); the
+  reportability decision and each recorded submission compare-and-swap a `revision`. Checking a status in Python and
+  then writing it let two leads both "approve" (round 39). A new approval path must use `claim`.
+* **Containment is enforced by the engine** (`policy.CONTAINMENT`: isolate, disable account, reset password, confirm
+  compromised, rotate secret): four-eyes and capped at L3 whatever the policy document says; such documents are
+  refused; every four-eyes action is capped below L4. Tests that need an autonomous action use a non-containment one.
+* **Manual runs hold the job's lease** (`jobs.held`): `POST /dlp/run` and `/crosstool/run` answer 409 while the job runs.
+* **The destination domain is a real host name or nothing** (`dlp/service._domain`): sender-written text after `@`
+  once became a "fact" in the breach draft and the model's narration.
 * **Queries stay flat with history:** the DLP summary is database aggregates, the backfill is judged in committed
   batches (`process_committing`), the noisy-rule list and tool rulings look at the 30 days up to the newest alert.
 
@@ -253,7 +270,7 @@ session; `verify_features.py` reads the `SOC_LLM_*` lines itself).
 ```bash
 # run
 python -m soc_platform init-db                 # create tables (idempotent)
-python -m soc_platform demo                    # NAM scope: 14 DLP alerts -> 3 data-protection cases, coverage 6 of 10 devices, CISO reports; full scope adds 7 phishing + 3 incident cases, 37 approvals, 6 open vulns
+python -m soc_platform demo                    # NAM scope: 14 DLP alerts -> 3 DLP cases + 3 cross-tool cases (7 approvals), 3 reportability decisions, coverage 6 of 10, CISO reports; full scope adds 7 phishing + 3 incident cases (43 approvals in all), 6 open vulns
 python -m soc_platform reset-demo [--yes]      # server stopped: wipe the demo DB + raw/report files, then init-db + demo
 python -m soc_platform serve                   # API + console + built-in scheduler on 127.0.0.1:8080 (SOC_PORT/SOC_HOST)
 python -m soc_platform scheduler [--once]      # optional separate scheduler service
@@ -278,8 +295,8 @@ SOC_LIVE_LLM=1 python -m pytest soc_platform/tests/test_live_llm.py      # real 
 SOC_LIVE_TESTS=1 python -m pytest soc_platform/tests/test_live_public_feeds.py   # real NVD / EPSS / CISA KEV
 
 # verification report (writes docs/FEATURE_VERIFICATION.md)
-python scripts/verify_features.py                                 # tests mapped to 108 features
-python scripts/verify_features.py --browser --engine --live --llm # + browser tour, engine, live feeds, real LLM (~25 min)
+python scripts/verify_features.py                                 # tests mapped to 122 features (14 NAM), NAM-first report
+python scripts/verify_features.py --browser --engine --live --llm # + both browser tours (full scope, NAM scope: tour_nam.js), engine, live feeds, real LLM
 
 # quality gates (all must be clean before a commit)
 .venv/Scripts/ruff check . --exclude .venv,node_modules
@@ -393,7 +410,8 @@ soc_platform/
   domains/incident/service.py
   domains/vulnerability/ service.py, misconfig.py, models.py
   intelligence/          risk.py, correlation.py, story.py, deep_analysis.py, analyst.py, attack_coverage.py, shadow_it.py, drift.py,
-                         control_coverage.py, tool_health.py, posture.py, config_snapshots.py, ciso.py (NAM build)
+                         control_coverage.py, tool_health.py, posture.py, posture_weights.py, config_snapshots.py,
+                         ciso.py, crosstool.py (NAM build)
   llm/gateway.py         LLMGateway, providers, grounding, numeric guardrail, breaker, timeouts, llm_concurrency();
                          enforces the usage policy (refusal -> BudgetExceeded / UserLimitExceeded, gateway.notice)
   llm/usage_policy.py    AI usage policy (budgets, per-person limits, per-feature tier / answer cap / on-off), its
@@ -404,6 +422,7 @@ soc_platform/
                          style.py (the organisation's report style: templates, logo, brand, writing guide; uploads
                          validated; use_style() sets design.STYLE around every render - render inside it),
                          value.py (value scorecard: benefit KPIs vs baseline / target; ValueInput in models.py),
+                         pilot.py, regimes.py, breach.py (NAM build: pilot scorecard, Dome Comply)
                          design.py (house style for every .docx / .pptx: cover, tiles, tables, charts, header /
                          footer with page X of Y), charts.py (PNG donut / stacked / columns / bars, nice axis steps)
   fixtures/              fake-mode vendor fixtures per connector
@@ -616,15 +635,21 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
   (suggestions, preview, refusals, two leads, engineer, verification), `test_config_snapshots.py` (export, drift,
   planned / unplanned, before / after with the score), `test_scope.py` (the NAM scope offers no inherited tool, job,
   route, screen or report section; typos still caught), `test_ciso.py` (levers and movement from the factors, DLP week,
-  people, audit chain as verified, brief states only computed figures, the CyberDome reports), `test_decisions.py` (targets, two-lead promotion, decide refused, demotion on agreement drop and on
+  people, audit chain as verified, brief states only computed figures, the CyberDome reports), `test_crosstool.py`
+  (one case per person, severity from agreement, actions recommended, text changes nothing, every estate, EDR
+  regression), `test_posture_weights.py` (document checks, recomputable score, two leads, API), `test_comply_pilot.py`
+  (catalogue checks, evidence never 'compliant', two-person catalogue, reportability and clocks, cited draft, audit
+  pack, pilot KPIs, baseline / targets / outages), `test_decisions.py` (targets, two-lead promotion, decide refused, demotion on agreement drop and on
   outcome shift), `test_controls_posture.py` (coverage, silent / stale measured from the tools' own times, tool
   health, the score recomputed from its factors, daily trend), `test_dlp_api.py` (routes, scopes, CISO view = the
-  screens behind it, jobs).
+  screens behind it, jobs), `test_pentest_nam.py` (round 39: who decides with MFA, service keys, racing approvals
+  decided once, strict regulatory input, hostile documents, sender text never a fact, manual vs scheduled runs, audit
+  pack readers, cross-domain screens). The NAM browser tour is `scripts/ui_tour/tour_nam.js`.
 - **Comparing two runs figure-for-figure**: freeze the clock (`frozen_clock` fixture sets `SOC_CLOCK_FREEZE`) - risk
   decays with time, so a slower run otherwise rounds differently.
 - **New behaviour needs a test**; a bug fix needs a regression test that failed before the fix. Don't hard-code
   demo-specific values in new tests - derive from settings/data or run over `ESTATES`.
-- Current counts (keep docs in sync when they change): NAM build round 36: 1,115 passing on SQLite, 18 skipped, 1,133
+- Current counts (keep docs in sync when they change): NAM build round 38: 1,168 passing on SQLite, 18 skipped, 1,186
   collected; PostgreSQL not yet run for this build. Inherited figures before it: 945 platform tests passing on SQLite and 942 on PostgreSQL (963 collected; skips: 14 opt-in live tests, 3 per-estate repeats of input fuzzing, and database-specific checks - 1 on SQLite, 4 on PostgreSQL), 205
   engine tests, 108/108 features verified with `--browser --engine --live --llm` (round 25); the go-live round's
   offline run: 104/108 (the 4 opt-in live features need `--live --llm`, which calls the real model).
@@ -640,7 +665,8 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
   `fetch_page`, `normalize` → `NormalizedRecord`s (entities with strong `keys` + weak `hints`, events with `refs`),
   optional `lookup`. Add `soc_platform/fixtures/<tool>.json` routes (`FixtureTransport`: method, path regex, listed
   params only, `~` regex / `*` any, optional `body_contains`). Add it to `config/connectors.yaml`, a test in
-  `test_connectors.py`, and a row in `docs/CONNECTORS.md` / PRESENTER_GUIDE §15.1.
+  `test_connectors.py`; regenerate `docs/CONNECTORS.md` (`scripts/build_connector_docs.py`) and, for a NAM tool, add it to
+  `scope.NAM_CONNECTORS` and a section in `docs/DEPLOYMENT_GUIDE.md` §5.
 - **An action**: a `ConnectorAction` in the connector's action factory (with `preconditions` and `reverse_type` if
   reversible), a policy entry in `core/policy.py:DEFAULT_POLICY` if it needs a non-default level/limit/four-eyes,
   and a test that it is recommended (not executed) by default.
@@ -656,31 +682,33 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
 
 ## 8. Documentation map (who owns what)
 
+The docs are **NAM-specific** (round 39): the inherited platform's docs were rewritten for NAM or removed (they stay in
+git history). Keep them about NAM's product; the inherited modules appear only as "switched off in the NAM scope".
+`docs/README.md` is the index.
+
 | Doc | Owns |
 |---|---|
-| `README.md` | overview, quick start, doc index |
-| `docs/ENGINEERING.md` | every engineering choice: architecture, stack, subsystems, security, reliability, measured latency, decision log (update when a design decision changes) |
-| `docs/ARCHITECTURE.md` | diagram-level overview |
-| `docs/ARCHITECTURE_COMPONENTS.md` | component diagram (`scripts/build_component_diagram.py` -> `diagrams/platform-component-architecture.svg`) and every flow step by step - update when a module, route, job or connector endpoint changes |
-| `docs/RUN_GUIDE.md` | running the system, loading data, ingesting live in a demo, reset, Docker, troubleshooting |
-| `docs/PRESENTER_GUIDE.md` | what to say/click in a demo, formulas, hard Q&A, numbers to remember, §15 component reference, §16 testing |
-| `docs/DEMO_GUIDE.md` | short demo script |
-| `docs/FEATURES.md` | screens and features |
-| `docs/SECURITY.md` | threat model, hardening, pentest results |
-| `docs/FAILURE_MODES.md` | failure → detection → behaviour → status |
-| `docs/OPERATIONS.md` | settings, jobs, monitoring, access, backups, key rotation |
-| `docs/LLM_TOKENS_AND_COST.md` | measured tokens and cost per component, budget settings |
-| `docs/CONNECTORS.md` | per-connector details (partly generated by `scripts/build_connector_docs.py`) |
-| `docs/CLIENT_DEPLOYMENT_GUIDE.md` | deploying into a client environment: hosting, Entra sign-in, every tool's permissions/settings/egress, the client's own LLM gateway, action rollout, go-live checklist |
-| `docs/DATA_HANDOFF_RECONCILIATION.md` | the platform against the organisation's data-types handoff workbook (scope, every payload type and field, correlation rules, scenarios, generation rules, open items) - update when a connector, stream or field changes |
-| `docs/DEV_VM_SETUP.md` | the internal development / demo VM: size, outbound allow-list, secret handling, CI gates, decommissioning |
-| `docs/INFRASTRUCTURE_AND_COSTS.md` | stakeholder view of infrastructure: per-tool hosting, data flow and normalisation, measured storage per record, retention, capacity, correlation rules, on-prem vs cloud, Azure / LLM cost tables with dated list prices - re-price and re-measure when components, prices or measurements change |
-| `docs/HIGH_AVAILABILITY.md` | no single point of failure: each component's redundancy and failure behaviour, the application's HA guarantees and their tests, Azure / on-prem reference deployments, the Kubernetes package, connection budget, file-store migration, backups, recovery targets, failover drill, limits - update when a component, setting or manifest changes |
-| `docs/client_review/` | the review pack for the client's security / architecture review: solution architecture, tool integrations, data flow and protection, AI / LLM security, risk and governance, deployment and validation (+ SVG diagrams; Word edition via `scripts/build_review_pack.py`) - keep in step with behaviour changes like the other docs |
-| `docs/TEST_REPORT.md` | test rounds, newest first ("Round N" at the top) |
+| `README.md` | overview of CyberDome for NAM, quick start, doc index, third-party data attribution |
+| `docs/ARCHITECTURE.md` | what runs where, components, jobs and their order, every flow step by step, data stores, screens - update when a module, route, job or connector changes |
+| `docs/ENGINEERING.md` | every engineering choice: the platform core and the NAM modules (§9A), security, reliability, testing, the decision log (§25.1 NAM, §25.2 core) |
+| `docs/FEATURES.md` | screens and features, with the NAM tour's screenshots (`docs/screenshots/n*.png`) |
+| `docs/AI_AND_AUTONOMY.md` | the model's features, who decides what, the ladder, guardrails, residency, budgets, cost measurement (no unmeasured cost figures) |
+| `docs/CONNECTORS.md` | generated by `scripts/build_connector_docs.py` (NAM-scope connectors only) - regenerate after changing a connector |
+| `docs/DEPLOYMENT_GUIDE.md` | deploying into NAM's environment: hosting / residency, database, secrets, Entra, each NAM tool, the LLM gateway, rollout by phase, first syncs, go-live checklist, open decisions |
+| `docs/OPERATIONS.md` | settings, jobs, monitoring, access, backups, every module's operation |
+| `docs/HIGH_AVAILABILITY.md` | no single point of failure, the Kubernetes package, backups, failover drill |
+| `docs/SECURITY.md` | threat model, NAM's decision rules, penetration tests (round 39 in full), supply chain, operator responsibilities |
+| `docs/FAILURE_MODES.md` | failure → detection → behaviour → status, NAM's tools first |
+| `docs/RUN_GUIDE.md` | running, accounts, sample data, driving each module, reset, Docker, troubleshooting |
+| `docs/PRESENTER_GUIDE.md` | the walkthrough, every formula (Dome Score, coverage, the DLP decision table), hard Q&A, numbers to remember |
+| `docs/REQUIREMENTS_TRACEABILITY.md` | NAM requirement → implementation → test |
+| `docs/TEST_REPORT.md` | test rounds, newest first ("Round N" at the top); NAM rounds in full, the core's history summarised |
 | `docs/FEATURE_VERIFICATION.md` | generated by `scripts/verify_features.py` - don't hand-edit |
-| `docs/REQUIREMENTS_TRACEABILITY.md` | requirement → implementation → test |
-| `docs/phishing/` | the ML engine's own docs |
+| `docs/client_review/` | the review pack for NAM (9 documents, `diagrams/` generated by the SVG script in the round-39 notes; Word edition via `scripts/build_review_pack.py`) |
+
+Not in git: `docs/client_deck_nam/` (NAM's sources), `docs/client_review/word/` and `deck/` (generated / old),
+`docs/DATA_HANDOFF_RECONCILIATION.md` and `docs/TEAM_STRUCTURE_PLAN.docx` (the earlier project's, left on disk).
+`scripts/build_component_diagram.py` draws the full-scope platform and is not part of the NAM docs.
 
 ---
 
@@ -798,9 +826,12 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
   `connectors/tools/_common.py`. Uploaded XML is checked with `core/text.unsafe_xml` (DTD / entity, or a UTF-16 / 32
   encoding that would hide one from a byte check).
 - **Equal timestamps on Windows**: the clock advances in ~15 ms steps, so "newest first" by time alone is random
-  within a tick - make times strictly increasing (case notes, `JobRun.ordinal`).
-- **`demo` expectations** in the guides (NAM scope: 3 DLP cases, no approvals; full scope: 7+3+3 cases, 37 approvals, 6 open vulnerabilities, 14 DLP alerts, 6 of 10 devices fully covered; the same with or without the ML engine) are real; if you change fixtures or
-  pipelines, re-count and update RUN_GUIDE / PRESENTER_GUIDE.
+  within a tick - make times strictly increasing (case notes, `JobRun.ordinal`, `decisions._after`: a stage change
+  is later than every ruling before it, and every ruling after it later still - drift once counted earlier rulings).
+- **A case the incident pipeline did not cluster is not its to reassess**: cross-tool cases live in `incident` but
+  `reassess_open` and `/incidents/{id}/investigate` leave them alone (a re-run once added unrelated actions).
+- **`demo` expectations** in the guides (NAM scope: 3 DLP + 3 cross-tool cases, 7 approvals, 3 personal-data assessments; full scope: 7 phishing + 6 incident (3 cross-tool) + 3 DLP cases, 43 approvals, 6 open vulnerabilities, 14 DLP alerts, 6 of 10 devices fully covered; the same with or without the ML engine) are real; if you change fixtures or
+  pipelines, re-count and update RUN_GUIDE (§4.1 quotes the demo's output) / PRESENTER_GUIDE (§4).
 - **Browser tour** runs the real scheduler with `SOC_SCHEDULER_START_DELAY=86400`: the heartbeat is live (no
   "Scheduler stopped" banner in screenshots) but no job runs to move figures under the screen-vs-API check. It gives
   the server a local webhook receiver so the Notifications card has a channel, and uploads the stored-XSS probe only
