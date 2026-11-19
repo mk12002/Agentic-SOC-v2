@@ -608,6 +608,11 @@ ticket for approval and checks the fix against Wiz.
 
 ## 10. CyberDome: data protection, control coverage and the Dome Score (first version)
 
+With `SOC_PRODUCT_SCOPE=nam` (the default of this build) the console offers only these screens and the platform
+essentials (cases, approvals, intelligence, watch lists, tuning, integrations, automation policy, AI usage, reports,
+access, audit log); the inherited phishing, vulnerability, cloud-posture, shadow-IT, supplier and ATT&CK screens are
+not shown and their routes do not exist.
+
 Built for an estate whose tools are a DLP product, an identity-protection product, an EDR, a disk-encryption
 manager and a directory. Everything in this section runs on sample data: the five connectors behind it are in fake
 mode until each tool's API is confirmed (section 6). What is not built yet is listed at the end.
@@ -684,7 +689,9 @@ mode until each tool's API is confirmed (section 6). What is not built yet is li
 | Not measured is not zero | Privileged access and web have no connected tool yet: shown as not measured and left out of the mean. |
 | Recomputable | Every response carries the factors and their effect in points. |
 | Trend | One score is stored per day; the change over 30 days is shown once two days exist. |
-| CISO view | Score, critical cases, the DLP queue, coverage, tool health, what lowers the score, devices to fix first, rules to tune - each figure the same as on its own screen. |
+| CISO view | The home screen in the NAM scope: the Dome Score gauge with its band and 30-day trend; five domain tiles; what would raise the score most, in points, with where to fix it; why the score moved, per domain; the DLP week and the people to look at first; the AI ladder per decision type; governance (audit chain, approvals, kill switch, policy, the model's use); changes to the tools; tool health; devices to fix first; open critical and high cases - each figure the same as on its own screen. |
+| In plain words | A brief written by rule from the computed figures; on request the AI writes it from the same figures, every statement cited. |
+| Board report and weekly brief | One click from the CISO view: a PowerPoint board report and a Word CISO brief, built from the same figures. |
 
 ### 10.5 Not built yet
 
@@ -692,4 +699,4 @@ Connectors for the privileged-access tool, the web application firewall, the SIE
 (tenant-verified) versions of the five connectors · cross-tool correlation rules joining identity, privileged-access, DLP and encryption
 signals · actions (session revoke, forced MFA, isolation, credential rotation) and execution through a SOAR · the
 decide stage · regulatory control mappings, breach assessment and reporting
-clock · the board report · the pilot scorecard KPIs.
+clock · the pilot scorecard KPIs.

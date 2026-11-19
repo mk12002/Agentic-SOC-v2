@@ -142,6 +142,11 @@ def check_entry(name: str, entry: Any, manifests: dict[str, Any], *, default_mod
 
     out: list[Problem] = []
     if name not in manifests:
+        from soc_platform.connectors.registry import discover
+        from soc_platform.core import scope
+
+        if not scope.connector_in_scope(name) and name in discover():
+            return []           # an installed tool this product scope does not offer: its entry is ignored, not wrong
         hint = suggest(name, sorted(manifests))
         return [Problem("error", name, "no connector of this name is installed",
                         hint or f"installed connectors: {', '.join(sorted(manifests))}")]

@@ -65,6 +65,7 @@ KNOWN_WORKFLOWS: dict[str, tuple[str, str, str]] = {
     "report.plan": ("small", "person", "Plans a report described in words"),
     "tuning.draft": ("small", "person", "Turns a lead's tuning request in words into a draft rule to check"),
     "dlp.investigate": ("small", "scheduled", "Chooses which read-only look-ups from a fixed menu investigate a DLP alert"),
+    "posture.explain": ("small", "person", "The Dome Score in plain words for the CISO, from the computed factors"),
     "dlp.disposition": ("small", "scheduled", "The AI's own close / escalate decision on a DLP alert, stored beside the computed one"),
     "report.section.*": ("large", "person", "One section of a generated report"),
     "report.daily_exposure": ("small", "scheduled", "Daily exposure report commentary"),

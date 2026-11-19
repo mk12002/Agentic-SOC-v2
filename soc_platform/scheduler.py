@@ -58,7 +58,7 @@ def due_jobs(db: Any) -> list[str]:
     with db.session() as s:
         last = dict(s.execute(select(JobRun.job, func.max(JobRun.started_at)).group_by(JobRun.job)).all())
     out = []
-    for name in jobs.JOBS:
+    for name in jobs.active():
         started = last.get(name)
         if started is not None and started.tzinfo is None:
             from datetime import UTC

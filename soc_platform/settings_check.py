@@ -54,6 +54,7 @@ SPEC: dict[str, tuple[str, Any]] = {
     "SOC_LOG_FORMAT": ("choice", ("json", "text")),
     "SOC_NOTIFY_MIN_SEVERITY": ("choice", ("informational", "low", "medium", "high", "critical")),
     "SOC_PHISHING_ENGINE": ("choice", ("auto", "1", "0", "true", "false", "on", "off", "yes", "no")),
+    "SOC_PRODUCT_SCOPE": ("choice", ("nam", "full")),
     "SOC_LLM_MAX_TOKENS_FIELD": ("choice", ("max_tokens", "max_completion_tokens")),
     "SOC_PORT": ("int", (1, 65535)),
     "SOC_API_WORKERS": ("int", (1, 256)),

@@ -90,8 +90,8 @@ tokens; a full demo run is about 50k). Prompts (redacted) and responses are kept
 | posture | 1 h | read what each tool reports about its own health (certificates, jobs, directory import); store the day's posture score |
 | follow_up | 24 h | ITSM ticket sync (+ closure validation), weekly follow-up per remediation plan (`SOC_VM_FOLLOWUP_DAYS`, default 7), exception expiry |
 | intelligence | 10 min | risk + correlation + drift, insight narration |
-| daily_report | 24 h | daily exposure report |
-| weekly_reports | 7 days | weekly VM report (Word) and weekly management deck (PowerPoint), in Reports |
+| daily_report | 24 h | daily exposure report (full scope only) |
+| weekly_reports | 7 days | NAM scope: the CyberDome weekly CISO brief (Word). Full scope: weekly VM report (Word) and weekly management deck (PowerPoint). In Reports |
 | retention | 24 h | prune raw payloads / emails / prompts / access log / old telemetry events per policy |
 | self_check | 1 h | platform consistency checks (see below) |
 | notify | 1 min | send new findings at or above the threshold to the configured Teams / Slack / webhook channels; retry failures |
@@ -149,6 +149,7 @@ SOC_PUBLIC_URL=https://soc.example    # optional: messages link to the console
 | `SOC_LLM_CONCURRENCY` | 4 | Model calls in flight at once for batches (finding narratives, report sections); keep under the provider's rate limit |
 | `SOC_BRIEF_CACHE_SECONDS` | 900 | Reuse an unchanged situation brief |
 | `SOC_LLM_EXPLAIN_AUTO_CLOSED` | 0 | 1 = the model also explains reports that auto-close |
+| `SOC_PRODUCT_SCOPE` | nam | What this deployment offers (`core/scope.py`). `nam`: CyberDome for NAM - NAM's tools (Forcepoint DLP, Silverfort, Trend Micro, Trellix ePO, the directory export, ServiceNow / Jira / ownership CSV, the generic SIEM / SOAR webhook) and their modules, plus the platform essentials. `full`: every inherited module too (phishing and its ML engine, vulnerability management, cloud posture, shadow IT, supplier risk, ATT&CK coverage, the earlier estate's tools). Out of scope = not listed, built or synced; jobs not scheduled; routes 404; screens hidden; report sections not offered. No data changes when it is switched |
 | `SOC_PHISHING_ENGINE` | auto | The trained ML engine analyses reported e-mail with the heuristic analyser: `auto` = when the engine's libraries are installed (`requirements/phishing.txt`: scikit-learn, XGBoost, LangGraph; no PyTorch), `1` = on, `0` = heuristic only |
 | `SOC_PHISHING_SANDBOX` | 0 | 1 = also run the engine's sandbox agent (only with an isolated detonation host configured; without one its static fallback measured no better than chance) |
 | `SOC_PHISHING_ENGINE_LOG_LEVEL` | WARNING | Log level of the in-process engine (it logs every decision step at INFO) |
@@ -543,7 +544,8 @@ Audited as `dlp.investigated`.
   this is shown as "not reported", never as healthy. Days to expiry and lateness are counted from the tool's own
   newest report.
 
-**Posture score and the CISO view** - *Operate -> CISO view*; needs all-domain scope.
+**Posture score and the CISO view** - *Operate -> Dome Score* (the home screen of an all-domain user in the NAM
+scope); needs all-domain scope.
 
 * `GET /api/v1/dashboard/posture`, `GET /api/v1/dashboard/ciso` (`read`, all domains). The score's formula is in
   `intelligence/posture.py`; it is version `v1-draft` and **its weights are a draft to be agreed with the CISO** (the
@@ -551,6 +553,22 @@ Audited as `dlp.investigated`.
   left out of the mean. Each response carries the factors, so the score can be recomputed by hand.
 * The `posture` job stores one score per day (`posture_snapshots`); the change shown is between the oldest and the
   newest stored day of the last 30. Until two days are stored, no change is shown.
+* **What would raise the score most** (`levers`): every reduction with the points the whole score would regain if it
+  were removed - a domain factor by its domain's share of the measured weight, a whole-score penalty in full - and the
+  screen where it is fixed. An upper bound: a domain held at 0 or 100 regains less.
+* **Why the score moved** (`movement`): today's computed score against the oldest stored day of the last 30, per
+  domain, with each domain's contribution; the rest is the whole-score penalties and which domains are measured.
+* The view also carries the DLP week (the 7 days up to the newest alert against the 7 before; the share the computed
+  check would not close), the people with the most escalated DLP alerts in 30 days, every decision type's stage and
+  agreement, configuration changes, governance (the audit chain as last verified by the self-check, approvals
+  waiting, kill switch, autonomy policy version, the model's use in 30 days) and personal-data escalations awaiting a
+  person's reportability decision.
+* **In plain words**: written by rule from the computed figures (P1, P2 ...) on every load; *Explain with AI*
+  (`POST /api/v1/dashboard/ciso/explain`, the person's AI limits apply; feature `posture.explain`, small) has the model
+  write it from the same figures, every statement cited, uncited statements and figures removed.
+* **Reports**: *Weekly brief* (`cyberdome_ciso_weekly`, Word) and *Board report* (`cyberdome_board_monthly`,
+  PowerPoint) are standard reports built from the same document; report sections `posture`, `control_coverage`,
+  `tool_health`, `data_protection`, `ai_autonomy`, `config_changes`, `governance`.
 
 ## Tuning (noise, attention, exercises, phishing auto-close)
 

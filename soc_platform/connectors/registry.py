@@ -245,7 +245,11 @@ def dev_sign_in_active() -> bool:
 class ConnectorRegistry:
     def __init__(self, config: dict[str, Any] | None = None, *, default_mode: str = "fake",
                  manifests: dict[str, ConnectorManifest] | None = None, version: int | None = None) -> None:
-        self.manifests = manifests if manifests is not None else discover()
+        from soc_platform.core import scope
+
+        found = manifests if manifests is not None else discover()
+        # the product scope (core/scope.py): a tool outside it is not offered at all - not listed, built or synced
+        self.manifests = {n: m for n, m in found.items() if scope.connector_in_scope(n)}
         raw = (config or {}).get("connectors", {}) if isinstance(config, dict) else {}
         self.config: dict[str, Any] = raw if isinstance(raw, dict) else {}
         self.default_mode = default_mode
@@ -270,7 +274,9 @@ class ConnectorRegistry:
     @classmethod
     def all_fake(cls) -> ConnectorRegistry:
         """Every discovered connector enabled in fixture mode (demos, tests, local dev)."""
-        manifests = discover()
+        from soc_platform.core import scope
+
+        manifests = {n: m for n, m in discover().items() if scope.connector_in_scope(n)}
         return cls({"connectors": {n: {"enabled": True, "mode": "fake"} for n in manifests}},
                    manifests=manifests)
 

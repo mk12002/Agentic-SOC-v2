@@ -48,8 +48,20 @@ def _clamp(v: float) -> float:
     return round(max(0.0, min(100.0, v)), 1)
 
 
-def _factor(label: str, value: Any, effect: float | None = None) -> dict[str, Any]:
-    return {"label": label, "value": value, "effect": None if effect is None else round(effect, 1)}
+def _factor(label: str, value: Any, effect: float | None = None, *, action: str | None = None,
+            link: str | None = None) -> dict[str, Any]:
+    """One input of the score. ``action`` / ``link``: what removes this reduction, and the screen where it is done."""
+    out = {"label": label, "value": value, "effect": None if effect is None else round(effect, 1)}
+    if action:
+        out |= {"action": action, "link": link}
+    return out
+
+
+BANDS = ((85, "strong"), (70, "fair"), (50, "weak"), (0, "poor"))      # draft, like the weights
+
+
+def band(score: float | None) -> str | None:
+    return None if score is None else next(name for floor, name in BANDS if score >= floor)
 
 
 def _identity(session: Session) -> dict[str, Any]:
@@ -71,7 +83,9 @@ def _identity(session: Session) -> dict[str, Any]:
     return {"score": score, "measured": True, "reason": None,
             "factors": [_factor("People in the directory", len(people)),
                         _factor("People with a high-risk sign-in in the last 7 days of data", len(risky),
-                                -100 * len(risky) / len(people))]}
+                                -100 * len(risky) / len(people),
+                                action=f"Review the high-risk sign-ins of {len(risky)} person(s) and reset their sessions",
+                                link="#/cases")]}
 
 
 def posture(session: Session) -> dict[str, Any]:
@@ -84,7 +98,8 @@ def posture(session: Session) -> dict[str, Any]:
     if edr and edr["covered_percent"] is not None:
         domains["endpoint"] = {"score": _clamp(edr["covered_percent"]), "measured": True, "reason": None, "factors": [
             _factor("Devices that should carry the EDR agent", edr["applicable"]),
-            _factor("Devices without a reporting EDR agent", edr["short"], edr["covered_percent"] - 100)]}
+            _factor("Devices without a reporting EDR agent", edr["short"], edr["covered_percent"] - 100,
+                    action=f"Install or repair the EDR agent on {edr['short']} device(s)", link="#/controls")]}
     else:
         domains["endpoint"] = {"score": None, "measured": False, "factors": [],
                                "reason": "No endpoint tool and device baseline are connected yet."}
@@ -98,11 +113,15 @@ def posture(session: Session) -> dict[str, Any]:
         cases = session.execute(select(func.count()).select_from(Case).where(
             Case.domain == "dlp", Case.status != "closed")).scalar() or 0
         c_pen = min(15, 3 * cases)
+        # each control counts for its share of the mean, so the factors add up to the domain score
         domains["data_protection"] = {"score": _clamp(base - h_pen - c_pen), "measured": True, "reason": None, "factors": [
-            *[_factor(f"{c['label']}: devices covered", f"{c['covered']} of {c['applicable']}", None) for c in dp],
-            _factor("Mean coverage of the data-protection controls", round(base, 1), base - 100),
-            _factor("Tool-health findings on data-protection tools", f"{crit} critical, {warn} warning", -h_pen),
-            _factor("Open DLP cases", cases, -c_pen)]}
+            *[_factor(f"{c['label']}: devices covered", f"{c['covered']} of {c['applicable']}",
+                      (c["covered_percent"] - 100) / len(dp),
+                      action=f"{c['label']}: fix {c['applicable'] - c['covered']} device(s)", link="#/controls")
+              for c in dp],
+            _factor("Tool-health findings on data-protection tools", f"{crit} critical, {warn} warning", -h_pen,
+                    action="Clear the tool-health findings of the DLP and encryption tools", link="#/controls"),
+            _factor("Open DLP cases", cases, -c_pen, action=f"Close or resolve {cases} open DLP case(s)", link="#/dlp")]}
     else:
         domains["data_protection"] = {"score": None, "measured": False, "factors": [],
                                       "reason": "No data-protection tool and device baseline are connected yet."}
@@ -123,15 +142,41 @@ def posture(session: Session) -> dict[str, Any]:
         weighted = sum(WEIGHTS[d] * v["score"] for d, v in measured.items()) / total
         score = round(max(0.0, min(100.0, weighted - case_pen - health_pen)))
     ordered = [{"id": d, "label": LABELS[d], "weight": WEIGHTS[d], **domains[d]} for d in WEIGHTS]
+    levers = _levers(ordered, measured, case_pen, health_pen, crit_cases, health["counts"]["critical"])
     movers = sorted((f | {"domain": LABELS[d["id"]]} for d in ordered for f in d["factors"] if (f["effect"] or 0) < 0),
                     key=lambda f: (f["effect"], f["label"]))
-    return {"score": score, "formula_version": FORMULA_VERSION,
+    return {"score": score, "band": band(score), "bands": [{"from": f, "band": b} for f, b in BANDS],
+            "formula_version": FORMULA_VERSION,
             "weights_status": "draft - to be agreed with the CISO", "domains": ordered,
             "weighted_mean": None if weighted is None else round(weighted, 1),
-            "penalties": [_factor("Open critical cases", crit_cases, -case_pen),
-                          _factor("Critical tool-health findings", health["counts"]["critical"], -health_pen)],
-            "largest_reductions": movers[:6], "measured_domains": sorted(measured),
+            "penalties": [_factor("Open critical cases", crit_cases, -case_pen,
+                                  action=f"Resolve {crit_cases} open critical case(s)", link="#/cases"),
+                          _factor("Critical tool-health findings", health["counts"]["critical"], -health_pen,
+                                  action="Fix the critical tool-health findings", link="#/controls")],
+            "largest_reductions": movers[:6], "levers": levers, "measured_domains": sorted(measured),
             "coverage_percent": cov.get("coverage_percent")}
+
+
+def _levers(ordered: list[dict[str, Any]], measured: dict[str, Any], case_pen: float, health_pen: float,
+            crit_cases: int, crit_findings: int) -> list[dict[str, Any]]:
+    """What would raise the score most: each reduction with the points the whole score would regain if it were
+    removed (a domain factor counts by its domain's share of the measured weight). An upper bound - a domain score
+    held at 0 or 100 regains less."""
+    total = sum(WEIGHTS[d] for d in measured)
+    out = []
+    for d in ordered:
+        if not d["measured"]:
+            continue
+        for f in d["factors"]:
+            if (f["effect"] or 0) < 0 and f.get("action"):
+                out.append({"domain": d["label"], "label": f["label"], "value": f["value"], "action": f["action"],
+                            "link": f["link"], "gain": round(-f["effect"] * WEIGHTS[d["id"]] / total, 1)})
+    for label, n, pen, action, link in (("Open critical cases", crit_cases, case_pen, f"Resolve {crit_cases} open critical case(s)", "#/cases"),
+                                        ("Critical tool-health findings", crit_findings, health_pen, "Fix the critical tool-health findings", "#/controls")):
+        if pen:
+            out.append({"domain": "Whole score", "label": label, "value": n, "action": action, "link": link,
+                        "gain": round(float(pen), 1)})
+    return sorted(out, key=lambda x: (-x["gain"], x["label"]))
 
 
 def snapshot(session: Session) -> dict[str, Any]:

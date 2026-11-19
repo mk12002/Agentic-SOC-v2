@@ -28,6 +28,7 @@ from soc_platform import __version__
 from soc_platform.config import Settings, get_settings
 from soc_platform.connectors.base import SyncRunner
 from soc_platform.connectors.registry import ConfigError, ConnectorRegistry
+from soc_platform.core import scope as _scope
 from soc_platform.core.access import AccessService, kill_switch_on, permissions_matrix
 from soc_platform.core.actions import ActionService
 from soc_platform.core.audit import AuditLog
@@ -209,7 +210,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             event("http.rate_limited", 30, path=request.url.path[:200], client_ip=client)
             return JSONResponse({"detail": "rate limit exceeded"}, status_code=429, headers={"Retry-After": "5"})
         t0 = __import__("time").perf_counter()
-        response = await call_next(request)
+        if _scope.route_in_scope(request.url.path):
+            response = await call_next(request)
+        else:                       # a module this product scope does not offer (core/scope.py): it does not exist here
+            response = JSONResponse({"detail": "not found"}, status_code=404)
         if request.url.path.startswith("/api/") or request.url.path == "/metrics":
             _log_access(request, response.status_code, (__import__("time").perf_counter() - t0) * 1000)
         for k, v in SECURITY_HEADERS.items():
@@ -741,7 +745,7 @@ def me(p: Principal = Depends(current_user)) -> dict[str, Any]:
     return {"id": p.id, "name": p.name, "roles": sorted(r.value for r in p.roles),
             "permissions": sorted(x.value for x in Perm if p.can(x)), "domains": sorted(p.domains),
             "role_scopes": p.role_scopes(), "mfa": p.mfa, "auth_method": p.auth_method,
-            "service_account": p.is_service, "break_glass": p.break_glass}
+            "service_account": p.is_service, "break_glass": p.break_glass, "product": _scope.describe()}
 
 
 # ----------------------------------------------------------------------------- connectors
@@ -2458,7 +2462,7 @@ def job_history(job: str | None = None, limit: int = Query(100, ge=1, le=1000), 
     """Scheduled job runs, retries and dead letters (VM-T11)."""
     from soc_platform import jobs
 
-    return {"jobs": {n: {"interval_env": e, "default_seconds": d} for n, (e, d) in jobs.JOBS.items()},
+    return {"jobs": {n: {"interval_env": e, "default_seconds": d} for n, (e, d) in jobs.JOBS.items() if n in jobs.active()},
             "runs": jobs.history(s, job=job, limit=limit)}
 
 
@@ -2467,7 +2471,7 @@ def job_replay(name: str, p: Principal = Depends(need(Perm.MANAGE_CONNECTORS)), 
     """Replay / run a job now. Jobs are idempotent, so a replay never duplicates work or actions."""
     from soc_platform import jobs
 
-    if name not in jobs.JOBS:
+    if name not in jobs.active():
         raise HTTPException(404, "unknown job")
     AuditLog(s).append(actor_type=p.actor_type, actor_id=p.id, event_type="job.replay", subject_type="job",
                        subject_id=name, payload={})
@@ -3110,7 +3114,7 @@ def decisions_proposal(proposal_id: int, verb: str, body: ReasonBody | None = No
     return {"id": row.id, "decision_type": row.decision_type, "stage": row.stage, "status": row.status}
 
 
-_HEALTH_TOOLS = ("forcepoint_dlp", "silverfort", "trend_micro", "trellix_epo", "directory_export")
+from soc_platform.intelligence.ciso import HEALTH_TOOLS as _HEALTH_TOOLS
 
 
 def _health_tools() -> list[str]:
@@ -3145,26 +3149,27 @@ def dash_posture(_: Principal = Depends(need(Perm.READ, "*")), s: Session = Depe
 
 @app.get("/api/v1/dashboard/ciso")
 def dash_ciso(_: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends(db_session, scope="function")):
-    """One screen for the CISO: the posture score, coverage, tool health, the DLP queue and the worst open cases.
-    Every figure is the one its own screen shows (the same functions)."""
-    from soc_platform.core.schema import severity_rank
-    from soc_platform.intelligence.control_coverage import coverage
-    from soc_platform.intelligence.posture import posture, trend
-    from soc_platform.intelligence.tool_health import tool_health
+    """One screen for the CISO (intelligence/ciso.py): the Dome Score with why it moved and what would raise it most,
+    coverage, tool health, the DLP week, the AI ladder, changes, cases, governance. Every figure is the one its own
+    screen shows (the same functions)."""
+    from soc_platform.intelligence.ciso import ciso, explain
 
-    cov = coverage(s, limit=5)
-    dlp = _dlp(s).summary()
-    worst = sorted(s.execute(select(Case).where(Case.status != "closed", Case.severity.in_(("critical", "high")))).scalars(),
-                   key=lambda c: (-severity_rank(c.severity), c.created_at, c.id))
-    return {"posture": {**posture(s), "trend": trend(s)},
-            "coverage": {k: cov.get(k) for k in ("available", "reason", "coverage_percent", "fully_covered", "baseline",
-                                                 "controls", "not_measured", "devices_short", "devices_short_count")},
-            "tool_health": tool_health(s, _health_tools()),
-            "dlp": {k: dlp[k] for k in ("alerts", "awaiting_a_person", "by_status", "by_computed", "personal_data_alerts",
-                                        "ai_decided", "ai_and_computed_would_close", "open_cases", "noisy_rules", "model")},
-            "cases": {"critical": sum(c.severity == "critical" for c in worst), "high": sum(c.severity == "high" for c in worst),
-                      "items": [{"id": c.id, "domain": c.domain, "title": c.title, "severity": c.severity,
-                                 "status": c.status, "created_at": _iso(c.created_at)} for c in worst[:8]]}}
+    doc = ciso(s, registry(), health_tools=_health_tools(), settings=get_settings(),
+               model_on=get_settings().llm_provider != "none")
+    return {**doc, "brief": explain(doc, None)}          # by rule; the model writes only when asked (POST .../explain)
+
+
+@app.post("/api/v1/dashboard/ciso/explain")
+def dash_ciso_explain(p: Principal = Depends(need(Perm.READ, "*")), s: Session = Depends(db_session, scope="function")):
+    """The Dome Score in plain words: the model writes from the computed evidence (P1, P2 ...) and cites it; without
+    the model the evidence is written out by rule. No figure comes from the model."""
+    from soc_platform.intelligence.ciso import ciso, explain
+
+    doc = ciso(s, registry(), health_tools=_health_tools(), settings=get_settings(),
+               model_on=get_settings().llm_provider != "none")
+    s.commit()                      # nothing held while the model writes
+    gw = llm(s, p)
+    return _with_notice(explain(doc, gw), gw)
 
 
 # ----------------------------------------------------------------------------- configuration snapshots

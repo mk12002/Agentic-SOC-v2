@@ -1617,37 +1617,124 @@ const scoreBar = v => `<div class="bar"><span style="width:${Math.max(2, Math.mi
 const signed = v => (v > 0 ? '+' : '') + v;
 const healthRows = tools => tools.map(t => `<div class="list-row"><div class="grow"><div class="t-title">${esc(toolName(t.tool))}</div><div class="t-sub">${esc(t.headline)}</div></div>${status(HEALTH_K[t.status] || 'info', HEALTH_LABEL[t.status] || cap(t.status))}</div>`).join('') || empty('No tool has reported its health yet.');
 
+// The CISO view (Dome Score). Every figure is the server's; the plain-words brief is written by rule, and by the model
+// only when asked (and then every sentence cites a computed figure).
+const BAND_COLOR = {strong: 'var(--c-low)', fair: 'var(--c-medium)', weak: 'var(--c-high)', poor: 'var(--c-critical)'};
+const STAGES = ['shadow', 'recommend', 'decide'];
+function domeGauge(score, band) {
+  const w = 260, h = 150, cx = 130, cy = 132, r = 108;
+  const pt = v => { const a = Math.PI * (1 - v / 100); return [cx + r * Math.cos(a), cy - r * Math.sin(a)]; };
+  const arc = (a, b, col, sw) => { const [x1, y1] = pt(a), [x2, y2] = pt(b); return `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} A${r} ${r} 0 0 1 ${x2.toFixed(1)} ${y2.toFixed(1)}" fill="none" stroke-width="${sw}" stroke-linecap="round" style="stroke:${col}"/>`; };
+  const ticks = [50, 70, 85].map(v => { const [x, y] = pt(v); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" style="fill:var(--surface)"/>`; }).join('');
+  const val = score == null ? '' : arc(0.5, Math.max(1, Math.min(99.5, score)), BAND_COLOR[band] || 'var(--dome)', 16);
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-width:300px" role="img" aria-label="Dome Score ${esc(score ?? 'not measured')} of 100">
+    ${arc(0.5, 99.5, 'var(--surface-3)', 16)}${val}${ticks}
+    <text x="${cx}" y="${cy - 22}" text-anchor="middle" style="fill:var(--text);font-size:44px;font-weight:700">${score == null ? '–' : esc(score)}</text>
+    <text x="${cx}" y="${cy + 2}" text-anchor="middle" style="fill:var(--text-2);font-size:13px">${score == null ? 'not measured yet' : 'of 100 · ' + esc(cap(band))}</text>
+    <text x="14" y="${h - 2}" style="fill:var(--text-3);font-size:11px">0</text><text x="${w - 30}" y="${h - 2}" style="fill:var(--text-3);font-size:11px">100</text></svg>`;
+}
+function sparkline(points) {
+  const pts = points.filter(p => p.score != null);
+  if (pts.length < 2) return `<div class="small muted">${pts.length ? 'One day recorded so far: the trend line starts with the second day.' : 'No day recorded yet.'}</div>`;
+  const w = 320, h = 64, lo = Math.min(...pts.map(p => p.score)) - 2, hi = Math.max(...pts.map(p => p.score)) + 2;
+  const xy = pts.map((p, i) => [8 + i * (w - 16) / (pts.length - 1), h - 8 - (p.score - lo) / Math.max(1, hi - lo) * (h - 16)]);
+  const [lx, ly] = xy[xy.length - 1];
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="Dome Score over ${pts.length} days, from ${esc(pts[0].score)} to ${esc(pts[pts.length - 1].score)}">
+    <polyline fill="none" stroke-width="2.5" style="stroke:var(--dome)" points="${xy.map(([x, y]) => x.toFixed(1) + ',' + y.toFixed(1)).join(' ')}"/>
+    <circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="4" style="fill:var(--dome)"/></svg>
+    <div class="small muted inline" style="justify-content:space-between"><span>${esc(day(pts[0].day))} · ${esc(pts[0].score)}</span><span>${esc(day(pts[pts.length - 1].day))} · ${esc(pts[pts.length - 1].score)}</span></div>`;
+}
+const ladder = stage => `<span class="ladder" aria-label="stage ${esc(stage)}">${STAGES.map(st => `<span class="rung${st === stage ? ' on' : STAGES.indexOf(st) < STAGES.indexOf(stage) ? ' done' : ''}">${esc(cap(st))}</span>`).join('')}</span>`;
+const briefHtml = b => `${b.llm_notice ? `<div class="small muted" style="margin-bottom:6px">${esc(b.llm_notice)}</div>` : ''}<p style="margin:0 0 10px;line-height:1.55">${esc(b.summary)}</p>
+  <div class="stack" style="gap:6px">${(b.claims || []).map(c => `<div class="small">${esc(c.text)} ${(c.evidence_ids || []).map(i => `<span class="tag" title="${esc((b.evidence.find(e => e.id === i) || {}).claim || '')}">${esc(i)}</span>`).join('')}</div>`).join('')}</div>
+  <div class="t-sub" style="margin-top:8px">${b.source === 'deterministic' ? 'Written by rule from the computed figures.' : 'Written by the AI from the computed figures; every statement cites one (hover a tag). Uncited statements and figures are removed.'}</div>`;
+
 async function Ciso() {
   const __g = GEN;
-  const d = await api('/api/v1/dashboard/ciso'), p = d.posture, cov = d.coverage, h = d.tool_health, x = d.dlp;
+  const d = await api('/api/v1/dashboard/ciso'), p = d.posture, cov = d.coverage, h = d.tool_health, x = d.dlp, w = x.week, gv = d.governance, mv = p.movement;
   const change = p.trend.change;
-  const domains = p.domains.map(m => `<div class="list-row"><span class="grow">${esc(m.label)}</span>${m.measured
-    ? `<div style="width:120px">${scoreBar(m.score)}</div><span class="score">${esc(Math.round(m.score))}</span>`
-    : `<span class="muted small" title="${esc(m.reason || '')}">Not measured</span>`}</div>`).join('');
-  const why = [...p.largest_reductions.map(f => `<div class="list-row small"><div class="grow">${esc(f.label)}<div class="t-sub">${esc(f.domain)} · ${esc(f.value)}</div></div><span class="score">${esc(signed(f.effect))}</span></div>`),
-    ...p.penalties.filter(f => f.effect).map(f => `<div class="list-row small"><div class="grow">${esc(f.label)}<div class="t-sub">Whole score · ${esc(f.value)}</div></div><span class="score">${esc(signed(f.effect))}</span></div>`)].join('');
-  setMainG(__g, page('Dome Score', 'The CISO view: one view across the connected security tools. Every figure is computed from stored records and opens onto its evidence. The posture score uses draft weights, to be agreed with the CISO.',
-    btn('Refresh', 'refreshPage', [], 'ghost', 'refresh'),
-    `<div class="grid g-kpi">
-      ${kpi('Dome Score (draft)', p.score == null ? '–' : String(p.score), p.score == null ? 'nothing measured yet' : change == null ? 'no earlier day recorded yet' : `${esc(signed(change))} over ${esc(p.trend.days)} days`)}
+  const tiles = p.domains.map(m => {
+    const mvd = mv && mv.domains.find(r => r.id === m.id);
+    const worst = m.factors.filter(f => (f.effect || 0) < 0).sort((a, b) => a.effect - b.effect)[0];
+    return `<div class="card dom-tile${m.measured ? '' : ' off'}"><div class="card-b">
+      <div class="inline" style="justify-content:space-between"><span class="small strong">${esc(m.label)}</span><span class="t-sub">weight ${esc(m.weight)}</span></div>
+      ${m.measured ? `<div class="dom-score">${esc(Math.round(m.score))}${mvd && mvd.change ? `<span class="delta ${mvd.change < 0 ? 'down' : 'up'}">${esc(signed(mvd.change))}</span>` : ''}</div>${scoreBar(m.score)}
+        <div class="t-sub" style="margin-top:6px;white-space:normal">${worst ? esc(worst.label) + ': ' + esc(worst.value) : 'Nothing lowers this domain.'}</div>`
+      : `<div class="dom-score muted">–</div><div class="t-sub" style="white-space:normal">${esc(m.reason || 'Not measured')}</div>`}</div></div>`;
+  }).join('');
+  const levers = p.levers.slice(0, 6).map((l, i) => `<div class="list-row"><span class="score">${i + 1}</span><div class="grow"><div class="t-title" style="white-space:normal">${esc(l.action)}</div><div class="t-sub">${esc(l.domain)} · ${esc(l.label)}: ${esc(l.value)}</div></div>
+    <span class="gain">+${esc(l.gain)}</span>${go(l.link, 'Open', 'small')}</div>`).join('');
+  const moved = mv ? `<div class="small" style="margin-bottom:8px">Since ${esc(mv.since)}: <b>${esc(mv.from)} → ${esc(mv.to)}</b> (${esc(signed(mv.change))})</div>`
+    + mv.domains.map(r => `<div class="list-row small"><span class="grow">${esc(r.label)}${r.note ? ` <span class="muted">(${esc(r.note)})</span>` : ''}</span><span class="muted">${r.before == null ? '–' : esc(r.before)} → ${r.after == null ? '–' : esc(r.after)}</span><span class="score">${r.contribution == null ? '' : esc(signed(r.contribution))}</span></div>`).join('')
+    + (mv.other ? `<div class="list-row small"><span class="grow muted">Whole-score penalties and domains measured</span><span class="score">${esc(signed(mv.other))}</span></div>` : '')
+    : empty('This is the first day recorded: the change and its causes appear from the second day.');
+  const people = x.people.map(u => `<div class="list-row small"><div class="grow">${entLink(u.entity_id, u.name)}<div class="t-sub">${nf(u.escalated)} escalated · ${nf(u.personal_data)} with personal data</div></div>
+    ${u.risky_sign_in ? '<span class="tag hot">risky sign-in</span>' : ''}${u.privileged ? '<span class="tag hot">privileged</span>' : ''}</div>`).join('');
+  const types = table(['Decision type', 'Stage', {h: 'AI decisions', num: 1}, {h: 'Agreement', num: 1}, 'Target', 'Next step'], d.autonomy.decision_types.map(t => `<tr>
+    <td class="t-title" style="white-space:normal">${esc(t.label)}</td><td>${ladder(t.stage)}</td><td class="num">${nf(t.ai_decisions)}</td>
+    <td class="num">${t.agreement_percent == null ? '–' : esc(t.agreement_percent) + '%'}</td><td class="small">${t.target ? `${esc(t.target.agreement_percent)}% over ${nf(t.target.min_sample)}` : '<span class="muted">not set</span>'}</td>
+    <td class="small" style="white-space:normal">${t.pending ? `Promotion to ${esc(t.pending.stage)} awaits a second lead` : t.eligible ? `Ready for ${esc(t.next_stage)}` : `<span class="muted">${esc(t.blocked_by || '')}</span>`}</td></tr>`));
+  const a = gv.audit;
+  const gov = [
+    ['Audit trail', a.verified == null ? `${nf(a.events)} events · not verified yet (the hourly self-check verifies it)` : a.verified ? `${nf(a.events)} events · hash chain intact up to event ${nf(a.verified_up_to)}, checked ${dt(a.verified_at)}` : 'Hash chain BROKEN - see the audit log', a.verified === false],
+    ['Approvals waiting', `${nf(gv.approvals_waiting)} action(s) await a person · <a href="#/approvals">approvals</a>`, false],
+    ['Automated actions', gv.kill_switch ? 'Halted by the kill switch' : 'Allowed only as the autonomy policy says', gv.kill_switch],
+    ['Autonomy policy', gv.autonomy_policy_version ? 'version ' + esc(gv.autonomy_policy_version) : 'the default (nothing changed)', false],
+    ['AI model', gv.model === 'on' ? `On · ${nf(gv.model_calls_30d)} calls in 30 days · ${nf(gv.model_statements_removed_30d)} uncited statement(s) removed` : 'Off: every figure and disposition is computed', false],
+    ['Personal-data incidents', `${nf(d.regulatory.personal_data_escalations)} escalated; a person decides reportability (DPDP / CERT-In)`, d.regulatory.personal_data_escalations > 0],
+  ].map(([k, v, warn]) => `<div class="list-row small"><span class="strong" style="min-width:150px">${esc(k)}</span><span class="grow${warn ? ' hot-text' : ''}" style="white-space:normal">${v}</span></div>`).join('');
+  const changes = d.changes.recent.map(c => `<div class="list-row small"><div class="grow">${esc(toolName(c.tool))}<div class="t-sub">${dt(c.at)} · ${nf(c.diff.count)} item(s) changed${c.reference ? ' · ' + esc(c.reference) : ''}</div></div>${c.planned ? status('ok', 'Recorded') : status('high', 'Unplanned')}</div>`).join('');
+  setMainG(__g, page('Dome Score', `The CISO view across ${nf(h.tools.length)} connected tools. Every figure is computed from stored records and opens onto its evidence; the score uses formula ${esc(p.formula_version)} with draft weights, to be agreed with the CISO.`,
+    btn('Weekly brief', 'cisoReport', ['cyberdome_ciso_weekly'], 'ghost', 'download') + btn('Board report', 'cisoReport', ['cyberdome_board_monthly'], 'ghost', 'download') + btn('Refresh', 'refreshPage', [], 'ghost', 'refresh'),
+    `<div class="grid ciso-hero">
+      <div class="card"><div class="card-b" style="text-align:center">${domeGauge(p.score, p.band)}
+        <div class="small" style="margin-top:4px">${change == null ? '<span class="muted">No earlier day recorded yet</span>' : `<span class="delta ${change < 0 ? 'down' : 'up'}">${esc(signed(change))}</span> over ${esc(p.trend.days)} days`}</div>
+        <div style="margin-top:10px">${sparkline(p.trend.points)}</div>
+        <div class="t-sub" style="margin-top:8px">${nf(p.measured_domains.length)} of ${nf(p.domains.length)} domains measured · bands: strong 85+, fair 70+, weak 50+ (draft)</div></div></div>
+      ${card('In plain words', `<div id="ciso-brief">${briefHtml(d.brief)}</div>`, {right: d.governance.model === 'on' ? btn('Explain with AI', 'cisoExplain', [], 'sm') : ''})}
+    </div>
+    <div class="grid g-5 mt">${tiles}</div>
+    <div class="grid g-kpi mt">
+      ${kpi('DLP alerts this week', w.available ? nf(w.alerts) : '–', w.available ? `${nf(w.previous)} the week before · <a href="#/dlp">queue</a>` : 'no DLP alert yet')}
+      ${kpi('Needing a person', w.available && w.needs_a_person_percent != null ? w.needs_a_person_percent + '%' : '–', w.available ? `${nf(w.needs_a_person)} of ${nf(w.alerts)} this week; the rest the computed check would close` : '', false)}
+      ${kpi('Personal data', nf(w.available ? w.personal_data : 0), 'DLP alerts this week with PAN / Aadhaar-class data', w.personal_data > 0)}
       ${kpi('Critical cases', nf(d.cases.critical), `${nf(d.cases.high)} high · <a href="#/cases">all cases</a>`, d.cases.critical > 0)}
-      ${kpi('DLP alerts', nf(x.alerts), `${nf(x.awaiting_a_person)} awaiting a person · <a href="#/dlp">queue</a>`)}
       ${kpi('Full control coverage', cov.available ? cov.coverage_percent + '%' : '–', cov.available ? `${nf(cov.devices_short_count)} of ${nf(cov.baseline.devices)} devices short · <a href="#/controls">details</a>` : esc(cov.reason || ''), cov.available && cov.devices_short_count > 0)}
       ${kpi('Tool health', h.counts.critical ? nf(h.counts.critical) + ' critical' : h.counts.warning ? nf(h.counts.warning) + ' warning' : 'Healthy', `${nf(h.tools.length)} tools watched`, h.counts.critical > 0)}
     </div>
     <div class="grid g-2e mt">
-      ${card('Posture by domain', domains, {sub: 'formula ' + esc(p.formula_version)})}
+      ${card('What would raise the score most', levers || empty('Nothing is lowering the score.'), {sub: 'points regained (at most)'})}
+      ${card('Why the score moved', moved, {sub: 'contribution to the whole score'})}
+    </div>
+    <div class="grid g-2e mt">
+      ${card('Data protection this week', w.available ? hbars(Object.entries(w.by_channel).map(([k, v]) => ({label: k.replace('dlp.', '').replace('_', ' '), values: {alerts: v}})), ['alerts'], {label: 'DLP alerts by channel'})
+        + `<div class="mt">${donut(x.by_computed, {close_benign: 'var(--c-low)', escalate: 'var(--c-critical)', review: 'var(--c-medium)'})}</div>
+        ${x.noisy_rules.length ? `<div class="t-sub mt">Rules analysts keep closing: ${x.noisy_rules.map(r => esc(r.rule)).join(' · ')} · <a href="#/dlp">propose a change</a></div>` : ''}` : empty('No DLP alert yet.'), {sub: 'as of ' + esc(dt(w.as_of))})}
+      ${card('People to look at first', people || empty('No escalated DLP alert in the last 30 days.'), {sub: 'escalated DLP alerts, 30 days'})}
+    </div>
+    <div class="mt">${card('AI decisions: earned autonomy', types, {flush: true, sub: esc(d.autonomy.rule)})}</div>
+    <div class="grid g-2e mt">
+      ${card('Governance and assurance', gov, {right: go('#/audit', 'Audit log', 'small')})}
+      ${card('Changes to the tools', `${d.changes.in_progress.length ? `<div class="small" style="margin-bottom:6px">In progress: ${d.changes.in_progress.map(c => esc(toolName(c.tool)) + ' (' + esc(c.reference) + ')').join(', ')}</div>` : ''}${changes || empty('No configuration change since the first snapshot.')}
+        <div class="t-sub" style="margin-top:6px">${nf(d.changes.unplanned_7d)} unplanned in 7 days · exported by ${esc(d.changes.exporting_tools.map(toolName).join(', ') || 'no tool')}</div>`, {right: go('#/config', 'Changes', 'small')})}
+    </div>
+    <div class="grid g-2e mt">
       ${card('Tool health', healthRows(h.tools), {right: go('#/controls', 'Findings', 'small')})}
-    </div>
-    <div class="grid g-2e mt">
-      ${card('What lowers the score', why || empty('Nothing is lowering the score.'), {sub: 'points'})}
-      ${card('Open critical and high cases', d.cases.items.map(c => `<div class="list-row click" data-fn="goTo" data-args="${arg('#/cases/' + c.id)}">${chip(c.severity)}<div class="grow"><div class="t-title">${esc(c.title)}</div><div class="t-sub">${esc(domLabel(c.domain))} · ${esc(cap(c.status))} · opened ${dt(c.created_at)}</div></div></div>`).join('') || empty('No open critical or high case.'))}
-    </div>
-    <div class="grid g-2e mt">
       ${card('Devices to fix first', cov.available ? (cov.devices_short.map(r => `<div class="list-row small"><span class="score">${esc(r.rank)}</span><div class="grow">${entLink(r.entity_id, r.name)}<div class="t-sub">${esc(r.missing.map(m => m.label + ': ' + (STATE_LABEL[m.state] || m.state).toLowerCase()).join(' · '))}</div></div></div>`).join('') || empty('Every listed device has every expected control.')) : empty(cov.reason), {right: go('#/controls', 'All devices', 'small')})}
-      ${card('DLP rules to tune', x.noisy_rules.map(r => `<div class="list-row small"><div class="grow">${esc(r.rule)}<div class="t-sub">analysts closed ${nf(r.closed_benign)} of ${nf(r.decided)} decided alerts as benign</div></div><span class="score">${nf(r.alerts)}</span></div>`).join('') || empty('No rule stands out as noise yet.'), {sub: 'alerts'})}
-    </div>`));
+    </div>
+    <div class="mt">${card('Open critical and high cases', d.cases.items.map(c => `<div class="list-row click" data-fn="goTo" data-args="${arg('#/cases/' + c.id)}">${chip(c.severity)}<div class="grow"><div class="t-title">${esc(c.title)}</div><div class="t-sub">${esc(domLabel(c.domain))} · ${esc(cap(c.status))} · ${c.owner ? 'owner ' + esc(c.owner) : 'no owner yet'} · opened ${dt(c.created_at)}</div></div></div>`).join('') || empty('No open critical or high case.'))}</div>`));
 }
+async function cisoExplain() {
+  const el = $('#ciso-brief'); if (!el) return;
+  el.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>';
+  try { el.innerHTML = briefHtml(await post('/api/v1/dashboard/ciso/explain')); } catch (e) { el.innerHTML = empty('The explanation could not be written. ' + (e.message || '').slice(0, 120)); }
+}
+async function cisoReport(id) {
+  toast('Generating…');
+  const r = await post('/api/v1/reports/build', {template_id: id});
+  await dl('/api/v1/reports/' + r.id + '/download');
+}
+Object.assign(ALLOWED, {cisoExplain, cisoReport});
 
 async function Controls() {
   const __g = GEN;

@@ -466,6 +466,10 @@ def engine_enabled() -> bool:
     installed; ``1`` - on (analysis records an engine error and falls back to the heuristic if they are missing);
     ``0`` - heuristic only."""
     global _ENGINE_AVAILABLE
+    from soc_platform.core import scope
+
+    if not scope.is_full():
+        return False                    # phishing is not part of the NAM product scope: the engine never loads
     mode = (os.environ.get("SOC_PHISHING_ENGINE") or "auto").strip().lower()
     if mode in {"1", "true", "on", "yes"}:
         return True

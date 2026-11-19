@@ -23,6 +23,7 @@ __import__("os").environ.setdefault("SOC_ENVIRONMENT", "test")         # the sui
 __import__("os").environ.setdefault("SOC_EMBEDDED_SCHEDULER", "0")     # tests drive jobs explicitly
 __import__("os").environ.setdefault("SOC_LOG_CONFIGURE", "0")          # pytest captures logs; test_observability.py configures them itself
 __import__("os").environ.setdefault("SOC_PHISHING_ENGINE", "0")        # heuristic by default; test_phishing_engine.py turns the ML engine on
+__import__("os").environ.setdefault("SOC_PRODUCT_SCOPE", "full")         # the inherited suite covers every module; test_scope.py checks the NAM scope
 __import__("os").environ.setdefault("SOC_RAW_PAYLOAD_DIR", __import__("tempfile").mkdtemp(prefix="soc-test-raw-"))
 __import__("os").environ.setdefault("SOC_REPORT_OUTPUT_DIR", __import__("tempfile").mkdtemp(prefix="soc-test-reports-"))
 

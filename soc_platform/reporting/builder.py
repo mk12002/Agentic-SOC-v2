@@ -316,7 +316,133 @@ def src_value(c: Ctx) -> dict:
                               f"{f['KPIs awaiting a baseline']} awaiting a baseline and {f['KPIs without data yet']} without data yet.")}
 
 
+# ---------------------------------------------------------------------------------------------- CyberDome (NAM build)
+# The CISO's own sections: the same document as the Dome Score screen (intelligence/ciso.py), read once per report.
+def _ciso(c: Ctx) -> dict:
+    if getattr(c, "_ciso_doc", None) is None:
+        from soc_platform.config import get_settings
+        from soc_platform.intelligence.ciso import HEALTH_TOOLS, ciso
+
+        st = get_settings()
+        names = set(c.reg.enabled_names()) if c.reg is not None else set()
+        c._ciso_doc = ciso(c.s, c.reg, health_tools=[n for n in HEALTH_TOOLS if n in names], settings=st,
+                           model_on=st.llm_provider != "none")
+    return c._ciso_doc
+
+
+def src_posture(c: Ctx) -> dict:
+    p = _ciso(c)["posture"]
+    mv = p.get("movement")
+    facts: Facts = [("Dome Score", "not measured" if p["score"] is None else p["score"]), ("Band", p["band"] or "not measured"),
+                    ("Formula", f"{p['formula_version']} ({p['weights_status']})"),
+                    ("Change", "no earlier day stored" if not mv else f"{mv['change']:+g} since {mv['since']}"),
+                    ("Domains measured", f"{len(p['measured_domains'])} of {len(p['domains'])}")]
+    facts += [(f"Raise: {lv['action']}", f"up to +{lv['gain']:g} points") for lv in p["levers"][:3]]
+    scores = {d["label"]: d["score"] for d in p["domains"] if d["measured"]}
+    return {"facts": facts, "domain": "*",
+            "chart": charts.from_counts("Dome Score by domain", scores, name="Score") if scores else None,
+            "table": {"header": ["Domain", "Weight", "Score", "Note"],
+                      "rows": [[d["label"], d["weight"], "-" if d["score"] is None else d["score"], d["reason"] or ""]
+                               for d in p["domains"]]},
+            "det": lambda f: (f"The Dome Score is {f['Dome Score']} ({f['Band']}, formula {f['Formula']}); change: {f['Change']}. "
+                              f"{f['Domains measured']} domains are measured.")}
+
+
+def src_control_coverage(c: Ctx) -> dict:
+    cov = _ciso(c)["coverage"]
+    if not cov.get("available"):
+        return {"facts": [("Control coverage", cov.get("reason") or "not available")], "domain": None,
+                "table": {"header": ["Device", "Short of"], "rows": []},
+                "det": lambda f: f"Control coverage: {f['Control coverage']}"}
+    facts: Facts = [("Devices in the baseline", cov["baseline"]["devices"]), ("Fully covered", f"{cov['coverage_percent']}%"),
+                    ("Devices short of a control", cov["devices_short_count"])]
+    facts += [(f"{x['label']} coverage", "-" if x["covered_percent"] is None else f"{x['covered_percent']}%") for x in cov["controls"]]
+    return {"facts": facts, "domain": None,
+            "chart": charts.from_counts("Coverage per control (%)", {x["label"]: x["covered_percent"] or 0 for x in cov["controls"]}, name="%"),
+            "table": {"header": ["Device", "Short of"], "rows": [[r["name"], ", ".join(m["label"] for m in r["missing"])] for r in cov["devices_short"]]},
+            "det": lambda f: (f"{f['Fully covered']} of the {f['Devices in the baseline']} devices in the baseline carry every expected "
+                              f"control; {f['Devices short of a control']} are short of at least one.")}
+
+
+def src_tool_health(c: Ctx) -> dict:
+    h = _ciso(c)["tool_health"]
+    facts: Facts = [("Tools watched", len(h["tools"])), ("Critical findings", h["counts"]["critical"]),
+                    ("Warning findings", h["counts"]["warning"])]
+    facts += [(f["title"], f["severity"]) for f in h["findings"][:4]]
+    return {"facts": facts, "domain": None,
+            "table": {"header": ["Tool", "Status", "Headline"], "rows": [[t["tool"], t["status"].replace("_", " "), t["headline"]] for t in h["tools"]]},
+            "det": lambda f: (f"{f['Tools watched']} tools are watched: {f['Critical findings']} critical and "
+                              f"{f['Warning findings']} warning findings on the tools themselves.")}
+
+
+def src_data_protection(c: Ctx) -> dict:
+    d = _ciso(c)["dlp"]
+    w = d["week"]
+    facts: Facts = [("DLP alerts", d["alerts"]), ("Awaiting a person", d["awaiting_a_person"]),
+                    ("With personal data", d["personal_data_alerts"]), ("Open DLP cases", d["open_cases"])]
+    if w.get("available"):
+        facts += [(f"Alerts in the last {w['days']} days", w["alerts"]), ("The week before", w["previous"]),
+                  ("Needing a person this week", "-" if w["needs_a_person_percent"] is None else f"{w['needs_a_person_percent']}%")]
+    facts += [(f"Rule to tune: {r['rule']}", f"{r['benign_percent']}% closed as benign") for r in d["noisy_rules"][:3]]
+    return {"facts": facts, "domain": "dlp",
+            "chart": charts.from_counts("DLP alerts by computed outcome", d["by_computed"], name="Alerts"),
+            "table": {"header": ["Person", "Escalated", "Personal data", "Risky sign-in", "Privileged"],
+                      "rows": [[p["name"], p["escalated"], p["personal_data"], "yes" if p["risky_sign_in"] else "no",
+                                "yes" if p["privileged"] else "no"] for p in d["people"]]},
+            "det": lambda f: (f"{f['DLP alerts']} DLP alerts are on record; {f['Awaiting a person']} await a person, "
+                              f"{f['With personal data']} involve personal data and {f['Open DLP cases']} cases are open.")}
+
+
+def src_ai_autonomy(c: Ctx) -> dict:
+    doc = _ciso(c)
+    types, g = doc["autonomy"]["decision_types"], doc["governance"]
+    facts: Facts = [("Model", g["model"]), ("Decision types", len(types)),
+                    ("At recommend stage", sum(t["stage"] == "recommend" for t in types)),
+                    ("Model calls in 30 days", g["model_calls_30d"]),
+                    ("Uncited statements removed in 30 days", g["model_statements_removed_30d"]), ("Rule", doc["autonomy"]["rule"])]
+    return {"facts": facts, "domain": "*",
+            "table": {"header": ["Decision type", "Stage", "AI decisions", "AI agreement", "Target"],
+                      "rows": [[t["label"], t["stage"], t["ai_decisions"],
+                                "-" if t.get("agreement_percent") is None else f"{t['agreement_percent']}%",
+                                f"{t['target']['agreement_percent']}% over {t['target']['min_sample']}" if t["target"] else "not set"]
+                               for t in types]},
+            "det": lambda f: (f"The model is {f['Model']}. {f['At recommend stage']} of {f['Decision types']} decision types are at the "
+                              f"recommend stage. {f['Rule']}")}
+
+
+def src_changes(c: Ctx) -> dict:
+    ch = _ciso(c)["changes"]
+    facts: Facts = [("Tools exporting their configuration", len(ch["exporting_tools"])),
+                    ("Unplanned changes in 7 days", ch["unplanned_7d"]), ("Changes in progress", len(ch["in_progress"]))]
+    return {"facts": facts, "domain": None,
+            "table": {"header": ["Tool", "When", "Items changed", "Recorded change"],
+                      "rows": [[x["tool"], x["at"][:16].replace("T", " "), x["diff"]["count"], "yes" if x["planned"] else "no"]
+                               for x in ch["recent"]]},
+            "det": lambda f: (f"{f['Tools exporting their configuration']} tools export their configuration; "
+                              f"{f['Unplanned changes in 7 days']} unplanned changes in the last 7 days.")}
+
+
+def src_governance(c: Ctx) -> dict:
+    g = _ciso(c)["governance"]
+    a = g["audit"]
+    facts: Facts = [("Audit events", a["events"]),
+                    ("Audit chain", "not verified yet" if a["verified"] is None else "intact" if a["verified"] else "BROKEN"),
+                    ("Verified up to event", a["verified_up_to"] or "-"), ("Approvals waiting", g["approvals_waiting"]),
+                    ("Automated actions", "halted (kill switch)" if g["kill_switch"] else "allowed by the policy"),
+                    ("Autonomy policy version", g["autonomy_policy_version"] or "default")]
+    return {"facts": facts, "domain": "*", "table": {"header": ["Control", "State"], "rows": [[k, str(v)] for k, v in facts]},
+            "det": lambda f: (f"The audit trail holds {f['Audit events']} events; chain {f['Audit chain']}. "
+                              f"{f['Approvals waiting']} approvals are waiting; automated actions: {f['Automated actions']}.")}
+
+
 SOURCES: dict[str, tuple[str, str, Callable[[Ctx], dict]]] = {
+    "posture": ("Dome Score", "the posture score, its domains, why it moved and what raises it", src_posture),
+    "control_coverage": ("Control coverage", "devices with every expected control, and those short", src_control_coverage),
+    "tool_health": ("Tool health", "agents, certificates, sync jobs of the security tools", src_tool_health),
+    "data_protection": ("Data protection", "DLP alerts, personal data, cases, people, rules to tune", src_data_protection),
+    "ai_autonomy": ("AI decisions", "decision types, stages, agreement, the model's use", src_ai_autonomy),
+    "config_changes": ("Configuration changes", "recorded and unplanned changes to the tools", src_changes),
+    "governance": ("Governance", "audit chain, approvals, kill switch, autonomy policy", src_governance),
     "overview": ("SOC overview", "cases, approvals, automation rate, trend", src_overview),
     "vulnerability_posture": ("Vulnerability posture", "open findings, KEV, exposure, SLA, per team", src_vm),
     "top_vulnerabilities": ("Top vulnerabilities", "highest-priority findings with owners", src_vm_top),
@@ -337,6 +463,23 @@ SOURCES: dict[str, tuple[str, str, Callable[[Ctx], dict]]] = {
 }
 
 STANDARD: dict[str, dict[str, Any]] = {
+    "cyberdome_board_monthly": {"title": "CyberDome monthly report to the board", "audience": "board", "format": "pptx", "days": 30,
+                                "description": "The Dome Score, data protection, control coverage and assurance, in business terms.",
+                                "sections": [{"source": "posture", "instruction": "Headline the posture score, what moved it and what the board should know."},
+                                             {"source": "data_protection", "instruction": "Explain data-leak exposure, personal data and how it is handled, without jargon."},
+                                             {"source": "control_coverage", "instruction": "Say whether every device is protected and what is being fixed."},
+                                             {"source": "ai_autonomy", "instruction": "Explain what the AI decides, what people decide, and how it is checked."},
+                                             {"source": "governance", "instruction": "State assurance: audit trail, approvals, controls on automation."},
+                                             {"source": "value", "instruction": "Report the benefits against baseline and target, plainly, including any not met."}]},
+    "cyberdome_ciso_weekly": {"title": "CyberDome weekly CISO brief", "audience": "CISO", "format": "docx", "days": 7,
+                              "description": "What moved the Dome Score this week, what to fix first, what needs a decision.",
+                              "sections": [{"source": "posture", "instruction": "Lead with the score, why it moved and the three things that raise it most."},
+                                           {"source": "data_protection", "instruction": "Summarise the DLP week and who needs attention first."},
+                                           {"source": "control_coverage", "instruction": "Name the devices to fix first."},
+                                           {"source": "tool_health", "instruction": "Call out any tool that is failing or about to."},
+                                           {"source": "config_changes", "instruction": "Flag unplanned changes to the tools."},
+                                           {"source": "ai_autonomy", "instruction": "State the AI's agreement with analysts and any stage change to decide."},
+                                           {"source": "governance", "instruction": "Note approvals waiting and the audit chain's state."}]},
     "board_monthly": {"title": "Monthly security report to the board", "audience": "board", "format": "pptx", "days": 30,
                       "description": "Business-level risk, incidents, exposure and control health for directors.",
                       "sections": [{"source": "overview", "instruction": "Headline the overall security posture in business terms."},
@@ -390,16 +533,39 @@ KEYWORDS: list[tuple[str, list[str]]] = [
     (r"quality|drift|accuracy", ["verdict_quality"]), (r"connector|integration|data source", ["integrations"]),
     (r"insight|correlat|cross[- ]domain", ["correlated_findings"]), (r"overview|posture|summary|headline", ["overview"]),
 ]
+# the NAM scope reads its own sections first (the inherited planner above is unchanged in the full scope)
+NAM_KEYWORDS: list[tuple[str, list[str]]] = [
+    (r"dome|posture|score|summary|headline|overview", ["posture"]), (r"dlp|data protection|leak|personal data|pan|aadhaar", ["data_protection"]),
+    (r"coverage|agent|encryption|device", ["control_coverage"]), (r"health|certificate|sync", ["tool_health"]),
+    (r"\bai\b|autonom|agreement|model", ["ai_autonomy"]), (r"change|drift|config", ["config_changes"]),
+    (r"governance|audit|approval|assurance", ["governance"]),
+]
 AUDIENCE_DEFAULTS: list[tuple[str, list[str]]] = [
     (r"board|director|exec", ["overview", "attack_stories", "vulnerability_posture", "compliance"]),
     (r"ciso|leadership", ["overview", "correlated_findings", "risk"]), (r"soc|analyst|shift", ["incidents", "correlated_findings"]),
 ]
+NAM_AUDIENCE_DEFAULTS: list[tuple[str, list[str]]] = [
+    (r"board|director|exec", ["posture", "data_protection", "control_coverage", "governance"]),
+    (r"ciso|leadership", ["posture", "data_protection", "control_coverage", "tool_health"]),
+    (r"soc|analyst|shift", ["data_protection", "tool_health", "incidents"]),
+]
+
+
+def sources() -> dict[str, tuple[str, str, Callable[[Ctx], dict]]]:
+    """The catalogue of this product scope (core/scope.py): sources of modules it does not offer are left out."""
+    from soc_platform.core import scope
+
+    return {k: v for k, v in SOURCES.items() if scope.source_in_scope(k)}
+
+
+def _offered(spec: dict[str, Any]) -> bool:
+    return all(s["source"] in sources() for s in spec["sections"])
 
 
 def list_templates(session: Session) -> list[dict[str, Any]]:
     from soc_platform.reporting.models import ReportTemplate
 
-    out = [{"id": k, "standard": True, **v} for k, v in STANDARD.items()]
+    out = [{"id": k, "standard": True, **v} for k, v in STANDARD.items() if _offered(v)]
     for t in session.execute(select(ReportTemplate).order_by(ReportTemplate.created_at.desc())).scalars():
         out.append({**t.spec, "id": t.id, "title": t.title, "standard": False, "created_by": t.created_by})
     return out
@@ -409,7 +575,7 @@ def get_template(session: Session, tid: str) -> dict[str, Any] | None:
     from soc_platform.reporting.models import ReportTemplate
 
     if tid in STANDARD:
-        return {"id": tid, **STANDARD[tid]}
+        return {"id": tid, **STANDARD[tid]} if _offered(STANDARD[tid]) else None
     t = session.get(ReportTemplate, tid)
     return {**t.spec, "id": t.id, "title": t.title} if t else None
 
@@ -418,7 +584,7 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
     """Normalise a user- or LLM-provided spec: catalogue sources only, bounded sizes."""
     secs = [{"source": x["source"], "title": str(x.get("title") or SOURCES[x["source"]][0])[:120],
              "instruction": str(x.get("instruction") or "")[:500]}
-            for x in (spec.get("sections") or []) if isinstance(x, dict) and x.get("source") in SOURCES][:10]
+            for x in (spec.get("sections") or []) if isinstance(x, dict) and x.get("source") in sources()][:10]
     if not secs:
         raise ValueError("a report needs at least one section from the catalogue")
     days = spec.get("days")
@@ -430,7 +596,7 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
 
 
 def catalogue() -> list[dict[str, str]]:
-    return [{"id": k, "title": v[0], "description": v[1]} for k, v in SOURCES.items()]
+    return [{"id": k, "title": v[0], "description": v[1]} for k, v in sources().items()]
 
 
 # ---------------------------------------------------------------------------------------------- planning
@@ -456,7 +622,7 @@ def plan_report(request: str, llm: LLMGateway | None) -> dict[str, Any]:
         90 if re.search(r"\b(quarter|quarterly|90 days)\b", req, re.IGNORECASE) else 30
     fmt = "pptx" if re.search(r"\b(deck|slides|presentation|pptx|powerpoint)\b", req, re.IGNORECASE) else "docx"
     if llm is not None:
-        cat = "\n".join(f"- {k}: {v[0]} ({v[1]})" for k, v in SOURCES.items() if k != "case_story")
+        cat = "\n".join(f"- {k}: {v[0]} ({v[1]})" for k, v in sources().items() if k != "case_story")
         try:
             data = llm.complete_json("report.plan", PLAN_SYSTEM,
                                      f"CATALOGUE:\n{cat}\n\nREQUEST: {req}\n\nReturn JSON: "
@@ -468,22 +634,28 @@ def plan_report(request: str, llm: LLMGateway | None) -> dict[str, Any]:
             secs = [{"source": s.get("source"), "title": str(s.get("title") or SOURCES[s["source"]][0])[:120],
                      "instruction": str(s.get("instruction") or "")[:500]}
                     for s in model_list(data.get("sections")) if isinstance(s, dict)
-                    and model_choice(s.get("source"), SOURCES, None) not in (None, "case_story")]
+                    and model_choice(s.get("source"), sources(), None) not in (None, "case_story")]
             if secs:
                 text = lambda k, d: data[k] if isinstance(data.get(k), str) and data[k].strip() else d
                 return {"title": text("title", req[:80])[:160], "audience": text("audience", "security leadership")[:80],
                         "format": model_choice(data.get("format"), {"docx", "pptx"}, fmt),
                         "days": _plan_days(data.get("days"), days),
                         "sections": secs[:8], "planner": "llm", "request": req}
+    from soc_platform.core import scope
+
     low = req.lower()
+    full = scope.is_full()
+    offered = sources()
     chosen: list[str] = []
-    for rx, srcs in KEYWORDS:
+    for rx, srcs in (KEYWORDS if full else NAM_KEYWORDS + KEYWORDS):
         if re.search(rx, low):
-            chosen += [x for x in srcs if x not in chosen]
+            chosen += [x for x in srcs if x not in chosen and x in offered]
+    head = "overview" if full else "posture"
     if not chosen:
-        chosen = next((srcs for rx, srcs in AUDIENCE_DEFAULTS if re.search(rx, low)), ["overview", "correlated_findings", "risk"])
-    elif re.search(r"board|director|exec", low) and "overview" not in chosen:
-        chosen = ["overview"] + chosen                                   # boards always get the headline first
+        chosen = next((srcs for rx, srcs in (AUDIENCE_DEFAULTS if full else NAM_AUDIENCE_DEFAULTS) if re.search(rx, low)),
+                      ["overview", "correlated_findings", "risk"] if full else ["posture", "data_protection", "control_coverage"])
+    elif re.search(r"board|director|exec", low) and head not in chosen:
+        chosen = [head] + chosen                                         # boards always get the headline first
     if re.search(r"one[- ]page|brief|short|summary|quick", low):
         chosen = chosen[:3]
     audience = next((a for a in ("board", "CISO", "auditor", "SOC team", "IT") if a.lower() in req.lower()), "security leadership")
@@ -596,7 +768,7 @@ def build_report(session: Session, registry: Any, spec: dict, out_dir: str | Pat
     ctx = Ctx(session, registry, days=int(spec.get("days") or 30), case_id=case_id, domains=domains)
     built, skipped, used = [], [], set()
     for sec in spec["sections"]:
-        if sec["source"] not in SOURCES:
+        if sec["source"] not in sources():
             skipped.append({"source": sec["source"], "reason": "unknown source"})
             continue
         if sec["source"] in denied_sources:

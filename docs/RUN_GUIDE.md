@@ -133,12 +133,16 @@ python -m soc_platform demo               # loads the sample organisation (safe 
 python -m soc_platform serve              # http://127.0.0.1:8080  - Ctrl+C stops it
 ```
 
-`demo` prints what it loaded:
-- `[VM]` lines for the vulnerability refresh and the Log4Shell campaign
-- `[IM]` lines, one per incident
-- `[PH]` lines, one per phishing report
-- the top correlated findings, one analyst answer and three reports
+`demo` prints what it loaded. In the NAM scope (the default, `SOC_PRODUCT_SCOPE=nam`):
+- `[INVENTORY]` the device and people baseline, `[DLP]` 14 alerts judged (3 escalated into 3 cases) and investigated
+- `[TUNE]` a suggested rule change, `[CONFIG]` three configuration snapshots
+- `[COVERAGE]` 6 of 10 devices fully covered, `[HEALTH]` the tools' own findings, `[POSTURE]` the Dome Score
+- `[REPORT]` the CyberDome weekly CISO brief and board report
 - `[AUDIT] {'ok': True, ...}`
+
+With `SOC_PRODUCT_SCOPE=full` it also prints `[VM]` (vulnerability refresh and the Log4Shell campaign), `[IM]` (one
+line per incident), `[PH]` (one per phishing report), the top correlated findings, one analyst answer and three
+reports. Signing in as an all-domain user opens the **Dome Score** (the CISO view) in the NAM scope.
 
 ### The scheduler runs inside the server
 

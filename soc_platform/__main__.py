@@ -92,53 +92,57 @@ def cmd_demo() -> None:
 
         inv = DlpService(s, reg).sync_inventory()
         print(f"[INVENTORY] {sum(inv['synced'].values())} device / person record(s) from the baseline and control tools")
-        vm = VulnerabilityService(s, reg)
-        r = vm.refresh()
-        print(f"[VM] {r['consolidation']['raw_findings']} raw findings -> {r['consolidation']['consolidated']} consolidated; "
-              f"priority {r['priority_bands']}; asset match rate {r['asset_match_rate']['match_rate']}")
-        camp = vm.create_campaign("CVE-2021-44228", analyst, notify_via="ticket")
-        print(f"[VM] campaign {camp.id} created for CVE-2021-44228 (notifications await approval)")
-        im = IncidentService(s, reg, llm=gw)
-        im.ingest()
-        cases = im.cluster()
-        incident_ids = []
-        for c in cases:
-            if c.status != "closed":
-                v = im.investigate(c.id, narrate=False)
-                incident_ids.append(c.id)
-                print(f"[IM] {v['case']['severity']:>8} {v['case']['title'][:70]} - {len(v['actions'])} recommended action(s)")
-        from soc_platform.domains.phishing.agents.analyzer import engine_enabled
+        from soc_platform.core import scope
 
-        engine = engine_enabled()                            # the trained models, when installed (SOC_PHISHING_ENGINE)
-        print(f"[PH] analysis: {'ML engine + heuristic' if engine else 'heuristic only'}")
-        ph = PhishingService(s, reg, llm=gw, org_domains=org, raw_dir=Path(st.raw_payload_dir) / "phishing", use_engine=engine)
-        phishing_ids = []
-        for sub in ph.ingest_reported():
-            v = ph.process(sub.id, narrate=False)
-            phishing_ids.append(v["case"]["id"])
-            a = v["assessment"]
-            print(f"[PH] {v['case']['verdict']} '{v['case']['title'][:50]}': {len(a['campaign']['recipients'])} recipients, "
-                  f"clicked {a['user_impact']['clicked']}, compromised {a['user_impact']['identity_compromise']}")
-        # the sample messages a presenter uploads in the console (supplier fraud, CEO fraud, QR phishing, benign, spam)
-        corpus = Path(os.environ.get("SOC_SAMPLE_CORPUS_DIR") or BUILTIN_CORPUS)   # a variant estate brings its own
-        for f in SAMPLE_UPLOADS:
-            path = corpus / f
-            if path.exists():
-                v = ph.process(ph.submit_raw(path.read_bytes(), source="upload", reporter=analyst.id).id, narrate=False)
+        vm = im = ph = None
+        if scope.is_full():         # the inherited modules: vulnerability management, incidents, phishing, cloud posture
+            vm = VulnerabilityService(s, reg)
+            r = vm.refresh()
+            print(f"[VM] {r['consolidation']['raw_findings']} raw findings -> {r['consolidation']['consolidated']} consolidated; "
+                  f"priority {r['priority_bands']}; asset match rate {r['asset_match_rate']['match_rate']}")
+            camp = vm.create_campaign("CVE-2021-44228", analyst, notify_via="ticket")
+            print(f"[VM] campaign {camp.id} created for CVE-2021-44228 (notifications await approval)")
+            im = IncidentService(s, reg, llm=gw)
+            im.ingest()
+            cases = im.cluster()
+            incident_ids = []
+            for c in cases:
+                if c.status != "closed":
+                    v = im.investigate(c.id, narrate=False)
+                    incident_ids.append(c.id)
+                    print(f"[IM] {v['case']['severity']:>8} {v['case']['title'][:70]} - {len(v['actions'])} recommended action(s)")
+            from soc_platform.domains.phishing.agents.analyzer import engine_enabled
+
+            engine = engine_enabled()                            # the trained models, when installed (SOC_PHISHING_ENGINE)
+            print(f"[PH] analysis: {'ML engine + heuristic' if engine else 'heuristic only'}")
+            ph = PhishingService(s, reg, llm=gw, org_domains=org, raw_dir=Path(st.raw_payload_dir) / "phishing", use_engine=engine)
+            phishing_ids = []
+            for sub in ph.ingest_reported():
+                v = ph.process(sub.id, narrate=False)
                 phishing_ids.append(v["case"]["id"])
-                print(f"[PH] {v['case']['verdict']:>10} '{v['case']['title'][:60]}' (uploaded sample)")
-        if gw is not None:
-            s.commit()          # never hold the database while the model writes (the jobs do the same)
-            n_im, n_ph = im.narrate_pending(incident_ids), ph.narrate_pending(phishing_ids)
-            print(f"[LLM] written explanations: {n_im} incident case(s), {n_ph} phishing case(s) "
-                  "(clear spam / safe reports keep the cited summary)")
-        else:
-            print("[LLM] no model configured: cases carry the deterministic, cited explanation")
-        from soc_platform.domains.vulnerability.misconfig import MisconfigurationService
+                a = v["assessment"]
+                print(f"[PH] {v['case']['verdict']} '{v['case']['title'][:50]}': {len(a['campaign']['recipients'])} recipients, "
+                      f"clicked {a['user_impact']['clicked']}, compromised {a['user_impact']['identity_compromise']}")
+            # the sample messages a presenter uploads in the console (supplier fraud, CEO fraud, QR phishing, benign, spam)
+            corpus = Path(os.environ.get("SOC_SAMPLE_CORPUS_DIR") or BUILTIN_CORPUS)   # a variant estate brings its own
+            for f in SAMPLE_UPLOADS:
+                path = corpus / f
+                if path.exists():
+                    v = ph.process(ph.submit_raw(path.read_bytes(), source="upload", reporter=analyst.id).id, narrate=False)
+                    phishing_ids.append(v["case"]["id"])
+                    print(f"[PH] {v['case']['verdict']:>10} '{v['case']['title'][:60]}' (uploaded sample)")
+            if gw is not None:
+                s.commit()          # never hold the database while the model writes (the jobs do the same)
+                n_im, n_ph = im.narrate_pending(incident_ids), ph.narrate_pending(phishing_ids)
+                print(f"[LLM] written explanations: {n_im} incident case(s), {n_ph} phishing case(s) "
+                      "(clear spam / safe reports keep the cited summary)")
+            else:
+                print("[LLM] no model configured: cases carry the deterministic, cited explanation")
+            from soc_platform.domains.vulnerability.misconfig import MisconfigurationService
 
-        mis = MisconfigurationService(s, reg)
-        mis.refresh()
-        mis.route(analyst)
+            mis = MisconfigurationService(s, reg)
+            mis.refresh()
+            mis.route(analyst)
         # data protection: the DLP incidents judged with the sign-in risk and the device controls the other tools report
         from soc_platform.connectors.base import SyncRunner
         from soc_platform.core.context_store import ContextStore
@@ -181,20 +185,30 @@ def cmd_demo() -> None:
         print(f"[POSTURE] score {snap['score']} (draft weights, to be agreed)")
         from soc_platform.intelligence.analyst import IntelligenceService
 
-        intel = IntelligenceService(s, vm=vm)
+        intel = IntelligenceService(s, vm=vm) if vm is not None else IntelligenceService(s)
         insights = intel.refresh()
         for ins in sorted(insights, key=lambda i: -i.score)[:6]:
             print(f"[INTEL] {ins.severity:>8} {ins.title}")
         if gw is not None:          # written now, so the first scheduler pass after `serve` has no model work to do
             s.commit()
-            IntelligenceService(s, gw, vm=vm).narrate_committing(insights)
+            (IntelligenceService(s, gw, vm=vm) if vm is not None else IntelligenceService(s, gw)).narrate_committing(insights)
             print(f"[LLM] written narratives: {sum(i.narrative_source == 'llm' for i in insights)} correlated finding(s)")
-        ans = intel.analyst.ask("Is jane.doe@acme-demo.com compromised?")
-        print(f"[ASK] {ans['answer']}  (tools: {', '.join(c['tool'] for c in ans['tool_calls'])})")
-        rs = ReportService(s, out)
-        for run in (rs.daily_exposure(vm), rs.weekly_vm(vm), rs.weekly_management_deck(vm, im, ph)):
-            print(f"[REPORT] {run.kind}: {run.path}")
-        print("[AUDIT]", AuditLog(s).verify())
+        if scope.is_full():
+            ans = intel.analyst.ask("Is jane.doe@acme-demo.com compromised?")
+            print(f"[ASK] {ans['answer']}  (tools: {', '.join(c['tool'] for c in ans['tool_calls'])})")
+            rs = ReportService(s, out)
+            for run in (rs.daily_exposure(vm), rs.weekly_vm(vm), rs.weekly_management_deck(vm, im, ph)):
+                print(f"[REPORT] {run.kind}: {run.path}")
+        else:                       # the CISO's own reports, built from the same figures as the Dome Score screen
+            from soc_platform.reporting.builder import STANDARD, build_report
+
+            s.commit()
+            for tid in ("cyberdome_ciso_weekly", "cyberdome_board_monthly"):
+                rep = build_report(s, reg, {"id": tid, **STANDARD[tid]}, out, llm=gw, by="agent:demo")
+                print(f"[REPORT] {rep['title']} ({rep['format']}, {len(rep['sections'])} sections, {rep['writer']})")
+        verified = AuditLog(s).verify()
+        AuditLog(s).save_checkpoint(verified)          # as the hourly self-check does: the CISO view shows the chain checked
+        print("[AUDIT]", verified)
 
 
 def _inside(path: Path, *roots: Path) -> bool:

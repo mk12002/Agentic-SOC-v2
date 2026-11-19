@@ -11,7 +11,7 @@ it, the conventions the code relies on, and the traps that have already cost tim
 This folder is a copy of the Agentic SOC platform that is being turned into **CyberDome for NAM**: an AI-first layer
 above an Indian asset manager's eight security tools. "NAM" is the working short name for that client; its full name
 is never written here. Sections 1-11 describe the **inherited platform core as it stands** (connectors, domains,
-tests, counts): all of it is still true of the code. The first version of M2-M7, M10 and M11 exists, and the rebrand is done (status column below);
+tests, counts): all of it is still true of the code. The first version of M2-M7, M10 and M11 exists, and the rebrand is done, and the product is scoped to NAM (§0.4a) (status column below);
 the rest does not. When a NAM module lands, update this section's status column and the matching part of §2 / §4 / §6 in the same change.
 
 Sources (both under `docs/client_deck_nam/`, which is gitignored - never quote them into tracked files beyond what is
@@ -54,7 +54,7 @@ Paths are proposed; keep the layering of §4 (API → intelligence → domains �
 | M7 | DLP tuning proposals (Dome Agents) | Groups false positives per Forcepoint rule, proposes a change with its effect on past alerts; an engineer approves and makes it in Forcepoint; overrides at Recommend feed it | `core/tuning.py` (draft, preview, two leads, suggestions) | `dlp` in `tuning.DOMAINS`, DLP rule kinds, classification-quality findings | v1: `domains/dlp/tuning.py` - suggestions from rulings, 90-day preview, refusals, two leads, engineer records the change, verified from the config snapshot |
 | M8 | Cross-tool cases and actions | Rules joining risky sign-in + privileged check-out + DLP exfiltration + encryption off for one person; privileged session outside a change window; computed severity ("N tools agree"); reversible actions by AI, containment by two approvers | `intelligence/correlation.py`, `story.py`, `core/actions.py` | new rules; actions on the Silverfort / Arcon / Trend Micro connectors; `DEFAULT_POLICY` entries | not started |
 | M9 | SOAR execution backend | Approved actions are handed to NAM's SOAR and their outcome read back | `ActionService._execute`, idempotency keys, `reconcile_stuck` | a SOAR connector whose actions wrap the playbooks; still behind `ActionService` | blocked: product unknown |
-| M10 | Dome Score and CISO view | One posture score from a published, versioned formula over coverage, tool health, open cases and overdue items; five domain scores (identity, privileged access, endpoint, data protection, web); "why did it drop" answered from computed factors; monthly board report | `intelligence/risk.py`, `api/dashboards.py`, `intelligence/analyst.py`, `reporting/builder.py` | `intelligence/posture.py` (formula as a versioned, four-eyes document like the autonomy policy), CISO screen, board report | v1: `intelligence/posture.py` (`v1-draft` weights), daily snapshot, *CISO view*; board report not started |
+| M10 | Dome Score and CISO view | One posture score from a published, versioned formula over coverage, tool health, open cases and overdue items; five domain scores (identity, privileged access, endpoint, data protection, web); "why did it drop" answered from computed factors; monthly board report | `intelligence/risk.py`, `api/dashboards.py`, `intelligence/analyst.py`, `reporting/builder.py` | `intelligence/posture.py` (formula as a versioned, four-eyes document like the autonomy policy), CISO screen, board report | v1: `intelligence/posture.py` (`v1-draft` weights, bands, levers), daily snapshot, *CISO view* (`intelligence/ciso.py`: why it moved, what raises it, DLP week, people, AI ladder, governance, changes; brief by rule or cited AI), board report + weekly brief (`cyberdome_*` standard reports) |
 | M11 | Change baseline (Dome Score) | Snapshot of a tool's configuration before a change "where the tool can export it"; drift between snapshots; posture before / after | `core/blobstore.py`, `core/connector_config.py` versioning pattern | `config_snapshots` table, snapshot stream per capable connector, diff view | v1: `intelligence/config_snapshots.py` - Forcepoint, Silverfort, Trellix exports (placeholder paths), daily job, before / after change with Dome Score, unplanned changes on tool health |
 | M12 | Compliance packs (Dome Comply) | Control catalogue for SEBI CSCRF, DPDP and CERT-In mapped to evidence tests; share of controls with current evidence, the rest named; audit pack; personal-data DLP case opens a breach assessment; 6-hour clock from a person's "reportable"; AI drafts the report; 180-day log retention checked per tool | `reporting/compliance.py` (`build_evidence`, `build_pack`), `core/audit_export.py`, `reporting/builder.py` | `reporting/regimes/` (catalogue as versioned data), `compliance_assessments` table, clock, draft workflow | not started |
 | M13 | Pilot scorecard | DLP alerts reaching an analyst against the week-2 baseline, outages found by users, AI agreement per decision type; QA re-checks reported separately | `reporting/value.py` (baseline / target / measured) | new KPIs | not started |
@@ -117,6 +117,18 @@ screen → docs. Coverage (M3) comes before score (M10) and compliance (M12): bo
 8. **Data residency**: the model runs in NAM's environment or an Indian cloud region, or is off; `Redactor`
    pseudonymisation stays on. Raw vendor logs stay in the deployment's region.
 
+### 0.4a Product scope: only what NAM asked for
+
+`SOC_PRODUCT_SCOPE` (`core/scope.py`) is `nam` by default in this build: NAM's tools and modules plus the platform
+essentials (cases, approvals / actions, autonomy policy, AI gateway and usage policy, watch lists, ownership,
+notifications, reports, access, audit). The inherited modules - phishing and its ML engine, vulnerability management,
+cloud posture, shadow IT, supplier risk, ATT&CK coverage, the earlier estate's connectors (and Sentinel until NAM's
+SIEM is known) - are **switched off, not deleted**: not in the registry, jobs not scheduled, routes 404 (middleware),
+screens hidden (`/me` -> `product.hidden_screens`), report sections not offered, the engine never loads. The test
+suite runs in `full` (conftest); `test_scope.py` checks `nam`. A new NAM connector goes into `scope.NAM_CONNECTORS`;
+a new inherited-only job, route, screen or report source into the matching `FULL_ONLY_*` set. Deleting the inherited
+code is a separate decision (it would mean rewriting much of the inherited suite).
+
 ### 0.4b What the first version built (read before extending it)
 
 * **Placeholder APIs.** The five new connectors share `connectors/tools/_paged.py`: every endpoint path is a
@@ -143,6 +155,9 @@ screen → docs. Coverage (M3) comes before score (M10) and compliance (M12): bo
   engineer and verified from `config_snapshots` and later alerts.
 * **Configuration export is not a sync stream.** `PagedConnector.config_items()` reads in full outside `SyncRunner`;
   nothing of it enters the context store.
+* **The CISO view is one document** (`intelligence/ciso.py`): the Dome Score screen, the CyberDome report sections
+  and the plain-words brief all read it. "What raises the score" (`posture.levers`) and "why it moved" (`movement`)
+  are arithmetic on the formula's own factors; the brief is by rule unless a person asks the model (`posture.explain`).
 * **Queries stay flat with history:** the DLP summary is database aggregates, the backfill is judged in committed
   batches (`process_committing`), the noisy-rule list and tool rulings look at the 30 days up to the newest alert.
 
@@ -238,7 +253,7 @@ session; `verify_features.py` reads the `SOC_LLM_*` lines itself).
 ```bash
 # run
 python -m soc_platform init-db                 # create tables (idempotent)
-python -m soc_platform demo                    # sample org: 7 phishing + 3 incident + 3 data-protection cases, 37 approvals, 6 open vulns, coverage 6 of 10 devices (same with or without the ML engine)
+python -m soc_platform demo                    # NAM scope: 14 DLP alerts -> 3 data-protection cases, coverage 6 of 10 devices, CISO reports; full scope adds 7 phishing + 3 incident cases, 37 approvals, 6 open vulns
 python -m soc_platform reset-demo [--yes]      # server stopped: wipe the demo DB + raw/report files, then init-db + demo
 python -m soc_platform serve                   # API + console + built-in scheduler on 127.0.0.1:8080 (SOC_PORT/SOC_HOST)
 python -m soc_platform scheduler [--once]      # optional separate scheduler service
@@ -372,12 +387,13 @@ soc_platform/
   domains/phishing/      service.py (pipeline), models.py, supplier.py, agents/{decompose,analyzer,investigation}.py, engine/
   domains/dlp/           service.py (DLP triage: facts, computed disposition, cases, the AI's decision), models.py (DlpAlert),
                          investigator.py (read-only look-up menu), tuning.py (rule-change proposals)
+  core/scope.py          the product scope (nam / full): which tools, jobs, routes, screens, report sections exist
   core/controls.py       which tool lists which device, control states (missing / silent / off / unknown)
   core/decisions.py      earned autonomy: decision types, stages, targets, ai_decisions, promotion / demotion
   domains/incident/service.py
   domains/vulnerability/ service.py, misconfig.py, models.py
   intelligence/          risk.py, correlation.py, story.py, deep_analysis.py, analyst.py, attack_coverage.py, shadow_it.py, drift.py,
-                         control_coverage.py, tool_health.py, posture.py, config_snapshots.py (NAM build)
+                         control_coverage.py, tool_health.py, posture.py, config_snapshots.py, ciso.py (NAM build)
   llm/gateway.py         LLMGateway, providers, grounding, numeric guardrail, breaker, timeouts, llm_concurrency();
                          enforces the usage policy (refusal -> BudgetExceeded / UserLimitExceeded, gateway.notice)
   llm/usage_policy.py    AI usage policy (budgets, per-person limits, per-feature tier / answer cap / on-off), its
@@ -598,7 +614,9 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
   estate, never-automatic list, injected message text, model decisions stored / discarded / off, analyst rulings,
   batches), `test_dlp_investigator.py` (menu only, budget, rules fallback, read-only, citations), `test_dlp_tuning.py`
   (suggestions, preview, refusals, two leads, engineer, verification), `test_config_snapshots.py` (export, drift,
-  planned / unplanned, before / after with the score), `test_decisions.py` (targets, two-lead promotion, decide refused, demotion on agreement drop and on
+  planned / unplanned, before / after with the score), `test_scope.py` (the NAM scope offers no inherited tool, job,
+  route, screen or report section; typos still caught), `test_ciso.py` (levers and movement from the factors, DLP week,
+  people, audit chain as verified, brief states only computed figures, the CyberDome reports), `test_decisions.py` (targets, two-lead promotion, decide refused, demotion on agreement drop and on
   outcome shift), `test_controls_posture.py` (coverage, silent / stale measured from the tools' own times, tool
   health, the score recomputed from its factors, daily trend), `test_dlp_api.py` (routes, scopes, CISO view = the
   screens behind it, jobs).
@@ -781,7 +799,7 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
   encoding that would hide one from a byte check).
 - **Equal timestamps on Windows**: the clock advances in ~15 ms steps, so "newest first" by time alone is random
   within a tick - make times strictly increasing (case notes, `JobRun.ordinal`).
-- **`demo` expectations** in the guides (7+3+3 cases, 37 approvals, 6 open vulnerabilities, 14 DLP alerts, 6 of 10 devices fully covered; the same with or without the ML engine) are real; if you change fixtures or
+- **`demo` expectations** in the guides (NAM scope: 3 DLP cases, no approvals; full scope: 7+3+3 cases, 37 approvals, 6 open vulnerabilities, 14 DLP alerts, 6 of 10 devices fully covered; the same with or without the ML engine) are real; if you change fixtures or
   pipelines, re-count and update RUN_GUIDE / PRESENTER_GUIDE.
 - **Browser tour** runs the real scheduler with `SOC_SCHEDULER_START_DELAY=86400`: the heartbeat is live (no
   "Scheduler stopped" banner in screenshots) but no job runs to move figures under the screen-vs-API check. It gives

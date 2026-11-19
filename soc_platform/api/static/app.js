@@ -209,8 +209,11 @@ const NAV = [
 ];
 const TITLES = {...Object.fromEntries(NAV.flatMap(([, items]) => items.map(([id, label]) => [id, label]))), story: 'Attack story', entity: 'Entity', search: 'Search'};
 
+// the product scope (core/scope.py): screens of modules this deployment does not offer are not shown
+const offered = id => !(((window.ME || {}).product || {}).hidden_screens || []).includes(id);
+const home = () => offered('overview') ? '#/overview' : inDomain('*') ? '#/ciso' : inDomain('dlp') ? '#/dlp' : '#/cases';
 function route() {
-  const parts = (location.hash.replace(/^#\/?/, '') || 'overview').split('/').map(decodeURIComponent);
+  const parts = (location.hash.replace(/^#\/?/, '') || home().slice(2)).split('/').map(decodeURIComponent);
   return {name: parts[0], params: parts.slice(1)};
 }
 
@@ -220,7 +223,7 @@ function shell() {
   $('#app').innerHTML = `<div class="shell">
     <aside class="sidebar">
       <div class="brand"><div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17a9 9 0 0 1 18 0z" fill="currentColor"/><path d="M2 19h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div><div><div class="brand-name">CyberDome</div><div class="brand-sub">One view of every security tool</div></div></div>
-      ${NAV.map(([g, items]) => `<div class="nav-group">${g}</div>` + items.filter(([, , , d]) => !d || inDomain(d)).map(([id, label, ic]) =>
+      ${NAV.map(([g, items]) => [g, items.filter(([id, , , d]) => offered(id) && (!d || inDomain(d)))]).filter(([, items]) => items.length).map(([g, items]) => `<div class="nav-group">${g}</div>` + items.map(([id, label, ic]) =>
         `<a class="nav-item" href="#/${id}" data-nav="${id}">${icon(ic)}<span>${esc(label)}</span>${id === 'approvals' ? '<span class="count" id="nav-approvals" hidden></span>' : ''}</a>`).join('')).join('')}
       <div class="sidebar-foot">Signed in as ${esc(me.auth_method === 'api_key' ? 'service account' : me.roles.join(', ') || 'no role')}<br>${esc(me.domains.includes('*') ? 'All domains' : me.domains.join(', '))}<br>All times UTC</div>
     </aside>
@@ -274,7 +277,7 @@ async function render() {
   const main = $('#main');
   GEN += 1;
   main.innerHTML = skeleton();
-  if (!view) { main.innerHTML = empty('Page not found'); return; }
+  if (!view || !offered(name)) { main.innerHTML = empty('Page not found'); return; }
   const scope = NAV.flatMap(([, items]) => items).find(([id]) => id === name);   // a screen outside the user's data scope
   if (scope && scope[3] && !inDomain(scope[3])) {
     main.innerHTML = page(title, '', '', empty(scope[3] === '*' ? 'This screen spans every domain, so it needs all-domain access. Your sign-in is limited to ' + window.ME.domains.join(', ') + '.'
@@ -304,7 +307,7 @@ async function signInEntra() {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
   const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-  sessionStorage.setItem('soc_pkce', JSON.stringify({verifier, state, hash: location.hash || '#/overview'}));
+  sessionStorage.setItem('soc_pkce', JSON.stringify({verifier, state, hash: location.hash || ''}));
   const q = new URLSearchParams({client_id: AUTH.client_id, response_type: 'code', redirect_uri: redirectUri(),
     response_mode: 'query', scope: AUTH.scope + ' openid profile', state, code_challenge: challenge,
     code_challenge_method: 'S256'});
@@ -316,7 +319,7 @@ async function finishEntra() {
   let saved = {};
   try { saved = JSON.parse(sessionStorage.getItem('soc_pkce') || '{}'); } catch (e) { /* ignore */ }
   sessionStorage.removeItem('soc_pkce');
-  history.replaceState(null, '', '/' + (saved.hash || '#/overview'));
+  history.replaceState(null, '', '/' + (saved.hash || ''));
   if (p.has('error') || p.get('state') !== saved.state) {
     toast('Sign-in failed: ' + (p.get('error_description') || p.get('error') || 'state mismatch'), true);
     return false;
@@ -335,6 +338,7 @@ async function boot() {
   if (AUTH.mode === 'entra') await finishEntra();
   if (!TOKEN) return signInScreen();
   try { window.ME = await api('/api/v1/me'); } catch (e) { return signInScreen(); }
+  if (!location.hash) history.replaceState(null, '', '/' + home());   // the first screen depends on the product and the role
   shell();
   await render();
 }
@@ -369,7 +373,6 @@ async function signIn() {
   if (!r.ok) { toast('Development sign-in is disabled on this server. Use Entra ID SSO.', true); return; }
   TOKEN = (await r.json()).token;
   try { sessionStorage.setItem('soc_token', TOKEN); } catch (e) { /* ignore */ }
-  if (!location.hash) location.hash = '#/overview';
   boot();
 }
 async function signOut(expired = false) {

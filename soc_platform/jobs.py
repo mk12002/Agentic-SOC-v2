@@ -172,8 +172,17 @@ def _body(name: str, s: Session) -> dict[str, Any]:
         run = ReportService(s, get_settings().report_output_dir).daily_exposure(sv["vulnerability"])
         return {"report": run.id}
     if name == "weekly_reports":            # the weekly VM report and the weekly management deck
-        from soc_platform.api.app import llm
+        from soc_platform.api.app import llm, registry
+        from soc_platform.core import scope
         from soc_platform.reporting.reports import ReportService
+
+        if not scope.is_full():             # CyberDome: the CISO's weekly brief, from the Dome Score's own figures
+            from soc_platform.reporting.builder import STANDARD, build_report
+
+            s.commit()                      # nothing held while the model writes the narrative
+            rep = build_report(s, registry(), {"id": "cyberdome_ciso_weekly", **STANDARD["cyberdome_ciso_weekly"]},
+                               get_settings().report_output_dir, llm=llm(s), by="agent:reports")
+            return {"ciso_weekly": rep["id"], "writer": rep["writer"]}
 
         rs = ReportService(s, get_settings().report_output_dir, llm=llm(s))
         vm_run = rs.weekly_vm(sv["vulnerability"])
@@ -517,8 +526,15 @@ def _alert(s: Session, name: str, err: str, n: int) -> None:
                   requirement_refs=["VM-T11", "NFR-13"]))
 
 
+def active() -> list[str]:
+    """The jobs of this product scope, in run order (core/scope.py)."""
+    from soc_platform.core import scope
+
+    return [n for n in JOBS if scope.job_in_scope(n)]
+
+
 def due(now: float, last: dict[str, float]) -> list[str]:
-    return [n for n, (env, default) in JOBS.items() if now - last.get(n, 0) >= int(os.environ.get(env, default))]
+    return [n for n, (env, default) in JOBS.items() if n in active() and now - last.get(n, 0) >= int(os.environ.get(env, default))]
 
 
 def history(s: Session, *, job: str | None = None, limit: int = 100) -> list[dict[str, Any]]:

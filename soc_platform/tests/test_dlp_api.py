@@ -87,12 +87,13 @@ def test_the_ciso_view_shows_the_figures_of_the_screens_behind_it(client):  # no
     health = J(client.get("/api/v1/dashboard/tool-health", headers=lead))
     pos = J(client.get("/api/v1/dashboard/posture", headers=lead))
     sm = J(client.get("/api/v1/dlp/summary", headers=lead))
-    assert ciso["posture"] == pos and pos["score"] is not None and pos["trend"]["points"][-1]["score"] == pos["score"]
+    assert {k: v for k, v in ciso["posture"].items() if k != "movement"} == pos and pos["score"] is not None and pos["trend"]["points"][-1]["score"] == pos["score"]
     assert ciso["coverage"]["coverage_percent"] == cov["coverage_percent"] == pos["coverage_percent"]
     assert ciso["coverage"]["devices_short_count"] == cov["devices_short_count"] == len(cov["devices_short"])
     assert ciso["coverage"]["devices_short"] == cov["devices_short"][:5]
     assert ciso["tool_health"] == health and health["counts"]["critical"] >= 1
-    assert {k: ciso["dlp"][k] for k in ciso["dlp"]} == {k: sm[k] for k in ciso["dlp"]}
+    shared = set(ciso["dlp"]) - {"week", "people"}                                  # the CISO view adds the week and the people
+    assert {k: ciso["dlp"][k] for k in shared} == {k: sm[k] for k in shared}
     cases = J(client.get("/api/v1/cases", headers=lead))
     open_critical = sum(c["severity"] == "critical" and c["status"] != "closed" for c in cases)
     assert ciso["cases"]["critical"] == open_critical >= 1

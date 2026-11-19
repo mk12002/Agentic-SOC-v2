@@ -33,6 +33,7 @@ x-platform-env: &platform-env
   SOC_BLOB_STORE: database                             # stored e-mails and reports in PostgreSQL (HIGH_AVAILABILITY.md)
   SOC_JOB_LEASE_SECONDS: ${SOC_JOB_LEASE_SECONDS:-120}
   SOC_ORG_DOMAINS: ${SOC_ORG_DOMAINS:?set SOC_ORG_DOMAINS (the organisation's mail domains)}
+  SOC_PRODUCT_SCOPE: ${SOC_PRODUCT_SCOPE:-nam}       # nam = CyberDome for NAM only; full = every inherited module too
   SOC_PHISHING_ENGINE: ${SOC_PHISHING_ENGINE:-auto}   # on when the image is built WITH_PHISHING_ENGINE=true
   SOC_LLM_PROVIDER: ${SOC_LLM_PROVIDER:-none}
   SOC_LLM_ENDPOINT: ${SOC_LLM_ENDPOINT:-}
