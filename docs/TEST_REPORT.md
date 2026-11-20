@@ -14,7 +14,14 @@ classification-quality findings; the documentation was rewritten for NAM.
 
 **Results.**
 
-@@COUNTS@@
+| Run | Result |
+|---|---|
+| Full suite, SQLite (1,199 collected) | **1,181 passed, 18 skipped, 0 failed** (46 min) |
+| Full suite, PostgreSQL 16 (embedded) - the first run of the NAM build there | **1,178 passed, 21 skipped, 0 failed** (2 h 6 min; the extra skips are database-specific checks) |
+| NAM test files alone on PostgreSQL (15 files) | 193 passed, 0 failed |
+| NAM browser tour | 0 problems, 0 accessibility notes (24 screenshots; 1440 / 1280 / 1024 / 768 / 390 px, light and dark) |
+| Full-scope browser tour | 0 problems after the policy-table fix |
+| ruff, bandit (medium+), JavaScript syntax, secret scan | clean (the confidential-name pattern is not configured on this machine) |
 
 **Penetration test of the NAM surface** (SECURITY.md section 4; `test_pentest_nam.py`, 8 tests). Found and fixed:
 
@@ -41,6 +48,12 @@ the inherited Phishing / Vulnerability tabs (and overflowing a phone); a clipped
 weights proposer's flow needing the fold opened. All fixed; final run: **0 problems, 0 accessibility notes**. The
 full-scope tour found the policy table 21 px too wide at 1280 px since isolation gained a third tool: fixed (the tool
 cell wraps).
+
+**Found by the feature verification** (which runs a sorted subset of the suite): `test_dlp_api.py`'s queue test assumed
+it ran first in its module; in sorted order the CISO-view test had already pulled the DLP alerts, so "new alerts" was 0.
+The test now reads the queue before and after its run. The NAM racing-approval test now also accepts 503 (SQLite busy)
+for the losers - the invariants are one success and one audit event. The verification's evaluations now run in the
+full scope with the package on the path (they measure the inherited modules).
 
 **Also:** the dev sign-in form offered "Phishing only" / "Vulnerability only" in the NAM scope - it now reads the
 product scope from the public sign-in config.

@@ -649,8 +649,8 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
   decays with time, so a slower run otherwise rounds differently.
 - **New behaviour needs a test**; a bug fix needs a regression test that failed before the fix. Don't hard-code
   demo-specific values in new tests - derive from settings/data or run over `ESTATES`.
-- Current counts (keep docs in sync when they change): NAM build round 38: 1,168 passing on SQLite, 18 skipped, 1,186
-  collected; PostgreSQL not yet run for this build. Inherited figures before it: 945 platform tests passing on SQLite and 942 on PostgreSQL (963 collected; skips: 14 opt-in live tests, 3 per-estate repeats of input fuzzing, and database-specific checks - 1 on SQLite, 4 on PostgreSQL), 205
+- Current counts (keep docs in sync when they change): NAM build round 39: 1,181 passing on SQLite (18 skipped) and 1,178 on PostgreSQL
+  (21 skipped), 1,199 collected; 118 of 122 features verified with `--browser` (the 4 others are opt-in: network / LLM). Inherited figures before it: 945 platform tests passing on SQLite and 942 on PostgreSQL (963 collected; skips: 14 opt-in live tests, 3 per-estate repeats of input fuzzing, and database-specific checks - 1 on SQLite, 4 on PostgreSQL), 205
   engine tests, 108/108 features verified with `--browser --engine --live --llm` (round 25); the go-live round's
   offline run: 104/108 (the 4 opt-in live features need `--live --llm`, which calls the real model).
 

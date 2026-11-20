@@ -441,7 +441,9 @@ def run_evaluations() -> list[tuple[str, str, bool]]:
 
     def js(cmd):
         p = subprocess.run([py, *cmd], cwd=ROOT, capture_output=True, text=True, check=False,
-                           env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                           # the evaluations measure the inherited modules (full scope); the scripts import the package
+                           env={**os.environ, "PYTHONIOENCODING": "utf-8", "SOC_PRODUCT_SCOPE": "full",
+                                "PYTHONPATH": str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")})
         txt = p.stdout[p.stdout.find("{"):]
         return json.loads(txt)
     e = js(["scripts/eval_phishing.py"])["heuristic"]

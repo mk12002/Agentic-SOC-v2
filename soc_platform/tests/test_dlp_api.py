@@ -19,12 +19,14 @@ def test_the_dlp_queue_runs_reads_and_takes_a_ruling_within_scope(client):  # no
         assert client.get(path).status_code == 401
     assert client.post("/api/v1/dlp/run", headers=auditor).status_code == 403        # reading is not investigating
     assert client.post("/api/v1/dlp/run", headers=phishing_only).status_code == 403
+    before = J(client.get("/api/v1/dlp/summary", headers=auditor))["alerts"]   # another test may have run it already
     run = J(client.post("/api/v1/dlp/run", headers=analyst))
-    assert run["new_alerts"] > 0 and run["escalated"] > 0 and not run["errors"] and run["ai_decided"] == 0
+    assert not run["errors"] and run["ai_decided"] == 0
+    assert before or (run["new_alerts"] > 0 and run["escalated"] > 0)            # a first run judges the sample
     again = J(client.post("/api/v1/dlp/run", headers=analyst))
     assert (again["new_alerts"], again["escalated"]) == (0, 0)                       # a second run changes nothing
     sm = J(client.get("/api/v1/dlp/summary", headers=auditor))
-    assert sm["alerts"] == run["new_alerts"] == sum(sm["by_status"].values()) == sum(sm["by_computed"].values())
+    assert sm["alerts"] == before + run["new_alerts"] == sum(sm["by_status"].values()) == sum(sm["by_computed"].values()) > 0
     assert sm["model"] == "off" and {t["stage"] for t in sm["decision_types"]} == {"shadow"}
     listed = J(client.get("/api/v1/dlp/alerts?limit=500", headers=analyst))
     assert listed["total"] == sm["alerts"] == len(listed["items"])
