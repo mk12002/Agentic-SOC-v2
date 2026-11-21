@@ -18,7 +18,18 @@ from sqlalchemy.orm import Session
 from soc_platform.core.models import ActionRequest, Case, Entity, utcnow
 from soc_platform.core.schema import severity_rank
 
-HEALTH_TOOLS = ("forcepoint_dlp", "silverfort", "trend_micro", "trellix_epo", "directory_export")
+# The tools whose health is watched: every tool providing a capability the data-protection, coverage and posture
+# modules read (connectors/capabilities.py) - whichever products those are.
+WATCHED_CAPABILITIES = ("directory.devices", "directory.users", "edr.inventory", "edr.alerts", "dlp.incidents",
+                        "dlp.agents", "encryption.inventory", "identity.risk_events", "tool.health")
+
+
+def health_tools(enabled: Any) -> list[str]:
+    """The switched-on tools to watch, in a fixed order."""
+    from soc_platform.connectors.capabilities import tools_for
+
+    on = set(enabled)
+    return [t for t in tools_for(*WATCHED_CAPABILITIES) if t in on]
 WINDOW_DAYS = 7          # "this week" against "the week before", anchored to the newest alert (not the wall clock)
 PEOPLE_DAYS = 30
 

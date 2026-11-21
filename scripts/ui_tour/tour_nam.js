@@ -262,6 +262,28 @@ const same = (where, label, shown, expected) => { if (String(shown) !== String(e
   if (after === before) problems.push('side menu: the fold is not kept after a reload');
   await page.click('#side-toggle'); await page.waitForTimeout(300);
 
+  // the connectors as tiles: one tile per connector, the choice kept after a reload, laid out at a wide and a phone width
+  await page.goto(`${BASE}/#/integrations`); await settle(page);
+  const conns = await call(lead, 'GET', '/api/v1/dashboard/connectors');
+  if (!(await page.$('[data-fn="setConnView"]'))) problems.push('integrations: no List / Tiles switch');
+  else {
+    await page.click('[data-fn="setConnView"][data-args*="tiles"]'); await settle(page);
+    const tiles = await page.$$eval('.tiles .tile', t => t.length);
+    if (tiles !== conns.length) problems.push(`integrations tiles: ${tiles} tiles for ${conns.length} connectors`);
+    await page.reload(); await page.waitForSelector('.sidebar'); await settle(page);
+    if (!(await page.$('.tiles .tile'))) problems.push('integrations: the tiles view is not kept after a reload');
+    for (const w of [1440, 390]) {
+      await page.setViewportSize({width: w, height: w < 500 ? 844 : 900}); await settle(page);
+      await audit(page, `${w}px integrations tiles`); await junk(page, `${w}px integrations tiles`);
+      const ov = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      if (ov > 2) problems.push(`${w}px integrations tiles: page overflow ${ov}px`);
+    }
+    await axe(page, 'integrations tiles');
+    await page.setViewportSize({width: 1440, height: 900});
+    await page.click('[data-fn="setConnView"][data-args*="list"]'); await settle(page);
+    if (await page.$('.tiles')) problems.push('integrations: switching back to List left the tiles');
+  }
+
   await browser.close();
   if (a11yNotes.length) console.log('\nACCESSIBILITY NOTES (moderate/minor):\n - ' + [...new Set(a11yNotes)].join('\n - '));
   console.log('\nPROBLEMS:', problems.length ? '\n - ' + problems.join('\n - ') : 'none');

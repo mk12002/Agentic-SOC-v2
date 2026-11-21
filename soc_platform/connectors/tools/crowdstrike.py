@@ -324,6 +324,7 @@ def _live(settings: dict[str, Any]) -> HttpTransport:
 
 MANIFEST = ConnectorManifest(
     name="crowdstrike", tool="CrowdStrike Falcon", vendor="CrowdStrike", category="edr", dimension="endpoint",
+    provides={"edr.inventory": "hosts", "edr.alerts": "alerts", "vuln.assets": "hosts", "vuln.findings": "vulnerabilities"},
     description="Detections, host inventory, Spotlight vulnerabilities, IOC lookup, containment and RTR collection.",
     factory=lambda s, t: CrowdStrikeConnector(s, t, rate_per_sec=8, burst=15),
     live_transport=_live,

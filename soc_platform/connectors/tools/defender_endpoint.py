@@ -244,6 +244,7 @@ def _actions(c: DefenderEndpointConnector) -> list:
 
 MANIFEST = ConnectorManifest(
     name="defender_endpoint", tool="Microsoft Defender for Endpoint", vendor="Microsoft", category="edr",
+    provides={"edr.inventory": "machines", "edr.alerts": "alerts", "vuln.assets": "machines", "vuln.findings": "vulnerabilities"},
     dimension="endpoint",
     description="Alerts, device inventory, TVM vulnerabilities, advanced hunting, isolation, scans, custom indicators.",
     factory=lambda s, t: DefenderEndpointConnector(s, t, rate_per_sec=1.5, burst=20),  # MDE: 100 calls/min per app

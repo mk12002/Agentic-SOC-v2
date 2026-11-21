@@ -67,6 +67,16 @@ they differ.
 | NAM's tools and modules plus the platform essentials; inherited modules switched off (registry, jobs, routes 404, screens hidden, report sections, engine never loads) | Built | `test_scope.py` (7 tests) |
 | A typo in a connector name still caught in the NAM scope | Built | `test_scope.py::test_the_nam_scope_offers_only_nams_tools` |
 
+## 5A. Plug-and-play with security tools
+
+| Requirement | Status | Tests |
+|---|---|---|
+| Every connector declares the capabilities it provides; each declaration holds on the connector's own data | Built | `test_capabilities.py` (one test per declaration) |
+| No workflow names a product: coverage, DLP, cross-tool, posture, tool health, CISO view, risk, incident and vulnerability read capabilities | Built | `test_capabilities.py::test_no_workflow_names_a_product_in_its_tool_lists`, `test_the_edr_control_is_measured_from_whichever_edr_product_is_connected` (each EDR), `test_two_edr_products_at_once_count_a_device_once_with_the_better_state` |
+| Readiness: which module lacks a required capability | Built (CLI, API) | `test_capabilities.py::test_the_matrix_names_what_each_module_lacks`, `test_the_capabilities_command_checks_readiness` |
+| A plain REST tool connected by a definition file, read-only, own host only, no code or secrets in the file | Built | `test_declarative.py` (same records as a code connector, refusals, next-link host, paging cap, scope, end to end) |
+| Push intake for every record kind; packaged connectors with a catalogue page; an onboarding screen | Not built | - |
+
 ## 6. Security requirements of the NAM surface (round 39)
 
 | Requirement | Tests |

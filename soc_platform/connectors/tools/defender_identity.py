@@ -169,6 +169,7 @@ class DefenderIdentityConnector(MicrosoftConnector):
 
 MANIFEST = ConnectorManifest(
     name="defender_identity", tool="Microsoft Defender for Identity", vendor="Microsoft", category="identity",
+    provides={"identity.alerts": "alerts", "identity.signins": "logon_events"},
     dimension="identity",
     description="On-premises Active Directory identity alerts and domain logon events (Defender XDR, through Graph).",
     factory=lambda s, t: DefenderIdentityConnector(s, t, rate_per_sec=2, burst=5),

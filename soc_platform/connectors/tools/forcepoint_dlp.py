@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from soc_platform.connectors.capabilities import Provides
 from soc_platform.connectors.http import ApiKeyHeader, HttpTransport
 from soc_platform.connectors.registry import ConfigField, ConnectorManifest
 from soc_platform.connectors.tools._common import need, parse_ts, sev_name, source_verdict
@@ -123,6 +124,7 @@ def _live(s: dict[str, Any]) -> HttpTransport:
 
 MANIFEST = ConnectorManifest(
     name="forcepoint_dlp", tool="Forcepoint DLP", vendor="Forcepoint", category="dlp", dimension="data_protection",
+    provides={"dlp.incidents": "dlp_incidents", "dlp.agents": Provides("endpoints", {"last_seen": "last_checkin"}), "tool.health": "health", "tool.config_export": None},
     description="Data-loss incidents, endpoint agent check-ins, and the product's certificates and sync jobs.",
     factory=lambda s, t: ForcepointDlpConnector(s, t, rate_per_sec=2, burst=4), live_transport=_live,
     config=[ConfigField("base_url", "Forcepoint Security Manager API URL", kind="url"),

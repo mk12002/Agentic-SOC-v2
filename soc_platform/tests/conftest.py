@@ -200,7 +200,9 @@ def registry() -> ActionRegistry:
 # ------------------------------------------------------------------------------------------------ sample estates
 # The built-in estate plus seeded variants (different organisation, people, machines, IP plan, suppliers,
 # volumes). Tests that assert relationships run on all of them, so nothing can depend on one data set.
-ESTATES = ["demo", "seed7", "seed23", "handoff"]   # handoff: the data handoff workbook's estate (scripts/build_estate_variant.py --handoff)
+# handoff: the data handoff workbook's estate (build_estate_variant.py --handoff); amc: an Indian asset manager with
+# real-tenant disorder and volume (--amc --messy)
+ESTATES = ["demo", "seed7", "seed23", "handoff", "amc"]
 
 
 @pytest.fixture(scope="session")
@@ -221,6 +223,7 @@ def estate_configs(tmp_path_factory) -> dict[str, dict[str, Any]]:
     spec.loader.exec_module(mod)
     for name in ESTATES[1:]:
         d = (mod.main(str(tmp_path_factory.mktemp(name)), handoff=True) if name == "handoff"
+             else mod.main(str(tmp_path_factory.mktemp(name)), seed=11, amc=True, messy=True) if name == "amc"
              else mod.main(str(tmp_path_factory.mktemp(name)), seed=int(name[4:])))
         out[name] = {**json.loads((d / "estate.json").read_text()), "name": name}
     return out

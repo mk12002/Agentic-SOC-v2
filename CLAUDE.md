@@ -44,7 +44,7 @@ Paths are proposed; keep the layering of §4 (API → intelligence → domains �
 
 | # | Module (deck name) | What it does | Reuses | New code | Status |
 |---|---|---|---|---|---|
-| M0 | Re-estate and rename | CyberDome branding; a generated Indian asset-manager demo estate (fund-operations users, investor database, PAN / Aadhaar-classified data); no name or data of the earlier client | `scripts/build_estate_variant.py`, `rename_estate.py`, `reporting/style.py` | estate builders and fixtures for the eight tools; a fifth entry in `conftest.ESTATES` | rebrand done (console, favicon, API title, reports, notifications, README; the deck's Dome names on the screens); internal identifiers kept (`soc_platform`, `SOC_*`, `agentic-soc` namespace / webhook source). An asset-manager sample estate is not done |
+| M0 | Re-estate and rename | CyberDome branding; a generated Indian asset-manager demo estate (fund-operations users, investor database, PAN / Aadhaar-classified data); no name or data of the earlier client | `scripts/build_estate_variant.py`, `rename_estate.py`, `reporting/style.py` | estate builders and fixtures for the eight tools; a fifth entry in `conftest.ESTATES` | rebrand done (console, favicon, API title, reports, notifications, README; the deck's Dome names on the screens); internal identifiers kept (`soc_platform`, `SOC_*`, `agentic-soc` namespace / webhook source). Asset-manager estate: `build_estate_variant.py --amc` (fictional fund house, Indian names, fund-operations / investor-services departments and DLP groups, investor database, registrar and custodian), the fifth test estate `amc` (with `--messy`); the built-in demo stays Acme |
 | M1 | Connectors (Dome Connect) | The tools of §0.1, read-only first | `connector new` scaffold, `test_connector_conformance.py`, `test_live_wire.py`, stages | one module + fixtures + paging test per tool; new categories | partial: `directory_export`, `forcepoint_dlp`, `silverfort`, `trend_micro`, `trellix_epo` in **fake mode only** (placeholder paths and shapes, `_paged.py`); Arcon, Cloudflare, SIEM / SOAR products not started |
 | M2 | Tool health watch (Dome Connect) | Agents silent > 24 h, failed or late sync jobs, certificate days left, users unmapped by the AD / LDAP sync, database sync lag; warns ahead, recommends a ticket or an agent re-push | `api/dashboards.connector_freshness`, `core/notify.py`, `itsm.py` ticket action | `intelligence/tool_health.py`, a `tool_health` job, health streams on each connector "wherever the tool reports them" | v1: `intelligence/tool_health.py`, `posture` job reads the `health` streams; screen *Coverage and tool health* |
 | M3 | Control coverage (Dome Graph) | Baseline devices × controls (EDR agent, DLP agent reporting, disk encryption): every device missing a control, devices a tool sees that the baseline lacks, users in no DLP policy group; ranked by the sensitive data each holds or reaches | `core/entity_resolution.py`, `context_store`, `core/ownership.py` | `intelligence/control_coverage.py` (not `attack_coverage.py`, which is ATT&CK) + screen + report source | v1: `core/controls.py` (`Snapshot`: what each tool's newest read lists) + `intelligence/control_coverage.py`; `inventory` job runs first |
@@ -159,9 +159,23 @@ code is a separate decision (it would mean rewriting much of the inherited suite
   and the plain-words brief all read it. "What raises the score" (`posture.levers`) and "why it moved" (`movement`)
   are arithmetic on the formula's own factors; the brief is by rule unless a person asks the model (`posture.explain`).
 * **Cross-tool cases read facts, never text** (`intelligence/crosstool.py`): the DLP alert's own facts (identity risk,
-  device gaps, privileged) plus `edr_alert` events; endpoint alerts are their own kind so the incident pipeline is
-  unchanged. The risk engine's `EDR_TOOLS` must list every EDR connector (it once called a Trend Micro laptop
-  "without EDR").
+  device gaps, privileged) plus the alerts of every `edr.alerts` provider (`edr_alert` or `alert` kind); Trend
+  Micro's alerts are their own kind so the incident pipeline is unchanged. "Has an EDR" is `risk.edr_tools()`, read
+  from the capability declarations (a hard-coded list once called a Trend Micro laptop "without EDR").
+* **Plug-and-play by capability** (`connectors/capabilities.py`): every manifest declares `provides={capability:
+  stream}` (a `Provides(stream, {contract_field: own_field})` where the tool's field names differ); workflows ask
+  `registry.providers(*caps)` / `capabilities.tools_for(...)` and read fields through `capabilities.read_field`, never
+  a product's name. The control catalogue (`core/controls.py`), DLP, cross-tool, posture, tool health, the CISO view,
+  incident and vulnerability ingestion all read capabilities; a device covered by either of two EDR products counts
+  once with the better state. `MODULE_NEEDS` + `matrix()` give the readiness check (`capabilities --check`, `GET
+  /api/v1/capabilities`). Still product-specific by nature: the phishing investigation's vendor look-ups, ATT&CK
+  coverage per product, report short names.
+* **Declared connectors** (`connectors/declarative.py`): a plain REST tool from a definition file in
+  `config/connectors.d/` or `SOC_CONNECTOR_DEFINITIONS` (example: `config/connectors.d/examples/`, not scanned).
+  Read-only, fixed converters (`CONVERTERS`), relative paths only, credentials as settings, capped paging; loaded by
+  `registry.discover()` after the code connectors (never replacing one), `origin="definition"`, in every product
+  scope. `connector validate FILE` checks one. Proof of equivalence: Trellix `systems` as a definition gives the same
+  records (`test_declarative.py`).
 * **The Dome Score's weights are a document** (`posture_weights.py`): `posture(config=...)` previews; nothing else
   reads `WEIGHTS` (the draft) - use `posture()["weights"]`.
 * **Reportability is a person's decision and it stands** (`reporting/breach.py`): deciding again would restart the
@@ -277,7 +291,9 @@ python -m soc_platform scheduler [--once]      # optional separate scheduler ser
 python -m soc_platform token lena@acme-demo.com lead   # dev token (needs SOC_DEV_JWT_SECRET)
 python -m soc_platform config check [FILE] [--no-env]  # every configuration problem with its fix; exit 1 on errors
 python -m soc_platform preflight NAME... | --all       # every check a tool must pass before it goes live
+python -m soc_platform capabilities [--check] [--json] [--config F]  # what each tool provides; modules ready? (exit 1 if not)
 python -m soc_platform connector new NAME --category CAT --tool "Vendor X"   # scaffold;  connector check NAME
+python -m soc_platform connector validate FILE          # check a declared connector (definition file) + its fixtures
 python -m soc_platform blobs check | migrate [--delete-files] | reencrypt   # resolve; file store -> database; re-key
 python -m soc_platform audit verify [--anchor SEQ:HASH]        # recompute the chain; compare with heads shipped to logs
 kubectl kustomize deploy/kubernetes/overlays/azure             # render the HA package (or overlays/onprem)
@@ -325,9 +341,9 @@ PostgreSQL data folder: delete both after the run (repeated full runs once fille
 temp folders and the variant-estate builders overwrite each other (seen as "demo names leaked" failures).
 
 **Other scripts** (`scripts/`): `build_fixtures.py` + `fixture_builders.py` (regenerate fake-mode fixtures),
-`build_email_corpus.py` (labelled `.eml` corpus), `build_estate_variant.py OUT --seed N [--scale X] [--messy] [--handoff]` (a
+`build_email_corpus.py` (labelled `.eml` corpus), `build_estate_variant.py OUT --seed N [--scale X] [--messy] [--handoff | --amc]` (a
 different organisation: fixtures, settings, suppliers, corpus, `estate.json`; `--messy` adds real-tenant disorder and
-event volume; `--handoff` builds the data handoff workbook's estate), `estate_profile.py FIXTURES ORG` (events, benign
+event volume; `--handoff` builds the data handoff workbook's estate; `--amc` an Indian asset manager), `estate_profile.py FIXTURES ORG` (events, benign
 share and replays through the connectors' own parsers), `measure_scale.py --scales 1,20,40 [--db URL]` (time and SQL per stage on growing messy estates),
 `load_test.py --users N --seconds S --workers W [--db URL]` (a real multi-process server under concurrent analysts), `rename_estate.py`, `eval_phishing.py`,
 `eval_identity_resolution.py`, `eval_resolution_at_scale.py`, `measure_llm_usage.py` (token/cost measurement),
@@ -357,6 +373,9 @@ soc_platform/
   connectors/preflight.py      run_preflight: config, start-up, sign-in, every stream (permission, parsing,
                          freshness, clock, volume), write scopes - each failure with its fix
   connectors/devkit.py   `connector new` scaffold + `connector check`
+  connectors/capabilities.py  the capability catalogue (contracts: record kinds + fields), Provides, providers /
+                         tools_for / read_field, MODULE_NEEDS, matrix() - what workflows read instead of product names
+  connectors/declarative.py   declared connectors: a definition file -> DeclarativeConnector (read-only, no code)
   connectors/tools/      one module per tool; _common.py (ToolConnector, parse_ts, ok_lookup), _microsoft.py (Graph/OData)
   core/schema.py         NormalizedRecord / EntityRef - the canonical schema every connector emits
   core/models.py         core ORM tables; utcnow() (THE clock); new_id() (uuid4 hex)
@@ -509,6 +528,10 @@ fingerprints hash the evidence.
   `PAGING_TESTED = {(name, stream)}` in its own `test_connector_<name>.py` (what `connector new` generates).
 - Declare **every** setting a connector reads as a `ConfigField` with its `kind` (url, bool, int, choice, map, list,
   email, path): the strict checker rejects undeclared settings and the console draws its form from them.
+- Declare what the connector provides (`provides=`, capabilities from `connectors/capabilities.py`), mapping its own
+  field names onto the contract's where they differ. `test_capabilities.py` checks every declaration on the
+  connector's own fixtures (stream exists, only the contract's record kinds, mapped fields present). A workflow must
+  never name a product: ask for a capability.
 
 **Connector configuration in force** = `config/connectors.yaml` + the active `ConnectorConfigVersion` (console).
 - The API's `registry()` is a `_Registry` object (still has `cache_clear()`): it re-reads the active version every
@@ -571,7 +594,7 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
 
 ## 6. Testing: how it is organised and what not to break
 
-- **Fixtures** (`tests/conftest.py`): `db`/`session` (fresh in-memory DB), `ESTATES = ["demo", "seed7", "seed23", "handoff"]`,
+- **Fixtures** (`tests/conftest.py`): `db`/`session` (fresh in-memory DB), `ESTATES = ["demo", "seed7", "seed23", "handoff", "amc"]` (`amc`: an Indian asset manager, `--amc --messy`),
   `estate_configs` (builds variant estates once per session), `estate_env` (points fixtures, suppliers, org domain at
   an estate and resets caches). Tests default to `SOC_EMBEDDED_SCHEDULER=0` and temporary raw/report dirs - tests
   must never write into the project folder.
@@ -628,6 +651,12 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
   sign-in code - answered over HTTP from the fixtures: same records as fake mode, credentials on every request; a
   sign-in that cannot complete is a connector error; next links only to the tool's own hosts),
   `test_live_llm.py` / `test_live_public_feeds.py` (opt-in).
+  `test_capabilities.py` (every declaration holds on the connector's own data; providers only switched-on tools; the
+  EDR control measured from whichever EDR product is connected, and from two at once; field maps; the DLP workflow
+  syncs by capability; the product-name constants are gone; the matrix and `capabilities --check`),
+  `test_declarative.py` (a definition re-expressing Trellix gives the same records; the example across pages; a
+  declared tool used end to end through its capability; every refusal; next link to another host; paging cap; bad
+  definitions left out; `connector validate`).
   NAM build: `test_connector_nam_stack.py` (paging and resume of the five new connectors, one device across four
   tools, nothing added to the other workflows), `test_dlp.py` (decision table, destinations, the pipeline on every
   estate, never-automatic list, injected message text, model decisions stored / discarded / off, analyst rulings,
@@ -658,6 +687,9 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
 
 ## 7. How to extend
 
+- **A tool with a plain REST / JSON API**: a definition file in `config/connectors.d/` (see
+  `connectors/declarative.py` and the example), `connector validate FILE`, then switch it on - no code. Anything it
+  cannot express (actions, look-ups, unusual sign-in or paging) needs a code connector:
 - **A connector**: start with `python -m soc_platform connector new <name> --category <cat>` (writes the module,
   fixtures, paging test and a switched-off config entry) and finish with `connector check <name>`. By hand: add
   `soc_platform/connectors/tools/<tool>.py` exporting `MANIFEST` (name, kind, config fields with
@@ -665,7 +697,8 @@ of comments: short, explaining *why*. Tests read like specifications (`test_<beh
   `fetch_page`, `normalize` → `NormalizedRecord`s (entities with strong `keys` + weak `hints`, events with `refs`),
   optional `lookup`. Add `soc_platform/fixtures/<tool>.json` routes (`FixtureTransport`: method, path regex, listed
   params only, `~` regex / `*` any, optional `body_contains`). Add it to `config/connectors.yaml`, a test in
-  `test_connectors.py`; regenerate `docs/CONNECTORS.md` (`scripts/build_connector_docs.py`) and, for a NAM tool, add it to
+  `test_connectors.py`, its `provides=` declaration (every workflow that reads that capability then uses it with no
+  other change); regenerate `docs/CONNECTORS.md` (`scripts/build_connector_docs.py`) and, for a NAM tool, add it to
   `scope.NAM_CONNECTORS` and a section in `docs/DEPLOYMENT_GUIDE.md` §5.
 - **An action**: a `ConnectorAction` in the connector's action factory (with `preconditions` and `reverse_type` if
   reversible), a policy entry in `core/policy.py:DEFAULT_POLICY` if it needs a non-default level/limit/four-eyes,

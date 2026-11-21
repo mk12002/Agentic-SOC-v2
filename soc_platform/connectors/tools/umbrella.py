@@ -177,6 +177,7 @@ def _live(s: dict[str, Any]) -> HttpTransport:
 
 MANIFEST = ConnectorManifest(
     name="umbrella", tool="Cisco Umbrella", vendor="Cisco", category="dns", dimension="dns",
+    provides={"dns.events": "dns_activity"},
     description="DNS/proxy activity (did the user reach the site?), categories, domain blocking via destination lists.",
     factory=lambda s, t: UmbrellaConnector(s, t, rate_per_sec=3, burst=6), live_transport=_live,
     config=[ConfigField("api_key", "Umbrella API key", secret=True), ConfigField("api_secret", "API secret", secret=True),

@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select
 
+from soc_platform.connectors.capabilities import tools_for
 from soc_platform.connectors.registry import ConnectorRegistry
 from soc_platform.core.models import ActionRequest, Case, Entity
 from soc_platform.domains.dlp.models import DlpAlert
@@ -32,10 +33,14 @@ def test_the_phished_person_is_one_critical_case_where_four_tools_agree(session)
     out = x.run()
     assert out["opened"] >= 1
     r = max(rows(session), key=lambda r: len(r.tools))
-    assert set(r.tools) == {"forcepoint_dlp", "silverfort", "trellix_epo", "trend_micro"}
+    # the DLP, identity, encryption and EDR tools of the estate agree; in the full scope the estate's other EDR
+    # products alerted on the same laptop within the window too, and count because they provide edr.alerts
+    # (plug-and-play: any EDR product is read, not one by name)
+    assert set(r.tools) >= {"forcepoint_dlp", "silverfort", "trellix_epo", "trend_micro"}
+    assert set(r.tools) - {"forcepoint_dlp", "silverfort", "trellix_epo"} <= set(tools_for("edr.alerts"))
     assert set(r.rules) >= {"X1", "X2", "X3"} and r.severity == "critical"
     case = session.get(Case, r.case_id)
-    assert case.domain == "incident" and case.severity == "critical" and "4 tools agree" in case.title
+    assert case.domain == "incident" and case.severity == "critical" and f"{len(r.tools)} tools agree" in case.title
     assert case.assessment["tools_agreeing"] == r.tools and case.assessment["source"] == "deterministic"
     acts = {a.action_type: a for a in session.execute(select(ActionRequest).where(ActionRequest.case_id == case.id)).scalars()}
     assert {"identity.revoke_sessions", "identity.require_mfa", "endpoint.isolate"} <= set(acts)

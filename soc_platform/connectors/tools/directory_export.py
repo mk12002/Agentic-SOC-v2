@@ -69,6 +69,7 @@ def _live(s: dict[str, Any]) -> HttpTransport:
 
 MANIFEST = ConnectorManifest(
     name="directory_export", tool="Directory export (devices and users)", vendor="internal", category="directory",
+    provides={"directory.devices": "devices", "directory.users": "users"},
     dimension="identity",
     description="The baseline of joined devices and people that control coverage is reconciled against.",
     factory=lambda s, t: DirectoryExportConnector(s, t, rate_per_sec=2, burst=4), live_transport=_live,

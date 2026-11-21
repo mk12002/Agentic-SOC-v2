@@ -420,10 +420,16 @@ class DlpTuning:
 
     # ------------------------------------------------------------------ did it take effect?
 
-    def verify(self, row: DlpRuleProposal, tool: str = "forcepoint_dlp") -> dict[str, Any] | None:
-        """For an applied change: does the tool's configuration show it, and have matching alerts stopped?"""
+    def verify(self, row: DlpRuleProposal, tool: str | None = None) -> dict[str, Any] | None:
+        """For an applied change: does the tool's configuration show it, and have matching alerts stopped? ``tool``:
+        the DLP tool whose rule it is - by default the tool that raised the rule's alerts."""
         if row.status != "applied" or row.applied_at is None:
             return None
+        if tool is None:
+            from soc_platform.domains.dlp.models import DlpAlert
+
+            tool = self.s.execute(select(DlpAlert.tool).where(DlpAlert.rule == row.rule).order_by(DlpAlert.id)
+                                  .limit(1)).scalar() or ""
         from soc_platform.intelligence.config_snapshots import ConfigSnapshot
 
         snap = self.s.execute(select(ConfigSnapshot).where(ConfigSnapshot.tool == tool,

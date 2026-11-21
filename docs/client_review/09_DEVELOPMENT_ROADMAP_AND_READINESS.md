@@ -11,6 +11,7 @@
 |---|---|
 | Dome Connect: connectors for Forcepoint DLP, Silverfort, Trend Micro, Trellix ePO, the AD / CMDB export | Built, fake mode on placeholder APIs - to be confirmed against NAM's versions |
 | Dome Connect: tool health and configuration snapshots | Built (where each tool reports or exports them) |
+| Plug-and-play: capability declarations on every connector, workflows by capability, readiness check, declared connectors for plain REST tools | Built (an onboarding screen and push intake for every record kind not yet) |
 | Dome Graph: control coverage | Built |
 | Dome Agents: DLP triage, AI investigator, earned autonomy (shadow, recommend), DLP rule changes with classification quality | Built |
 | Cross-tool cases | Built (privileged check-outs wait for Arcon) |

@@ -148,6 +148,7 @@ def _live(s: dict[str, Any]) -> HttpTransport:
 
 MANIFEST = ConnectorManifest(
     name="wiz", tool="Wiz", vendor="Wiz", category="cloud", dimension="cloud",
+    provides={"vuln.assets": "resources", "vuln.findings": "vulnerabilities", "cloud.issues": "issues"},
     description="Cloud inventory, vulnerability findings, internet exposure and misconfiguration issues (GraphQL).",
     factory=lambda s, t: WizConnector(s, t, rate_per_sec=3, burst=6), live_transport=_live,
     config=[ConfigField("api_url", "Tenant API endpoint, e.g. https://api.eu1.app.wiz.io", kind="url"),

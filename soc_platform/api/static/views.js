@@ -671,14 +671,29 @@ const STAGE_HELP = {fake: 'Sample data, no credentials', record: 'Live reads; re
 const STAGE_K = {fake: 'info', record: 'medium', read: 'medium', recommend: 'ok', automate: 'ok'};
 const PF_K = {ok: 'ok', info: 'info', warning: 'medium', error: 'high', skipped: 'info'};
 const fmtVal = v => v === null || v === undefined || v === '' ? '–' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+// how this viewer likes the connectors shown: 'list' (the table) or 'tiles' (square cards) - remembered in this browser
+// only; a blocked storage simply means the default each time
+function connView() {
+  let v = 'list';
+  try { v = localStorage.getItem('soc_conn_view') === 'tiles' ? 'tiles' : 'list'; } catch (e) { /* storage blocked: default */ }
+  return v;
+}
+function setConnView(v) {
+  try { localStorage.setItem('soc_conn_view', v === 'tiles' ? 'tiles' : 'list'); } catch (e) { /* not remembered: still switches */ }
+  window.__connView = v === 'tiles' ? 'tiles' : 'list';
+  Integrations();
+}
 async function Integrations() {
   const __g = GEN;
   const canCheck = can('read_audit') && window.ME.domains.includes('*');
-  const [cs, jr, sc, nt, cfg] = await Promise.all([api('/api/v1/dashboard/connectors'), api('/api/v1/jobs?limit=200'),
+  const [cs, jr, sc, nt, cfg, capm] = await Promise.all([api('/api/v1/dashboard/connectors'), api('/api/v1/jobs?limit=200'),
     canCheck ? api('/api/v1/admin/self-check') : Promise.resolve(null),
     canCheck ? api('/api/v1/admin/notifications') : Promise.resolve(null),
-    can('read_audit') ? api('/api/v1/config/connectors') : Promise.resolve(null)]);
+    can('read_audit') ? api('/api/v1/config/connectors') : Promise.resolve(null),
+    api('/api/v1/capabilities').catch(() => null)]);
   window.__cfg = cfg;
+  const view = window.__connView || connView();
+  const provides = Object.fromEntries(((capm || {}).connectors || []).map(c => [c.tool, c.provides]));
   const byName = cfg ? Object.fromEntries(cfg.connectors.map(c => [c.name, c])) : {};
   const last = {}; jr.runs.forEach(r => { if (!last[r.job]) last[r.job] = r; });
   const stc = {healthy: 'ok', on_demand: 'info', stale: 'medium', error: 'high', misconfigured: 'high', disabled: 'info'};
@@ -693,12 +708,15 @@ async function Integrations() {
     `${fileProblems}${pending}<div id="cfgpanel"></div>
     ${sc ? `<div class="mb">${card('Platform self-check', `<div class="inline" style="margin-bottom:${sc.ok ? 0 : 10}px">${status(sc.ok ? 'ok' : 'high', sc.ok ? 'Consistent' : 'Attention')}<span class="small">${sc.passed} of ${sc.total} checks pass - the same figures agree on every screen, report and answer; every stored reference resolves; nothing is duplicated; the audit chain verifies.</span></div>` +
       sc.checks.filter(c => !c.ok).map(c => `<div class="list-row small"><span class="grow"><b>${esc(c.check)}</b></span><span class="mono muted">${esc(JSON.stringify(c.detail)).slice(0, 160)}</span></div>`).join(''), {sub: 'runs hourly; a failure raises a finding'})}</div>` : ''}
-    ${card(`Connectors <span class="muted">(${cs.filter(c => c.enabled).length} enabled)</span>`, table(['Tool', 'Stage', 'State', 'Streams · age / expected', ''], cs.map(c => `<tr>
-      <td><div class="t-title">${esc(c.tool)}</div><div class="t-sub">${esc(c.name)} · ${esc(c.category)}</div></td>
+    ${card(`Connectors <span class="muted">(${cs.filter(c => c.enabled).length} enabled)</span>`, view === 'tiles' ? connTiles(cs, {cfg, manage, stc, pfCell, provides}) : table(['Tool', 'Stage', 'State', 'Streams · age / expected', ''], cs.map(c => `<tr>
+      <td><div class="t-title">${esc(c.tool)}</div><div class="t-sub">${esc(c.name)} · ${esc(c.category)}</div>${(provides[c.name] || []).length ? `<div class="t-sub">Provides: ${esc(provides[c.name].join(', '))}</div>` : ''}</td>
       <td>${c.enabled ? `<span class="chip plain ${STAGE_K[c.stage] || ''}" title="${esc(STAGE_HELP[c.stage] || '')}">${esc(c.stage_label || c.stage || '')}</span>` : '<span class="muted small">Off</span>'}</td>
       <td>${status(stc[c.state] || 'info', cap(c.state))}${c.config_problems.map(p => `<div class="t-sub" style="color:var(--high)">${esc(p)}</div>`).join('')}${pfCell(c)}</td>
       <td class="small">${c.streams.map(s => `<div>${esc(s.stream)}: <span class="mono">${s.age_hours == null ? 'never' : hours(s.age_hours)}</span> <span class="muted">/ within ${s.expected_within_hours} h</span>${s.fresh ? '' : ' ' + chip('stale', 'medium plain')}${s.last_error ? `<div class="t-sub" style="color:var(--crit)">${esc(s.last_error)}</div>` : ''}</div>`).join('') || '<span class="muted">queried on demand during investigations</span>'}</td>
-      <td><div class="inline" style="gap:6px;flex-wrap:wrap">${manage ? btn('Preflight', 'preflight', [c.name], 'sm') : ''}${manage && cfg ? btn('Configure', 'configure', [c.name], 'sm') : ''}${manage && cfg && c.enabled ? btn('Pause', 'pauseConn', [c.name], 'sm danger') : ''}</div></td></tr>`)), {flush: true, sub: 'Preflight checks sign-in, every permission, parsing, data freshness and volume before a tool is trusted'})}
+      <td><div class="inline" style="gap:6px;flex-wrap:wrap">${connButtons(c, cfg, manage)}</div></td></tr>`)),
+      {flush: view !== 'tiles', sub: 'Preflight checks sign-in, every permission, parsing, data freshness and volume before a tool is trusted',
+       right: `<div class="seg" role="group" aria-label="Show connectors as">${[['list', 'List'], ['tiles', 'Tiles']].map(([v, label]) =>
+         `<button class="${v === view ? 'on' : ''}" aria-pressed="${v === view}" data-fn="setConnView" data-args="${arg(v)}">${label}</button>`).join('')}</div>`})}
     ${cfg ? `<div class="mt">${card('Configuration', configBody(cfg), {sub: 'file + approved console changes; secrets are never stored here'})}</div>` : ''}
     ${nt ? `<div class="mt">${card('Notifications', (nt.channels.length
         ? `<div class="small" style="margin-bottom:8px">Findings rated <b>${esc(nt.min_severity)}</b> or higher are sent to ${nt.channels.map(c => `<span class="tag">${esc(c)}</span>`).join(' ')} - once per channel, again if a finding escalates.</div>`
@@ -712,6 +730,26 @@ async function Integrations() {
       <td>${r ? status(jst[r.status], cap(r.status)) + `${r.attempts > 1 ? `<div class="t-sub">${r.attempts} attempts</div>` : ''}` : ''}</td>
       <td class="num small">${r && r.duration_s != null ? r.duration_s + ' s' : ''}</td><td class="small muted wrap"${r && !r.error ? ` title="${esc(JSON.stringify(r.summary))}"` : ''}>${r ? esc(r.error ? r.error.slice(0, 140) : jobDetail(r.summary)) : ''}</td>
       <td>${manage ? btn('Run now', 'runJob', [j], 'sm') : ''}</td></tr>`; })), {flush: true, sub: 'retried with backoff; dead-lettered after 3 failed runs'})}</div>`));
+}
+function connButtons(c, cfg, manage) {
+  return `${manage ? btn('Preflight', 'preflight', [c.name], 'sm') : ''}${manage && cfg ? btn('Configure', 'configure', [c.name], 'sm') : ''}${manage && cfg && c.enabled ? btn('Pause', 'pauseConn', [c.name], 'sm danger') : ''}`;
+}
+// the same connectors as square tiles: tool, stage, state, freshness, what it provides, the same actions
+function connTiles(cs, o) {
+  if (!cs.length) return empty('No connectors installed.');
+  return `<div class="tiles">${cs.map(c => {
+    const fresh = c.streams.filter(s => s.fresh).length, stale = c.streams.filter(s => !s.fresh);
+    const prov = o.provides[c.name] || [];
+    return `<div class="tile${c.enabled ? '' : ' off'}" role="group" aria-label="${esc(c.tool)}">
+      <div class="tile-h"><div class="t-title">${esc(c.tool)}</div><div class="t-sub">${esc(c.name)} · ${esc(c.category)}</div></div>
+      <div class="inline" style="gap:6px">${c.enabled ? `<span class="chip plain ${STAGE_K[c.stage] || ''}" title="${esc(STAGE_HELP[c.stage] || '')}">${esc(c.stage_label || c.stage || '')}</span>` : '<span class="muted small">Off</span>'}
+        ${status(o.stc[c.state] || 'info', cap(c.state))}</div>
+      ${c.config_problems.map(p => `<div class="t-sub" style="color:var(--high)">${esc(p)}</div>`).join('')}
+      <div class="small">${c.streams.length ? `${fresh} of ${c.streams.length} stream${c.streams.length > 1 ? 's' : ''} fresh${stale.length ? ' · stale: ' + stale.map(s => esc(s.stream)).join(', ') : ''}` : '<span class="muted">queried on demand</span>'}</div>
+      ${prov.length ? `<div class="tile-tags">${prov.slice(0, 4).map(p => `<span class="tag">${esc(p)}</span>`).join('')}${prov.length > 4 ? `<span class="tag">+${prov.length - 4}</span>` : ''}</div>` : ''}
+      ${o.pfCell(c)}
+      <div class="tile-f inline" style="gap:6px">${connButtons(c, o.cfg, o.manage)}</div></div>`;
+  }).join('')}</div>`;
 }
 // a job's summary in words (the raw figures stay in the tooltip)
 function jobDetail(sum) {
@@ -1602,7 +1640,7 @@ window.VIEWS = {trace: Trace, search: Search, story: Story, overview: Overview, 
   suppliers: Suppliers, vulnerabilities: Vulnerabilities, cloud: Cloud, coverage: Coverage, 'shadow-it': ShadowIt, integrations: Integrations, 'ai-usage': AiUsage,
   policy: Policy, reports: Reports, access: Access, audit: Audit, watchlists: Watchlists, tuning: Tuning};
 Object.assign(ALLOWED, {saveValueInput, casePage, approvalPage, actDetail, showMore, notifyTest, assignCase, addNote, ownerFilter, reportPlan, buildPlanned, savePlanned, buildTemplate, runDeep, approveBundle, approvalFilter, intelAll, askIntel, refreshIntel, insightAct, intelFilter, caseFilter, runInc, runPh, act, decide, upload, vmRefresh, ticketSync,
-  campaign, vmAsk, misRoute, misVerb, ownUpload, ownClear, testConn, runJob, preflight, configure, pauseConn, proposeConfig, approveConfig,
+  campaign, vmAsk, misRoute, misVerb, ownUpload, ownClear, testConn, runJob, preflight, configure, pauseConn, setConnView, proposeConfig, approveConfig,
   rejectConfig, closePanel, showHistory, showImport, importConfig, restoreConfig, showLists, proposeLists, saveLlmPolicy, checkModels, loadCalls, kill, approvePolicy, report, compliancePack, grant, approveGrant, revokeGrant, revokeKey, newKey, auditExport, wlUpload, wlRemove, tuneDraft, tuneBlank, tuneSuggest, tunePreview, tunePropose, tuneDecide, tuneAutoclose, tuneActSuggest, styleUpload, styleSave, styleRemove, styleReset});
 
 // ================================================================= CISO view, coverage and tool health, data protection

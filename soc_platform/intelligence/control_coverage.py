@@ -1,7 +1,7 @@
 """Control coverage (Dome Graph): which devices are missing a security control.
 
-The baseline is the directory export (the devices the organisation says it has). Each control is asked of the tool
-that owns it (``core/controls.py``). A device is *fully covered* only when every control expected on it is in place and
+The baseline is every tool providing ``directory.devices`` (the devices the organisation says it has). Each control
+is asked of every tool providing its capability (``core/controls.py``) - whichever product that is. A device is *fully covered* only when every control expected on it is in place and
 reporting - a stricter test than "the device is visible". Reported besides: devices a control tool sees that the
 baseline does not list (often where the real gaps are), and controls that are not measured because their tool is not
 connected (never counted as missing).
@@ -18,6 +18,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from soc_platform.connectors import capabilities as caps
 from soc_platform.core import controls
 from soc_platform.core.models import EntityKey
 from soc_platform.domains.dlp.models import DlpAlert
@@ -46,18 +47,29 @@ def _people(session: Session, upns: set[str]) -> dict[str, str]:
 
 def coverage(session: Session, *, limit: int = 500) -> dict[str, Any]:
     snap = controls.snapshot(session)
-    rows, connected = snap.assets, snap.connected
-    base = {a.id: snap.view(a, controls.BASELINE_TOOL) for a in rows}
-    baseline = [a for a in rows if base[a.id] is not None and base[a.id].get("directory_enabled") is not False]
-    measured = [c for c in controls.CONTROLS if c.tool in connected]
-    not_measured = [{"control": c.id, "label": c.label, "tool": c.tool} for c in controls.CONTROLS if c.tool not in connected]
+    rows = snap.assets
+    found = {a.id: snap.baseline_view(a) for a in rows}
+    base = {i: (v[1] if v else None) for i, v in found.items()}
+
+    def enabled(a) -> bool:
+        tool, view = found[a.id]
+        return caps.read_field(view, tool, controls.BASELINE, "directory_enabled") is not False
+
+    baseline = [a for a in rows if base[a.id] is not None and enabled(a)]
+    base_tools = sorted({found[a.id][0] for a in baseline})
+    measured = [c for c in controls.CONTROLS if snap.measured(c)]
+    not_measured = [{"control": c.id, "label": c.label, "capability": c.capability, "tool": None,
+                     "could_be_measured_by": list(c.tools)} for c in controls.CONTROLS if not snap.measured(c)]
     if not baseline:
-        return {"available": False, "reason": "No device baseline has been read yet (the directory export).",
-                "baseline": {"tool": controls.BASELINE_TOOL, "devices": 0}, "controls": [], "not_measured": not_measured,
+        return {"available": False, "reason": "No device baseline has been read yet (no tool providing "
+                                              f"{controls.BASELINE} is connected or has listed a device).",
+                "baseline": {"tool": None, "tools": [], "capability": controls.BASELINE, "devices": 0},
+                "controls": [], "not_measured": not_measured,
                 "devices_short": [], "unlisted": [], "fully_covered": 0, "coverage_percent": None}
     newest = snap.newest
     hosts_exp, users_exp = _exposure(session)
-    main_user = {a.id: str(base[a.id].get("primary_user") or "") for a in baseline}
+    main_user = {a.id: str(caps.read_field(base[a.id], found[a.id][0], controls.BASELINE, "primary_user") or "")
+                 for a in baseline}
     people = _people(session, {u for u in main_user.values() if u})
     per = {c.id: Counter() for c in measured}
     short_rows = []
@@ -78,12 +90,14 @@ def coverage(session: Session, *, limit: int = 500) -> dict[str, Any]:
     short_rows.sort(key=lambda r: (-r["personal_data_alerts"], -len(r["missing"]), r["name"]))
     for i, r in enumerate(short_rows):
         r["rank"] = i + 1
-    control_tools = {c.tool for c in controls.CONTROLS}
+    control_tools = {t for c in controls.CONTROLS for t in c.tools}
     unlisted = sorted(({"entity_id": a.id, "name": a.display_name, "seen_by": sorted(snap.tools_of(a) & control_tools)}
                        for a in rows if base[a.id] is None and snap.tools_of(a) & control_tools), key=lambda r: r["name"])
     return {"available": True,
-            "baseline": {"tool": controls.BASELINE_TOOL, "devices": len(baseline)},
-            "controls": [{"control": c.id, "label": c.label, "tool": c.tool, "domain": c.domain,
+            "baseline": {"tool": base_tools[0] if base_tools else None, "tools": base_tools,
+                         "capability": controls.BASELINE, "devices": len(baseline)},
+            "controls": [{"control": c.id, "label": c.label, "tool": snap.measured(c)[0], "tools": snap.measured(c),
+                          "capability": c.capability, "domain": c.domain,
                           "applies_to": list(c.applies_to), "applicable": per[c.id]["applicable"],
                           "covered": per[c.id]["ok"], "short": sum(per[c.id][s] for s in controls.SHORT),
                           "missing": per[c.id]["missing"], "silent": per[c.id]["silent"], "off": per[c.id]["off"],

@@ -1,0 +1,50 @@
+# Example of a declared connector (connectors/declarative.py): a hypothetical EDR product with a plain REST API,
+# connected with no code. To use it, copy this file (and its fixture) into config/connectors.d/ - or point
+# SOC_CONNECTOR_DEFINITIONS at this folder - and switch it on like any tool (Integrations, or config/connectors.yaml).
+# Every workflow that reads edr.inventory / edr.alerts (coverage, DLP context, cross-tool cases, risk, tool health)
+# then uses it. Check a definition with:  python -m soc_platform connector validate <file>
+connector: examplevendor_edr
+tool: Example EDR (declared)
+vendor: Example Vendor
+category: edr
+description: EDR agent inventory and detections of a hypothetical product, declared in a file.
+sign_in: {type: bearer}                 # settings: base_url, api_key (a ${VAR} reference or the vault, never here)
+fixtures: examplevendor_edr.json        # fake mode
+to_confirm: The product's API version, the paths and field names against its documentation
+provides:
+  edr.inventory:
+    stream: endpoints
+    path: /api/v2/endpoints
+    items: data
+    paging: {style: page_token, field: next_page_token, param: page_token, limit_param: limit}
+    id: endpoint_id
+    source_type: endpoint
+    dimension: endpoint
+    observed_at: last_checkin
+    keys: {examplevendor_agent_id: endpoint_id, serial_number: serial}
+    map:
+      hostname: [hostname, {from: fqdn, as: label}]
+      fqdn: {from: fqdn, as: fqdn}
+      ip: ip
+      os: os_name
+      device_type: {from: os_name, as: device_type}
+      agent_status: {from: status, as: lower}
+      last_seen: last_checkin
+  edr.alerts:
+    stream: alerts
+    kind: edr_alert
+    path: /api/v2/detections
+    items: data
+    paging: {style: page_token, field: next_page_token, param: page_token, limit_param: limit}
+    watermark: {param: updated_after, field: updated_at}
+    id: detection_id
+    source_type: alert
+    observed_at: created_at
+    title: name
+    severity: severity
+    user: user.email
+    device: {hostname: endpoint.hostname, ip: endpoint.ip}
+    device_keys: {examplevendor_agent_id: endpoint.endpoint_id}
+    map:
+      status: {from: status, as: lower}
+      category: category

@@ -324,6 +324,7 @@ def _actions(c: DefenderOffice365Connector) -> list:
 
 MANIFEST = ConnectorManifest(
     name="defender_office365", tool="Microsoft Defender for Office 365", vendor="Microsoft", category="email",
+    provides={"email.reported": "reported_messages", "email.alerts": "email_alerts"},
     dimension="email",
     description="User-reported mail, email alerts, message trace & campaign hunting, click telemetry, remediation.",
     factory=lambda s, t: DefenderOffice365Connector(s, t, rate_per_sec=2, burst=5),

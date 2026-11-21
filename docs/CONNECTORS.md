@@ -80,6 +80,7 @@ follows the platform's rules, its fixtures, its paging test and a switched-off c
 Maintained hostname-pattern to owner/platform-team/criticality mapping on a mounted file (fallback for A04/D06). For cloud resources, prefer the ownership mapping uploaded on the Cloud posture screen.
 
 - Vendor: internal · focus areas: vulnerability, incident
+- Provides: cmdb.assets (cmdb)
 - Read scopes: see vendor docs / to confirm
 - Write scopes (only for approved actions): -
 - To confirm with NAM: -
@@ -91,6 +92,7 @@ Maintained hostname-pattern to owner/platform-team/criticality mapping on a moun
 The baseline of joined devices and people that control coverage is reconciled against.
 
 - Vendor: internal · focus areas: dlp
+- Provides: directory.devices (devices), directory.users (users)
 - Read scopes: read access to the device and user export
 - Write scopes (only for approved actions): -
 - To confirm with NAM: Which system is the baseline (Active Directory, CMDB or endpoint-management export), how it is served and how often it is refreshed; the admin groups that mark a privileged account
@@ -106,6 +108,7 @@ The baseline of joined devices and people that control coverage is reconciled ag
 Data-loss incidents, endpoint agent check-ins, and the product's certificates and sync jobs.
 
 - Vendor: Forcepoint · focus areas: dlp
+- Provides: dlp.agents (endpoints), dlp.incidents (dlp_incidents), tool.config_export (look-up), tool.health (health)
 - Read scopes: incident read (reports / REST API role), endpoint status read, system health read
 - Write scopes (only for approved actions): -
 - To confirm with NAM: Version and licensed REST API; the incident export call and its date filters; whether endpoint check-ins, job state and certificate expiry can be read; classifier names for PAN / Aadhaar
@@ -123,6 +126,7 @@ Data-loss incidents, endpoint agent check-ins, and the product's certificates an
 Normalises alerts pushed to /api/v1/ingest/alerts from any SIEM/SOAR.
 
 - Vendor: any · focus areas: incident
+- Provides: siem.alerts (look-up)
 - Read scopes: see vendor docs / to confirm
 - Write scopes (only for approved actions): -
 - To confirm with NAM: -
@@ -134,6 +138,7 @@ Normalises alerts pushed to /api/v1/ingest/alerts from any SIEM/SOAR.
 Remediation tickets as Jira issues with comments/status sync.
 
 - Vendor: Atlassian · focus areas: vulnerability, incident
+- Provides: itsm.tickets (tickets)
 - Read scopes: Browse projects
 - Write scopes (only for approved actions): Create issues, Add comments, Transition issues
 - To confirm with NAM: Only if NAM uses Jira (Q03)
@@ -149,6 +154,7 @@ Remediation tickets as Jira issues with comments/status sync.
 Remediation/incident tickets with bidirectional status; CMDB ownership and criticality.
 
 - Vendor: ServiceNow · focus areas: vulnerability, incident
+- Provides: cmdb.assets (cmdb), itsm.tickets (tickets)
 - Read scopes: itil (read the ticket table), cmdb_read (CMDB CI table)
 - Write scopes (only for approved actions): itil (create and update tickets, work notes)
 - To confirm with NAM: Which ITSM system; API access; workflow ownership (Q03)
@@ -166,6 +172,7 @@ Remediation/incident tickets with bidirectional status; CMDB ownership and criti
 Risky authentications per person: the identity context of a data-loss alert.
 
 - Vendor: Silverfort · focus areas: dlp
+- Provides: identity.risk_events (risk_events), tool.config_export (look-up)
 - Read scopes: read access to authentication risk events
 - Write scopes (only for approved actions): revoke sessions and set MFA requirements for a user
 - To confirm with NAM: How authentication risk is exported (REST API or log forwarder), the risk levels and factors reported, and - for the action rollout - the calls that revoke sessions and force MFA
@@ -181,6 +188,7 @@ Risky authentications per person: the identity context of a data-loss alert.
 Disk-encryption state of every managed device, and the server's certificates and tasks.
 
 - Vendor: Trellix · focus areas: dlp
+- Provides: encryption.inventory (systems), tool.config_export (look-up), tool.health (health)
 - Read scopes: system tree read, drive encryption query, server health read
 - Write scopes (only for approved actions): -
 - To confirm with NAM: ePO version and web API access; the query for drive-encryption state; whether certificate expiry and server-task results can be read
@@ -196,6 +204,7 @@ Disk-encryption state of every managed device, and the server's certificates and
 EDR agent inventory and detections: which devices are protected, when each agent last reported, what it detected; device isolation behind two approvers.
 
 - Vendor: Trend Micro · focus areas: dlp
+- Provides: edr.alerts (alerts), edr.inventory (endpoints)
 - Read scopes: endpoint inventory read, detections read
 - Write scopes (only for approved actions): isolate and restore endpoints
 - To confirm with NAM: Which product and version (Apex One or Vision One) and its API; the detections feed; and - for the action rollout - the isolate / restore calls

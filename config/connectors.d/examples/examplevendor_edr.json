@@ -1,0 +1,23 @@
+{
+  "routes": [
+    {"method": "GET", "path": "^/api/v2/endpoints$", "params": {"page_token": "!"},
+     "body": {"data": [
+       {"endpoint_id": "ex-ep-0001", "hostname": "ARUN-LT05", "fqdn": "arun-lt05.acme-demo.com", "ip": "10.20.1.31",
+        "os_name": "Windows 11 Enterprise", "serial": "EX-SN-0001", "status": "ONLINE", "last_checkin": "2026-09-20T15:40:00Z"},
+       {"endpoint_id": "ex-ep-0002", "hostname": "WEB01", "fqdn": "web01.acme-demo.com", "ip": "10.10.5.20",
+        "os_name": "Ubuntu Server 22.04", "serial": "EX-SN-0002", "status": "ONLINE", "last_checkin": "2026-09-20T15:42:00Z"}
+     ], "next_page_token": "p2"}},
+    {"method": "GET", "path": "^/api/v2/endpoints$", "params": {"page_token": "p2"},
+     "body": {"data": [
+       {"endpoint_id": "ex-ep-0003", "hostname": "JANE-LT01", "fqdn": "jane-lt01.acme-demo.com", "ip": "10.20.1.15",
+        "os_name": "Windows 11 Enterprise", "serial": "EX-SN-0003", "status": "ONLINE", "last_checkin": "2026-09-20T15:39:00Z"}
+     ], "next_page_token": null}},
+    {"method": "GET", "path": "^/api/v2/detections$",
+     "body": {"data": [
+       {"detection_id": "ex-det-0001", "name": "Suspicious archive created before upload", "severity": "Medium",
+        "status": "NEW", "category": "behaviour", "created_at": "2026-09-20T10:05:00Z", "updated_at": "2026-09-20T10:06:00Z",
+        "user": {"email": "arun.k@acme-demo.com"},
+        "endpoint": {"endpoint_id": "ex-ep-0001", "hostname": "ARUN-LT05", "ip": "10.20.1.31"}}
+     ], "next_page_token": null}}
+  ]
+}

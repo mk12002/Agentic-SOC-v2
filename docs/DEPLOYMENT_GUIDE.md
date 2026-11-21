@@ -287,6 +287,10 @@ two-lead approvals (weights, catalogue, promotions) need at least two all-domain
 
 ### 5.1 The procedure for every tool
 
+Before the first tool, and after every change of tools: `python -m soc_platform capabilities --check` lists what each
+switched-on tool provides and names any module whose required capability no tool provides yet (exit 1). A tool NAM
+owns that has no connector but a plain REST / JSON API can be added from a definition file (section 5.12).
+
 1. **Create a dedicated identity** in the tool (service principal / API client / integration user) with the **read**
    permissions listed below. Add write permissions only for action types NAM has approved (section 6).
 2. **Store the credentials** in the vault; expose them to the container as the environment variables (or `_FILE`
@@ -472,6 +476,16 @@ dst_ip, domain, url, sha256, source`), set `GENERIC_SIEM_FIELD_MAP` to a JSON ob
 notable and an Elastic Security alert. The response is `{"ingested": n, "rejected": n, "reasons": [...]}`: an alert
 without its id is refused with the reason while the rest of the batch lands, so the SIEM should not resend the batch
 on a partial rejection (an `ingest.rejected` line is also logged).
+
+### 5.12 A tool without a connector (declared connector)
+
+When NAM runs a product the platform has no connector for and it offers a plain REST / JSON API, describe it in a
+definition file (`config/connectors.d/<name>.yaml`; example in `config/connectors.d/examples/`): the sign-in type,
+and for each capability it provides the path, paging, identifier, time and field mapping - written against the
+vendor's documentation for NAM's version. `python -m soc_platform connector validate <file>` checks it and reads its
+fixture file; then follow section 5.1 (credentials as `${VAR}` references, preflight, a lead's approval, stages). A
+declared connector reads only; actions, look-ups and unusual APIs (asynchronous jobs, non-standard sign-in) need a
+code connector.
 
 ### 5.11 Outbound allow-list
 

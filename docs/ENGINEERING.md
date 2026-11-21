@@ -360,6 +360,42 @@ same code:
   rules, its fixtures, its paging test and a switched-off config entry; `connector check` runs it through the shared
   conformance suite. The coverage test reads `PAGING_TESTED` from every `test_connector_<name>.py`.
 
+### 5.5A Plug-and-play: capabilities and declared connectors
+
+**Capabilities** (`connectors/capabilities.py`). A capability names what a kind of tool provides - `edr.inventory`,
+`edr.alerts`, `dlp.incidents`, `dlp.agents`, `encryption.inventory`, `identity.risk_events`, `directory.devices`,
+`directory.users` and 24 more - as a contract: the record kinds its stream delivers and the attribute names a
+workflow may read. Every manifest declares `provides={capability: stream}`, or a `Provides(stream, {contract_field:
+own_field})` where the tool's field names differ (Trend Micro's `last_connected` and Forcepoint's `last_checkin` both
+map onto `last_seen`). Workflows ask `registry.providers(*capabilities)` for the switched-on streams and read fields
+through `capabilities.read_field`; no workflow names a product. Read this way: the control catalogue
+(`core/controls.py`: the EDR control is whichever tools provide `edr.inventory`, and with two EDR products a device
+counts once with the better state), DLP intake and facts, cross-tool cases (any `edr.alerts` provider), posture,
+tool health and the CISO view's watched tools, risk's "has an EDR" (`risk.edr_tools()`), incident and vulnerability
+ingestion. Still product-specific by nature: the phishing investigation's vendor look-ups, ATT&CK coverage per
+product, report short names.
+
+**Readiness.** `MODULE_NEEDS` states what each module requires (any-of groups) and uses when present; `matrix()` turns
+it into a per-deployment view - which switched-on tool provides each capability, which module is not ready and what
+it would gain. `python -m soc_platform capabilities --check` (exit 1 when a module in scope lacks a required
+capability) and `GET /api/v1/capabilities` serve it.
+
+**Declared connectors** (`connectors/declarative.py`). A tool with a plain REST / JSON API is connected by a
+definition file (YAML or JSON) in `config/connectors.d/` or a folder named in `SOC_CONNECTOR_DEFINITIONS`: sign-in
+(`none`, `bearer`, API key in a header or the query, `basic`, OAuth client credentials), and per capability the
+path, where the list sits, paging (`next_link`, `page_token`, `offset`, `page`, `none`), the watermark for an event
+stream, the identifier, the record's time, keys, and a field map whose values pass only through a fixed set of
+converters (`str`, `lower`, `bool`, `int`, `float`, `device_type`, `label`, `fqdn`, `list`, `severity`). It runs on
+the ordinary framework - the same `HttpTransport`, rate budget, retries, watermarks, shape conformance, fake mode on
+the definition's own fixture file, preflight, stages and four-eyes configuration. What a definition cannot do: write
+to a tool (no actions, no look-ups), run code (no expressions or templates), hold a secret (credentials are settings),
+or reach another host (paths are relative, `//` and `..` refused; a next link to another origin is refused by the
+transport). A definition with a problem is left out and reported while every other tool loads; a definition never
+replaces a code connector of the same name; a declared connector is in every product scope. Proof: the Trellix
+connector's `systems` stream re-expressed as a definition yields the same records as its code
+(`test_declarative.py`). An example lives in `config/connectors.d/examples/` (a hypothetical EDR);
+`python -m soc_platform connector validate FILE` checks a definition and reads its fixtures.
+
 ### 5.6 NAM's connectors
 
 | Connector | Category | Streams | Actions | State |
@@ -1434,7 +1470,8 @@ reaching the model and the cost per alert. Phase 1 measures them (`scripts/measu
 - **Variant estates** come from `scripts/build_estate_variant.py --seed N [--scale X]`: renamed people, hosts, IP
   plan, suppliers and volumes, with a structurally identical attack. Their own fixtures, settings, suppliers and
   corpus.
-- The suite runs on three estates (`demo`, `seed7`, `seed23`).
+- The suite runs on five estates (`demo`, `seed7`, `seed23`, `handoff`, and `amc`: an Indian asset manager built with
+  `--amc --messy`, so the NAM pipelines are proven on the kind of organisation they are for, with real-tenant disorder).
 
 ### 22.4 Isolation
 
@@ -1526,6 +1563,8 @@ Operations detail: [OPERATIONS.md](OPERATIONS.md).
 |---|---|---|---|
 | N1 | Switch inherited modules off by scope, not delete them | delete the code | deleting would mean rewriting much of the inherited suite; scope gives one switch with a test for each surface |
 | N2 | Decisions read structured facts; insider text fenced | let the model read the message | an insider writes the message; no decision may lower severity on content |
+| N0a | Workflows read capabilities, never product names | one constant per product per module (the earlier code) | clients run different products for the same job; a second EDR or DLP product is then used everywhere with no workflow change, and the readiness check says what a deployment lacks |
+| N0b | Plain REST tools are connected by a definition file with fixed converters | a scripting hook; a code connector per tool | a definition cannot write, run code, hold a secret or reach another host, so it can be reviewed like configuration; anything beyond it (odd sign-in, asynchronous APIs, actions) stays code |
 | N3 | The AI's authority is earned per narrow decision type (shadow → recommend → decide) with targets set by NAM | one global AI on / off switch | agreement differs by channel; promotion needs evidence and a second lead; drift demotes without a person |
 | N4 | `decide` refused in code in this version | a setting | it cannot be switched on by configuration before the adversarial DLP-content test set exists |
 | N5 | The Dome Score weights are a versioned, two-lead document | constants in code | NAM's CISO agrees them; every change is previewed and audited; a trend names a weights change |
@@ -1616,6 +1655,7 @@ Operations detail: [OPERATIONS.md](OPERATIONS.md).
 | 74 | A scanner's own vulnerability exceptions (Rapid7) are shown on the finding, never applied | Honour the scanner's exception (accepted risk) | Exceptions the platform honours are approved in it with four-eyes and an expiry; a tool-side exception past its expiry must not hide active risk | The finding shows state, expiry and "in force" / "expired"; status, priority and SLA are unchanged |
 | 75 | Admin accounts link to their owner only through an approved map (`account_owners`) | Infer the owner from the name (`adm-jane`) | A name is not proof, and shared admin accounts have no single owner (handoff privileged-identity rule) | The admin account stays its own identity; the owner is an extra reference on each event |
 | 76 | A fourth test estate built to the data handoff workbook's rules (`--handoff`): `example.invalid`, RFC 5737 addresses, the workbook's scenarios, >= 1,000 events at 80-95 % benign with 1-3 % replays | Rename the presenter demo to the workbook's naming | The demo is the presenter storyline whose figures the guides quote; a separate estate lets every multi-estate test and the scenario tests run on workbook-conformant data | Volume and benign share are measured through the connectors' own parsers (`estate_profile.py`), not counted from the generator |
+| 76a | A fifth test estate: an Indian asset manager (`--amc`), messy | a hand-built asset-manager fixture set | the generator keeps the storyline and every tool's shape; the asset-manager vocabulary is a naming profile, and the DLP classifiers the decision table reads stay untouched |
 | 77 | Entra directory audits are synced with the alerts; other activity streams stay on demand | Sync every stream on a schedule | Directory changes are few and carry security decisions (role grants, application consent); sign-ins, DNS and domain logons are large and are read per investigation | Defender for Identity logons got a per-person / per-address look-up |
 | 78 | Documentation address ranges (RFC 5737 / RFC 3849) count as outside addresses for threat intelligence | Treat them as private, as Python does | They belong to no organisation, so a look-up discloses nothing; synthetic estates use them for attacker addresses | Real private ranges are still withheld |
 | 79 | A dependency lock and a CycloneDX SBOM generated from the installed closure, no extra tool | pip-tools / cyclonedx-py as new dependencies | Reproducible builds and a component inventory with nothing new to trust; deterministic output | The lock is resolved on one OS: `check` compares shared packages' versions; the container build uses it as constraints |

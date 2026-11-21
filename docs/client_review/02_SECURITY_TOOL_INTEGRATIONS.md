@@ -19,6 +19,8 @@
 | Rate limits | each tool's request budget shared across processes; `Retry-After` honoured; a refused token renewed once; a missing permission reported at once | Implemented |
 | Writes | only through the action layer: policy, approval, audit; containment always four-eyes | Implemented |
 | One broken tool never stops the others | a misconfigured connector is isolated with its reason; everything else works | Implemented |
+| Plug-and-play by capability | each connector declares what it provides (EDR device inventory, DLP incidents, risky sign-ins, encryption state...); every module reads capabilities, never a product's name, so another product of the same kind is used everywhere once connected; `capabilities --check` names any module still lacking a capability before go-live | Implemented |
+| A tool without a connector | a plain REST / JSON API can be described in a definition file - read-only, relative paths on the tool's own host, fixed field converters, no code and no secret in the file; anything else (actions, look-ups, unusual sign-in) needs a connector written once | Implemented |
 
 ## 2.2 Phase 1 tools
 

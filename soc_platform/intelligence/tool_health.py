@@ -93,15 +93,13 @@ def _health_findings(tool: str, items: list[Entity], now: datetime) -> list[dict
 def _agent_findings(session: Session) -> list[dict[str, Any]]:
     snap = controls.snapshot(session)
     out = []
-    for c in controls.CONTROLS:
-        if c.tool not in snap.connected or not c.seen_field:
-            continue
-        listed = [a for a in snap.assets if snap.view(a, c.tool) is not None]
-        silent = sorted(a.display_name for a in listed if controls.control_state(c, a, snap)[0] == "silent")
+    for c, tool in [(ctl, t) for ctl in controls.CONTROLS if ctl.seen_field for t in snap.measured(ctl)]:
+        listed = [a for a in snap.assets if snap.view(a, tool) is not None]
+        silent = sorted(a.display_name for a in listed if controls.state_from(c, tool, a, snap)[0] == "silent")
         if silent:
             share = len(silent) / len(listed)
             hours = int(controls.silent_after().total_seconds() // 3600)
-            out.append(_finding(c.tool, "agents", "critical" if share > AGENTS_SILENT_CRITICAL else "warning",
+            out.append(_finding(tool, "agents", "critical" if share > AGENTS_SILENT_CRITICAL else "warning",
                                 f"{len(silent)} {c.label.split(' ')[0]} agent(s) silent for more than {hours} h",
                                 "Not reporting: " + ", ".join(silent[:10]) + (" ..." if len(silent) > 10 else "") + ".",
                                 "Re-push the agent through endpoint management (a change to the estate: on approval).",
@@ -140,7 +138,8 @@ def tool_health(session: Session, tools: list[str] | None = None) -> dict[str, A
     findings += _agent_findings(session)
     findings += _config_findings(session)
     findings.sort(key=lambda f: (ORDER[f["severity"]], f["tool"], f["title"]))
-    agents = {c.tool for c in controls.CONTROLS if c.seen_field} & controls.snapshot(session).connected
+    snap = controls.snapshot(session)
+    agents = {t for c in controls.CONTROLS if c.seen_field for t in snap.measured(c)}
     names = sorted(set(tools or []) | set(items) | agents)
     summary = []
     for t in names:

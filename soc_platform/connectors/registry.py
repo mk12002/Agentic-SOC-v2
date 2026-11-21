@@ -79,6 +79,19 @@ class ConnectorManifest:
     to_confirm: str = ""           # what must be confirmed with the client
     focus_areas: tuple[str, ...] = ()  # phishing | incident | vulnerability
     fake_settings: dict[str, Any] = field(default_factory=dict)  # demo defaults applied in fake mode only
+    # capability -> the stream that provides it (or a Provides with a field map; None: look-up only). What every
+    # workflow reads instead of the product's name (connectors/capabilities.py).
+    provides: dict[str, Any] = field(default_factory=dict)
+    # "code" (a module in connectors/tools or a package) or "definition" (connectors/declarative.py: a client's own
+    # tool described in a file - always in the product scope, since the client asked for it)
+    origin: str = "code"
+
+    def __post_init__(self) -> None:
+        from soc_platform.connectors.capabilities import as_provides, check
+
+        for cap in self.provides:
+            check(cap)
+        self.provides = {cap: as_provides(v) for cap, v in self.provides.items()}
 
     def fixture_transport(self) -> FixtureTransport:
         base = Path(os.environ.get("SOC_FIXTURES_DIR") or FIXTURES_DIR)   # a different sample estate can be loaded
@@ -88,6 +101,7 @@ class ConnectorManifest:
         return {"name": self.name, "tool": self.tool, "vendor": self.vendor, "category": self.category,
                 "dimension": self.dimension, "description": self.description, "confidence": self.confidence,
                 "to_confirm": self.to_confirm, "focus_areas": list(self.focus_areas),
+                "provides": {cap: list(p.streams) for cap, p in sorted(self.provides.items())},
                 "config": [{"name": f.name, "secret": f.secret, "required": f.required, "kind": f.kind,
                             "choices": list(f.choices), "description": f.description} for f in self.config]}
 
@@ -138,7 +152,23 @@ def discover() -> dict[str, ConnectorManifest]:
             continue
         for m in (obj if isinstance(obj, (list, tuple)) else [obj]):
             found[m.name] = m
+    # tools described by a definition file (connectors/declarative.py); a definition never replaces a code connector
+    from soc_platform.connectors import declarative
+
+    for m in declarative.load_all():
+        if m.name in found:
+            declarative._PROBLEMS.append(f"{m.name}: a connector of that name already exists; the definition is "
+                                         "left out")
+            log.error("connector definition %s left out: the name is taken", m.name)
+            continue
+        found[m.name] = m
     return found
+
+
+def in_scope(m: ConnectorManifest) -> bool:
+    from soc_platform.core import scope
+
+    return m.origin == "definition" or scope.connector_in_scope(m.name)
 
 
 def _manifests_of(module: Any) -> list[ConnectorManifest]:
@@ -245,11 +275,10 @@ def dev_sign_in_active() -> bool:
 class ConnectorRegistry:
     def __init__(self, config: dict[str, Any] | None = None, *, default_mode: str = "fake",
                  manifests: dict[str, ConnectorManifest] | None = None, version: int | None = None) -> None:
-        from soc_platform.core import scope
 
         found = manifests if manifests is not None else discover()
         # the product scope (core/scope.py): a tool outside it is not offered at all - not listed, built or synced
-        self.manifests = {n: m for n, m in found.items() if scope.connector_in_scope(n)}
+        self.manifests = {n: m for n, m in found.items() if in_scope(m)}
         raw = (config or {}).get("connectors", {}) if isinstance(config, dict) else {}
         self.config: dict[str, Any] = raw if isinstance(raw, dict) else {}
         self.default_mode = default_mode
@@ -274,9 +303,8 @@ class ConnectorRegistry:
     @classmethod
     def all_fake(cls) -> ConnectorRegistry:
         """Every discovered connector enabled in fixture mode (demos, tests, local dev)."""
-        from soc_platform.core import scope
 
-        manifests = {n: m for n, m in discover().items() if scope.connector_in_scope(n)}
+        manifests = {n: m for n, m in discover().items() if in_scope(m)}
         return cls({"connectors": {n: {"enabled": True, "mode": "fake"} for n in manifests}},
                    manifests=manifests)
 
@@ -427,6 +455,28 @@ class ConnectorRegistry:
 
     def by_category(self, category: str) -> list[BaseConnector]:
         return [c for n, c in self._usable() if self.manifests[n].category == category]
+
+    def providers(self, *capabilities: str) -> list[tuple[BaseConnector, str]]:
+        """(connector, stream) for every switched-on, usable connector whose manifest declares one of the
+        capabilities with a stream - in the order the capabilities are asked for, then by connector name. What a
+        workflow syncs instead of naming products (connectors/capabilities.py)."""
+        from soc_platform.connectors.capabilities import check
+
+        usable = dict(self._usable())
+        out: list[tuple[BaseConnector, str]] = []
+        for cap in capabilities:
+            check(cap)
+            for name in sorted(usable):
+                p = self.manifests[name].provides.get(cap)
+                for st in (p.streams if p is not None else ()):
+                    if st in usable[name].streams and (usable[name], st) not in out:
+                        out.append((usable[name], st))
+        return out
+
+    def provider_names(self, *capabilities: str) -> list[str]:
+        """Switched-on, usable connectors that declare any of the capabilities (look-up only ones included)."""
+        names = set(self.enabled_names())
+        return sorted({n for n in names for c in capabilities if c in self.manifests[n].provides})
 
     def with_lookup(self, entity_type: str) -> list[BaseConnector]:
         return [c for c in self.enabled() if entity_type in c.lookups]

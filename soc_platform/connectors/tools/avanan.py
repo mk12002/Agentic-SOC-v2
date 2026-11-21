@@ -199,6 +199,7 @@ def _live(s: dict[str, Any]) -> HttpTransport:
 
 MANIFEST = ConnectorManifest(
     name="avanan", tool="Avanan (Check Point Harmony Email)", vendor="Check Point", category="email", dimension="email",
+    provides={"email.events": "security_events"},
     description="Security events, per-message verdicts and actions for reconciliation; quarantine/restore.",
     factory=lambda s, t: AvananConnector(s, t, rate_per_sec=2, burst=4), live_transport=_live,
     config=[ConfigField("api_url", "Smart API gateway URL (region specific)", required=False, kind="url"),

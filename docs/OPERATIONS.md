@@ -22,8 +22,9 @@ notifications, reports, access, audit). Where the inherited modules of the platf
 | Start a demo again from nothing | `python -m soc_platform reset-demo [--yes]` (server stopped; refuses in prod; demo databases only - the audit log goes too) |
 | Check the settings and the connector configuration | `python -m soc_platform config check [FILE] [--no-env]` - every problem in the `SOC_*` settings and in the connector configuration, each with how to fix it; exit 1 on errors |
 | Check a tool before it goes live | `python -m soc_platform preflight NAME ... \| --all` (also the *Preflight* button on Integrations) |
+| Check every module has the tools it needs | `python -m soc_platform capabilities [--check] [--json] [--config F]` (also `GET /api/v1/capabilities`): what each switched-on tool provides and, per module in scope, any required capability no tool provides (`--check` exits 1) - the readiness check of an onboarding |
 | Export / compare / import the configuration | `python -m soc_platform config export [--out F]`, `config diff F`, `config import F --by EMAIL` (import = a proposal approved in the console) |
-| Add a tool | `python -m soc_platform connector new NAME --category CAT --tool "Vendor Product"`, then `connector check NAME` |
+| Add a tool | A plain REST tool: a definition file in `config/connectors.d/` (example in `config/connectors.d/examples/`), checked with `python -m soc_platform connector validate FILE`, then switched on like any tool. Anything else: `python -m soc_platform connector new NAME --category CAT --tool "Vendor Product"`, then `connector check NAME` |
 
 `serve` and `scheduler` refuse to start when `config/connectors.yaml` has errors (a misspelled tool, key or stage,
 broken YAML): those used to be ignored silently. A live tool whose secret is missing does *not* stop a start - it is
@@ -174,7 +175,8 @@ Failure behaviour for each dependency: [FAILURE_MODES.md](FAILURE_MODES.md). Mod
 
 ## Sample estates
 
-`scripts/build_estate_variant.py OUT --seed N [--scale X] [--messy]` generates a different organisation (names,
+`scripts/build_estate_variant.py OUT --seed N [--scale X] [--messy] [--handoff | --amc]` generates a different
+organisation (`--amc`: an Indian asset manager - fund-house departments, investor database, registrar and custodian; names,
 machines, IP plan, volumes - the NAM tools' fixtures included) with its own tenant connector settings (`fixtures/settings.json`). `--messy`
 adds what a real tenant has and a demo does not: event volume (sign-ins, DNS, low-severity EDR alerts, more findings),
 accented and non-Latin names, renamed users, leavers with live devices, re-imaged and stale machines, hostname case
@@ -772,6 +774,21 @@ changes layered on top. Admins change tools on **Integrations**, without editing
 | Automate (`automate`) | live | follow the approved autonomy policy (default still L2) |
 
 The older `mode: fake | live` in the file still works (`live` = Automate).
+
+**Plug-and-play by capability.** No workflow names a product. Each connector declares the capabilities it provides
+(for example `edr.inventory`, `dlp.incidents`, `identity.risk_events`, `encryption.inventory`; the catalogue is
+`soc_platform/connectors/capabilities.py`), and each module reads whichever switched-on tools provide what it needs:
+switching on a second EDR product, or replacing one with another, changes coverage, DLP context, cross-tool cases,
+risk and tool health with no code change. Before go-live, `python -m soc_platform capabilities --check` names any
+module whose required capability no switched-on tool provides; optional ones missing are listed as reduced features.
+
+**Declared connectors.** A tool with a plain REST / JSON API can be added without code: a definition file (YAML or
+JSON) in `config/connectors.d/`, or in a folder named by `SOC_CONNECTOR_DEFINITIONS` (several separated by `;` on
+Windows, `:` elsewhere), describes its sign-in, endpoints, paging and field mapping per capability. Check it with
+`python -m soc_platform connector validate FILE` (it reads the definition's fixture file in fake mode), then
+configure and promote it on *Integrations* like any tool: its settings are `base_url`, the credentials its sign-in
+type needs (always `${VAR}` references or the vault) and `user_domain`. A definition with a problem is left out and
+the problem logged (`connector definition ... left out`); every other tool loads. A declared connector only reads.
 
 **Pause** (manage_connectors or kill_switch) switches one tool off **at once**, with a reason, audited - for a tool that
 misbehaves. Switching it back on is a normal proposal. Everything a paused, misconfigured or read-only tool would have

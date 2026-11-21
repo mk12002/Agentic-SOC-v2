@@ -92,6 +92,7 @@ def _live(s: dict[str, Any]) -> HttpTransport:
 
 MANIFEST = ConnectorManifest(
     name="silverfort", tool="Silverfort", vendor="Silverfort", category="identity", dimension="identity",
+    provides={"identity.risk_events": "risk_events", "tool.config_export": None},
     description="Risky authentications per person: the identity context of a data-loss alert.",
     factory=lambda s, t: SilverfortConnector(s, t, rate_per_sec=2, burst=4), live_transport=_live, actions=_actions,
     config=[ConfigField("base_url", "Silverfort console API URL", kind="url"),

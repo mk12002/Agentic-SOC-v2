@@ -759,6 +759,15 @@ def connectors(_: Principal = Depends(need(Perm.READ))) -> list[dict[str, Any]]:
     return registry().status()
 
 
+@app.get("/api/v1/capabilities")
+def capabilities_matrix(_: Principal = Depends(need(Perm.READ))) -> dict[str, Any]:
+    """Plug-and-play readiness: what each switched-on tool provides, and whether every module in scope has the
+    capabilities it needs (connectors/capabilities.py)."""
+    from soc_platform.connectors.capabilities import matrix
+
+    return matrix(registry())
+
+
 @app.post("/api/v1/connectors/{name}/sync")
 def connector_sync(name: str, stream: str, full: bool = False, p: Principal = Depends(need(Perm.MANAGE_CONNECTORS)),
                    s: Session = Depends(db_session, scope="function")) -> dict[str, Any]:
@@ -3125,11 +3134,10 @@ def decisions_proposal(proposal_id: int, verb: str, body: ReasonBody | None = No
     return {"id": row.id, "decision_type": row.decision_type, "stage": row.stage, "status": row.status}
 
 
-from soc_platform.intelligence.ciso import HEALTH_TOOLS as _HEALTH_TOOLS
-
-
 def _health_tools() -> list[str]:
-    return [n for n in registry().enabled_names() if n in _HEALTH_TOOLS]
+    from soc_platform.intelligence.ciso import health_tools
+
+    return health_tools(registry().enabled_names())
 
 
 @app.get("/api/v1/dashboard/control-coverage")

@@ -11,6 +11,9 @@
               check the connector configuration (file + approved console changes) and every secret it needs; export
               it as one file; compare a file with it; propose a file as a change (approved in the console)
   preflight   [NAME ... | --all] [--by EMAIL]   run every check a tool must pass before it goes live
+  capabilities [--check] [--json] [--config FILE]
+              what each switched-on tool provides and whether every module has what it needs (plug-and-play
+              readiness); --check exits 1 when a module in scope lacks a required capability
   connector   new NAME --category CAT [--tool "Vendor Product"] [--vendor V]  |  check NAME
               scaffold a new connector that already follows the platform's rules, then prove it conforms
   audit       verify [--anchor SEQ:HASH ...]   recompute the audit hash chain; check heads shipped to the log pipeline
@@ -513,18 +516,93 @@ def cmd_preflight(*args: str) -> None:
             ctx.__exit__(None, None, None)
 
 
+def cmd_capabilities(*args: str) -> None:
+    """What each switched-on tool provides, and whether every module in scope has what it needs (plug-and-play
+    readiness: connectors/capabilities.py). ``--check`` exits 1 when a module lacks a required capability."""
+    import argparse
+    import json
+
+    ap = argparse.ArgumentParser(prog="python -m soc_platform capabilities")
+    ap.add_argument("--check", action="store_true", help="exit 1 when a module in scope lacks a required capability")
+    ap.add_argument("--json", action="store_true", help="the whole matrix as JSON")
+    ap.add_argument("--config", help="a connector configuration file instead of the configuration in force")
+    a = ap.parse_args(list(args))
+    from soc_platform.connectors.capabilities import matrix
+    from soc_platform.connectors.registry import ConnectorRegistry
+    from soc_platform.core.connector_config import ConfigStore
+
+    if a.config:
+        out = matrix(ConnectorRegistry.from_file(a.config))
+    else:
+        ctx = _store_session()
+        s = ctx.__enter__() if ctx is not None else None
+        try:
+            out = matrix(ConfigStore(s).registry() if s is not None else ConnectorRegistry.from_file())
+        finally:
+            if ctx is not None:
+                ctx.__exit__(None, None, None)
+    if a.json:
+        print(json.dumps(out, indent=1))
+    else:
+        print("Tools switched on and what they provide:")
+        for c in out["connectors"]:
+            print(f"  {c['label']} ({c['tool']}, stage {c['stage']}): {', '.join(c['provides']) or 'nothing declared'}")
+        print("\nModules:")
+        for m in out["modules"]:
+            state = "ready" if m["ready"] else "NOT READY - no tool provides " + "; ".join(
+                " or ".join(g) for g in m["missing_required"])
+            print(f"  {m['label']} ({m['module']}): {state}")
+            if m["reduced_without"]:
+                print(f"      works without: {', '.join(m['reduced_without'])}")
+        print("\nAll modules ready" if out["ready"] else "\nSome modules are not ready")
+    if a.check and not out["ready"]:
+        sys.exit(1)
+
+
 def cmd_connector(*args: str) -> None:
     import argparse
 
     ap = argparse.ArgumentParser(prog="python -m soc_platform connector")
-    ap.add_argument("action", choices=("new", "check"))
-    ap.add_argument("name")
+    ap.add_argument("action", choices=("new", "check", "validate"))
+    ap.add_argument("name", help="connector name (new, check) or a definition file (validate)")
     ap.add_argument("--category")
     ap.add_argument("--tool", default="")
     ap.add_argument("--vendor", default="")
     a = ap.parse_args(list(args))
     from soc_platform.connectors import devkit
 
+    if a.action == "validate":
+        # a declared connector (connectors/declarative.py): check the definition, then read its fixtures in fake mode
+        from soc_platform.connectors.declarative import DeclarativeConnector, DefinitionError, read_file
+
+        try:
+            d = read_file(Path(a.name))
+        except (DefinitionError, OSError, ValueError) as exc:
+            sys.exit(f"definition refused: {exc}")
+        print(f"{d.connector}: {d.tool} ({d.category}) - provides " + ", ".join(
+            f"{s.capability} on {s.stream}" for s in d.streams.values()))
+        if d.fixtures is None:
+            print("no fixtures: fake mode will return nothing (add a fixture file to try it before going live)")
+            return
+        from soc_platform.connectors.declarative import manifest
+
+        m = manifest(d)
+        conn = DeclarativeConnector(d, dict(m.fake_settings), m.fixture_transport())
+        bad = 0
+        for st in conn.streams:
+            try:
+                n, cursor = 0, None
+                for _ in range(50):
+                    page = conn.fetch_page(st, cursor)
+                    n += sum(len(conn.normalize(st, r)) for r in page.records)
+                    if not page.has_more:
+                        break
+                    cursor = page.next_cursor
+                print(f"  {st}: {n} record(s) from the fixtures")
+            except Exception as exc:  # noqa: BLE001 - a CLI check reports every stream's failure, then exits 1
+                bad += 1
+                print(f"  {st}: FAILED - {type(exc).__name__}: {exc}")
+        sys.exit(1 if bad else 0)
     if a.action == "new":
         if not a.category:
             sys.exit(f"--category is required: {', '.join(devkit.CATEGORIES)}")

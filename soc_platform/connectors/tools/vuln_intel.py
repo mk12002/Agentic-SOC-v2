@@ -161,6 +161,7 @@ class KevConnector(ToolConnector):
 MANIFESTS = [
     ConnectorManifest(
         name="nvd", tool="NIST NVD", vendor="NIST", category="intel", dimension="threat_intel",
+        provides={"intel.cve": None},
         description="CVE metadata (CVSS, CWE, references) from the NVD CVE API 2.0.",
         factory=lambda s, t: NvdConnector(s, t, rate_per_sec=0.15 if not s.get("api_key") else 1.5, burst=5),
         live_transport=lambda s: HttpTransport("https://services.nvd.nist.gov",
@@ -171,12 +172,14 @@ MANIFESTS = [
         confidence="High", focus_areas=("vulnerability",)),
     ConnectorManifest(
         name="epss", tool="FIRST EPSS", vendor="FIRST", category="intel", dimension="threat_intel",
+        provides={"intel.epss": None},
         description="Exploit Prediction Scoring System probabilities per CVE.",
         factory=lambda s, t: EpssConnector(s, t, rate_per_sec=2, burst=4),
         live_transport=lambda s: HttpTransport("https://api.first.org"), confidence="High",
         focus_areas=("vulnerability",)),
     ConnectorManifest(
         name="cisa_kev", tool="CISA KEV catalogue", vendor="CISA", category="intel", dimension="threat_intel",
+        provides={"intel.kev": None},
         description="Known Exploited Vulnerabilities catalogue; additions trigger exposure assessment.",
         factory=lambda s, t: KevConnector(s, t, rate_per_sec=1, burst=2),
         live_transport=lambda s: HttpTransport("https://www.cisa.gov"), confidence="High",

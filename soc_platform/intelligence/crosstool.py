@@ -44,8 +44,11 @@ RULES = {
     "X3": "An endpoint alert on the device that sent the data",
     "X4": "A privileged person sent personal data out",
 }
-TOOL_LABEL = {"forcepoint_dlp": "Forcepoint DLP", "silverfort": "Silverfort", "trend_micro": "Trend Micro",
-              "trellix_epo": "Trellix ePO", "directory_export": "the directory"}
+def tool_label(tool: str) -> str:
+    """The product's name from its manifest (no product is named in this module)."""
+    from soc_platform.connectors.capabilities import label
+
+    return label(tool)
 
 
 class CrossToolCase(Base):
@@ -85,11 +88,15 @@ class CrossToolService:
 
     def _edr_alerts(self, entity_ids: set[str], around: datetime) -> list[Entity]:
         """Endpoint alerts linked to the device or the person, within 24 h of the leak."""
+        from soc_platform.connectors.capabilities import CAPABILITIES, tools_for
+
+        edr = set(tools_for("edr.alerts"))
         out = []
         for eid in sorted(entity_ids):
-            for ent in self.store.events_for(eid, kinds={"edr_alert"}):
+            for ent in self.store.events_for(eid, kinds=set(CAPABILITIES["edr.alerts"].kinds)):
                 seen = _aware(ent.first_seen)
-                if seen is not None and abs(seen - around) <= NEAR and ent not in out:
+                if (ent.attributes or {}).get("tool") in edr and seen is not None and abs(seen - around) <= NEAR \
+                        and ent not in out:
                     out.append(ent)
         return sorted(out, key=lambda e: (e.first_seen, e.id))
 
@@ -106,7 +113,7 @@ class CrossToolService:
                                 + (f" ({', '.join(classes)})" if classes else "") + f", computed {a.computed_outcome}"})
             risk = f.get("identity_risk") or {}
             if risk.get("level") in ("high", "critical"):
-                sig.append({"key": f"identity:{a.id}", "kind": "identity", "tool": risk.get("tool") or "silverfort",
+                sig.append({"key": f"identity:{a.id}", "kind": "identity", "tool": risk.get("tool") or "identity",
                             "at": at, "text": f"Risky sign-in ({risk.get('level')}) within 24 h of the DLP alert"
                                               + (f": {', '.join(risk.get('factors') or [])}" if risk.get("factors") else "")})
             for g in (f.get("device") or {}).get("short") or []:
@@ -115,11 +122,13 @@ class CrossToolService:
                             "text": f"The sending device {(f.get('device') or {}).get('name') or ''}: "
                                     f"{g.get('label') or g.get('control')} {g.get('state')}".replace("  ", " ")})
             if (f.get("user") or {}).get("privileged"):
-                sig.append({"key": f"privileged:{person}", "kind": "privileged", "tool": "directory_export", "at": at,
+                sig.append({"key": f"privileged:{person}", "kind": "privileged",
+                            "tool": (f.get("user") or {}).get("directory") or "directory", "at": at,
                             "personal": bool(a.personal_data),
                             "text": "The person is in a privileged group in the directory"})
             for e in self._edr_alerts({x for x in (a.host_entity_id, person) if x}, at):
-                sig.append({"key": f"endpoint:{e.id}", "kind": "endpoint", "tool": "trend_micro", "at": _aware(e.first_seen),
+                sig.append({"key": f"endpoint:{e.id}", "kind": "endpoint", "tool": (e.attributes or {}).get("tool"),
+                            "at": _aware(e.first_seen),
                             "entity_id": e.id, "text": f"Endpoint alert: {e.display_name} "
                                                        f"({(e.attributes or {}).get('severity') or 'unrated'})"})
         seen, out = set(), []
@@ -226,7 +235,7 @@ class CrossToolService:
 
         ev = evidence_for_llm(list(self.s.execute(select(Evidence).where(Evidence.case_id == case.id)).scalars()))
         summary = (f"{len(tools)} tools agree about {name}: " + "; ".join(RULES[r] for r in rules) + ". Tools: "
-                   + ", ".join(TOOL_LABEL.get(t, t) for t in tools) + ".")
+                   + ", ".join(tool_label(t) for t in tools) + ".")
         self.cases.set_assessment(
             case, verdict="suspicious", severity=severity,
             confidence=min(0.95, 0.5 + 0.15 * (len(tools) - 1)), summary=summary,

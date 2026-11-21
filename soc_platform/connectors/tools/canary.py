@@ -97,6 +97,7 @@ def _live(s: dict[str, Any]) -> HttpTransport:
 
 MANIFEST = ConnectorManifest(
     name="canary", tool="Thinkst Canary", vendor="Thinkst", category="deception", dimension="deception",
+    provides={"deception.alerts": "incidents", "deception.devices": "devices"},
     description="Canary and Canarytoken incidents and device inventory; high-fidelity deception signal.",
     factory=lambda s, t: CanaryConnector(s, t, rate_per_sec=2, burst=4), live_transport=_live,
     config=[ConfigField("domain_hash", "Console hash (<hash>.canary.tools)"),

@@ -92,8 +92,10 @@ def main() -> None:
                      f"{', '.join(getattr(c, 'lookups', ()) or ()) or '-'} | {', '.join(acts) or '-'} | {m.confidence} |")
         cfg = "\n".join(f"  - `{f.name}`{' (secret)' if f.secret else ''}{'' if f.required else ' (optional)'}: {f.description}"
                         for f in m.config) or "  - none"
+        provides = ", ".join(f"{cap} ({', '.join(p.streams) or 'look-up'})" for cap, p in sorted(m.provides.items()))
         rows.append(f"### {m.tool} (`{name}`)\n\n{m.description}\n\n"
                     f"- Vendor: {m.vendor} · focus areas: {', '.join(m.focus_areas)}\n"
+                    f"- Provides: {provides or '-'}\n"
                     f"- Read scopes: {', '.join(getattr(c, 'read_scopes', ()) or ()) or 'see vendor docs / to confirm'}\n"
                     f"- Write scopes (only for approved actions): {', '.join(getattr(c, 'write_scopes', ()) or ()) or '-'}\n"
                     f"- To confirm with NAM: {m.to_confirm or '-'}\n- Configuration:\n{cfg}\n")

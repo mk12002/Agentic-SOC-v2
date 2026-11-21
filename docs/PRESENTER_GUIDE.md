@@ -98,6 +98,7 @@ no evidence.
 | Question | Answer |
 |---|---|
 | "Is this connected to our tools?" | Not yet. The connectors run on vendor-shaped sample data through the same code a live tool uses. Each needs your installed version's API documentation and a read-only account; then preflight checks every call before it goes live. |
+| "Is it plug and play with our tools?" | For every tool it has a connector for: switched on in the console, checked by preflight, approved by a lead - no code. Workflows read capabilities, not products, so a different EDR or DLP product is used everywhere once connected. A tool with a plain REST API can be added from a definition file; an unusual API, and every action, still needs a connector written once. `capabilities --check` shows what is missing before go-live. |
 | "Will the AI close our DLP alerts?" | Not in this version. It decides in shadow - stored beside your analyst's decision. It can move to recommend (pre-filled, your analyst confirms) only when your SOC lead's target is met and a second lead approves. The decide stage is refused in code. |
 | "Can a clever insider talk the AI into closing an alert?" | Decisions read structured facts. The message text, subject and file names are shown fenced as data and read by no rule; a test injects such text and proves nothing changes. |
 | "Could someone change a policy to isolate machines automatically?" | No. Isolation, disabling accounts and rotating privileged credentials always need two people; the engine enforces it whatever a policy says, and a policy that tries is refused. |

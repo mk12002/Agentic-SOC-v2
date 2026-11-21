@@ -34,6 +34,7 @@ from typing import Any
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
+from soc_platform.connectors import capabilities as caps
 from soc_platform.connectors.base import SyncRunner
 from soc_platform.connectors.registry import ConnectorRegistry
 from soc_platform.core import controls
@@ -56,10 +57,10 @@ WORKFLOW = "dlp.disposition"
 # the device and people baseline and the control inventories: read before anything that only names a host (a DNS
 # event, an alert), so those names resolve onto the inventory's record instead of the inventory meeting a bare name
 # it cannot safely match (it would wait in the analyst queue and the device would drop out of the baseline)
-INVENTORY_STREAMS = (("directory_export", "users"), ("directory_export", "devices"), ("trend_micro", "endpoints"),
-                     ("trellix_epo", "systems"), ("forcepoint_dlp", "endpoints"))
-CONTEXT_STREAMS = (*INVENTORY_STREAMS, ("silverfort", "risk_events"), ("trend_micro", "alerts"))
-INCIDENT_STREAMS = (("forcepoint_dlp", "dlp_incidents"),)
+# What DLP triage reads, by capability (connectors/capabilities.py) - whichever products provide them.
+INVENTORY_CAPABILITIES = ("directory.users", "directory.devices", "edr.inventory", "encryption.inventory", "dlp.agents")
+CONTEXT_CAPABILITIES = (*INVENTORY_CAPABILITIES, "identity.risk_events", "edr.alerts")
+INCIDENT_CAPABILITIES = ("dlp.incidents",)
 SEV = ("informational", "low", "medium", "high", "critical")
 BULK_MATCHES = 100                       # this many matches of one classifier is a bulk transfer
 RISK_WINDOW = timedelta(hours=24)        # a risky sign-in this close to the alert is identity context
@@ -227,18 +228,18 @@ class DlpService:
 
     # ------------------------------------------------------------------ intake
 
-    def _streams(self, wanted: tuple[tuple[str, str], ...]) -> list[tuple[Any, str]]:
-        names = set(self.registry.enabled_names())
-        return [(self.registry.get(n), st) for n, st in wanted if n in names and st in self.registry.get(n).streams]
+    def _streams(self, wanted: tuple[str, ...]) -> list[tuple[Any, str]]:
+        return self.registry.providers(*wanted)
 
     def sync_inventory(self) -> dict[str, Any]:
         """Read the device and people baseline and the control inventories only (the ``inventory`` job)."""
-        return self._sync(self._streams(INVENTORY_STREAMS))
+        return self._sync(self._streams(INVENTORY_CAPABILITIES))
 
     def ingest(self) -> dict[str, Any]:
         """Read the context and the incidents from every connected tool. A tool that is down is reported, the rest
         carries on (the sync runner records the failure on the stream)."""
-        return self._sync(self._streams(CONTEXT_STREAMS) + self._streams(INCIDENT_STREAMS))
+        items = self._streams(CONTEXT_CAPABILITIES)
+        return self._sync(items + [x for x in self._streams(INCIDENT_CAPABILITIES) if x not in items])
 
     def _sync(self, items: list[tuple[Any, str]]) -> dict[str, Any]:
         synced: dict[str, int] = {}
@@ -337,9 +338,17 @@ class DlpService:
                 "data_classes": data_classes(classifiers), "max_matches": most, "bulk": most >= BULK_MATCHES,
                 "destination_class": dest, "destination_domain": dom,
                 "user": {"entity_id": user.id, "name": user.display_name, "department": ua.get("department"),
-                         "privileged": bool((ua.get("by_tool") or {}).get(controls.BASELINE_TOOL, {}).get("privileged"))}
+                         "privileged": any(bool(caps.read_field(v, t, controls.PEOPLE, "privileged"))
+                                           for t, v in self._directory_views(ua)),
+                         "directory": next((t for t, _ in self._directory_views(ua)), None)}
                 if user is not None else None,
                 "identity_risk": self._identity_risk(user, event.first_seen), "device": device}
+
+    @staticmethod
+    def _directory_views(attrs: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+        """(tool, view) of every directory that lists the person, in a fixed order."""
+        by_tool = attrs.get("by_tool") or {}
+        return [(t, by_tool[t]) for t in controls.people_tools() if isinstance(by_tool.get(t), dict)]
 
     def _history(self, rule: str, user_id: str | None, before: datetime, exclude: str | None) -> dict[str, int]:
         since = before - timedelta(days=HISTORY_DAYS)
@@ -369,7 +378,7 @@ class DlpService:
         add(tool, "data_protection", f"Destination: {facts['destination_class'].replace('_', ' ')}{dom}")
         u = facts.get("user")
         if u:
-            add(controls.BASELINE_TOOL, "identity", f"Sender: {u['name']}"
+            add(str(u.get("directory") or "directory"), "identity", f"Sender: {u['name']}"
                 + (f", {u['department']}" if u.get("department") else "")
                 + (", a privileged account" if u.get("privileged") else ""))
         r = facts.get("identity_risk")

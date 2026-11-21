@@ -32,10 +32,11 @@ from soc_platform.core.schema import severity_rank
 from soc_platform.llm.gateway import LLMGateway, deterministic_grounded
 
 AGENT = "incident"
-ALERT_STREAMS = {"alerts", "incidents", "risk_detections", "email_alerts"}
+# What incident triage reads, by capability (connectors/capabilities.py) - whichever products provide them.
+ALERT_CAPABILITIES = ("edr.alerts", "identity.alerts", "email.alerts", "siem.alerts", "deception.alerts")
 # directory changes are few and security-relevant (role grants, application consent, inbox rules): synced with alerts
-AUDIT_STREAMS = {"entra": ("directory_audits",)}
-INVENTORY_STREAMS = {"entra": ("users",), "crowdstrike": ("hosts",), "defender_endpoint": ("machines",)}
+AUDIT_CAPABILITIES = ("identity.directory_audits",)
+INVENTORY_CAPABILITIES = ("directory.users", "edr.inventory")
 ALERT_KINDS = {"alert", "deception"}
 SEV = ["informational", "low", "medium", "high", "critical"]
 URL_RE = re.compile(r"https?://[^\s'\"<>)]+")
@@ -69,12 +70,10 @@ class IncidentService:
         runner = SyncRunner(self.s, self.store)
         synced: dict[str, int] = {}
         errors: dict[str, list[str]] = {}
-        enabled = self.registry.enabled()
         # Directory and inventory are ingested first, so alert references resolve against known users/hosts; every
         # stream downloads at the same time (sync_many), ingestion keeps this order.
-        inventory = [(c, st) for c in enabled for st in c.streams if st in INVENTORY_STREAMS.get(c.name, ())
-                     or st in AUDIT_STREAMS.get(c.name, ())]
-        alerts = [(c, st) for c in enabled for st in c.streams if st in ALERT_STREAMS]
+        inventory = self.registry.providers(*INVENTORY_CAPABILITIES, *AUDIT_CAPABILITIES)
+        alerts = [x for x in self.registry.providers(*ALERT_CAPABILITIES) if x not in inventory]
         for (c, stream), rep in zip(inventory + alerts, runner.sync_many(inventory + alerts), strict=True):
             synced[f"{c.name}.{stream}"] = rep.ingested
             if rep.errors and (c, stream) in alerts:

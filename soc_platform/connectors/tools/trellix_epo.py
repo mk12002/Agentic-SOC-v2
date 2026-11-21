@@ -53,6 +53,7 @@ def _live(s: dict[str, Any]) -> HttpTransport:
 
 MANIFEST = ConnectorManifest(
     name="trellix_epo", tool="Trellix ePO (drive encryption)", vendor="Trellix", category="encryption",
+    provides={"encryption.inventory": "systems", "tool.health": "health", "tool.config_export": None},
     dimension="data_protection",
     description="Disk-encryption state of every managed device, and the server's certificates and tasks.",
     factory=lambda s, t: TrellixEpoConnector(s, t, rate_per_sec=2, burst=4), live_transport=_live,

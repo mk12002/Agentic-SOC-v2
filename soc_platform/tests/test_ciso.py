@@ -14,7 +14,7 @@ from soc_platform.config import get_settings
 from soc_platform.connectors.registry import ConnectorRegistry
 from soc_platform.core.audit import AuditLog
 from soc_platform.domains.dlp.models import DlpAlert
-from soc_platform.intelligence.ciso import HEALTH_TOOLS, ciso, evidence, explain
+from soc_platform.intelligence.ciso import ciso, evidence, explain, health_tools
 from soc_platform.intelligence.models import PostureSnapshot
 from soc_platform.intelligence.posture import WEIGHTS, posture
 from soc_platform.reporting import builder
@@ -33,7 +33,8 @@ def world(session):
 
 
 def doc(session) -> dict:
-    return ciso(session, ConnectorRegistry.all_fake(), health_tools=list(HEALTH_TOOLS), settings=get_settings(), model_on=False)
+    reg = ConnectorRegistry.all_fake()
+    return ciso(session, reg, health_tools=health_tools(reg.enabled_names()), settings=get_settings(), model_on=False)
 
 
 def test_what_raises_the_score_most_is_each_reduction_weighted_by_its_domains_share(world, session):

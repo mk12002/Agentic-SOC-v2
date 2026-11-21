@@ -68,7 +68,10 @@ Screenshots: [docs/FEATURES.md](docs/FEATURES.md).
 
 Each tool is configured on *Integrations* (or `config/connectors.yaml`), checked by a preflight (sign-in, every
 stream and its permission, parsing, freshness), approved by a lead, and moved one stage at a time: fixtures →
-recording → read-only → recommend → automate. Phases 1-2 run read-only. Per-tool permissions and what is still to
+recording → read-only → recommend → automate. Phases 1-2 run read-only. Workflows read **capabilities**, not
+products, so another product of the same kind is used everywhere once switched on; a tool with a plain REST API can be
+added from a definition file without code (`config/connectors.d/`, `connector validate FILE`), and
+`python -m soc_platform capabilities --check` says whether every module has the tools it needs. Per-tool permissions and what is still to
 confirm with NAM: [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) and [docs/CONNECTORS.md](docs/CONNECTORS.md).
 
 ## Security

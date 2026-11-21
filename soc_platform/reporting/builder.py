@@ -321,11 +321,11 @@ def src_value(c: Ctx) -> dict:
 def _ciso(c: Ctx) -> dict:
     if getattr(c, "_ciso_doc", None) is None:
         from soc_platform.config import get_settings
-        from soc_platform.intelligence.ciso import HEALTH_TOOLS, ciso
+        from soc_platform.intelligence.ciso import ciso, health_tools
 
         st = get_settings()
         names = set(c.reg.enabled_names()) if c.reg is not None else set()
-        c._ciso_doc = ciso(c.s, c.reg, health_tools=[n for n in HEALTH_TOOLS if n in names], settings=st,
+        c._ciso_doc = ciso(c.s, c.reg, health_tools=health_tools(names), settings=st,
                            model_on=st.llm_provider != "none")
     return c._ciso_doc
 

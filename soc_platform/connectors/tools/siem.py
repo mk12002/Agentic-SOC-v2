@@ -183,6 +183,7 @@ def _pick(payload: dict[str, Any], key: str) -> Any:
 MANIFESTS = [
     ConnectorManifest(
         name="sentinel", tool="Microsoft Sentinel", vendor="Microsoft", category="siem", dimension="other",
+        provides={"siem.alerts": "incidents"},
         description="Sentinel incidents (if Sentinel is the client's SIEM).",
         factory=lambda s, t: SentinelConnector(s, t, rate_per_sec=2, burst=4),
         live_transport=lambda s: HttpTransport("https://management.azure.com",
@@ -200,6 +201,7 @@ MANIFESTS = [
         confidence="Unknown", to_confirm="Whether a SIEM exists and which (Q01)", focus_areas=("incident",)),
     ConnectorManifest(
         name="generic_siem", tool="Generic SIEM/SOAR webhook", vendor="any", category="siem", dimension="other",
+        provides={"siem.alerts": None},   # pushed in (POST /api/v1/ingest/siem), never synced
         description="Normalises alerts pushed to /api/v1/ingest/alerts from any SIEM/SOAR.",
         factory=lambda s, t: GenericSiemConnector(s, t, rate_per_sec=100, burst=100),
         live_transport=lambda s: HttpTransport("http://localhost", NoAuth()),

@@ -31,6 +31,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from soc_platform.connectors import capabilities as caps
 from soc_platform.core import controls
 from soc_platform.core.models import Case, Entity, utcnow
 from soc_platform.intelligence.control_coverage import coverage
@@ -42,7 +43,8 @@ FORMULA_VERSION = "v1-draft"
 WEIGHTS = dict(DEFAULT["weights"])          # the built-in draft (the weights in force: posture()["weights"])
 LABELS = {"identity": "Identity", "privileged_access": "Privileged access", "endpoint": "Endpoint",
           "data_protection": "Data protection", "web": "Web (WAF)"}
-DATA_PROTECTION_TOOLS = {"forcepoint_dlp", "trellix_epo"}
+# the data-protection domain's tools: whichever provide DLP or encryption capabilities (never named products)
+DATA_PROTECTION_CAPABILITIES = ("dlp.incidents", "dlp.agents", "encryption.inventory")
 IDENTITY_WINDOW = timedelta(days=7)
 
 
@@ -69,7 +71,7 @@ def band(score: float | None) -> str | None:
 def _identity(session: Session) -> dict[str, Any]:
     newest = session.execute(select(func.max(Entity.first_seen)).where(Entity.kind == "auth_risk")).scalar()
     people = [e for e in session.execute(select(Entity).where(Entity.kind == "identity")).scalars()
-              if controls.BASELINE_TOOL in ((e.attributes or {}).get("by_tool") or {})]
+              if set(controls.people_tools()) & set((e.attributes or {}).get("by_tool") or {})]
     if newest is None or not people:
         return {"score": None, "measured": False, "factors": [],
                 "reason": "No sign-in risk tool and directory are connected yet."}
@@ -120,7 +122,8 @@ def posture(session: Session, *, config: dict[str, Any] | None = None) -> dict[s
     dp = [by_control[c] for c in ("dlp_agent", "disk_encryption") if by_control.get(c, {}).get("covered_percent") is not None]
     if dp:
         base = sum(c["covered_percent"] for c in dp) / len(dp)
-        mine = [f for f in health["findings"] if f["tool"] in DATA_PROTECTION_TOOLS]
+        dp_tools = set(caps.tools_for(*DATA_PROTECTION_CAPABILITIES))
+        mine = [f for f in health["findings"] if f["tool"] in dp_tools]
         crit, warn = sum(f["severity"] == "critical" for f in mine), sum(f["severity"] == "warning" for f in mine)
         dc, dw = config["penalties"]["dp_health_critical"], config["penalties"]["dp_health_warning"]
         h_pen = float(min(max(dc["cap"], dw["cap"]), dc["points"] * crit + dw["points"] * warn))

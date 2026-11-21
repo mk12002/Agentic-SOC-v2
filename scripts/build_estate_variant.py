@@ -1,6 +1,6 @@
 """Generate a seeded variant of the sample estate: a different organisation with different volumes.
 
-    python scripts/build_estate_variant.py OUT_DIR [--seed 7] [--scale 1.0] [--messy] [--handoff]
+    python scripts/build_estate_variant.py OUT_DIR [--seed 7] [--scale 1.0] [--messy] [--handoff | --amc]
 
 What changes per seed (so tests on several seeds prove nothing depends on one data set):
 
@@ -23,6 +23,13 @@ its naming (``example.invalid``, ``analyst.demo``, ``demo-laptop-01``), RFC 5737
 address that is not private, the messy volume, and the workbook's scenarios that the storyline lacks - OAuth consent
 after the click (PHISH-02) and a routine consent, a contradicting EDR verdict (EDGE-01), a second person on the same
 public IP, a stale device re-using a host name and address (EDGE-02), and 1-3 % replayed records in shuffled order.
+
+``--amc`` builds an Indian asset manager (the kind of organisation the NAM build is for): a fictional fund house
+on a ``-demo.in`` domain, Indian names, fund-operations / fund-accounting / investor-services / distribution / dealing /
+compliance departments and their DLP policy groups, an investor database, a fund-operations file share and an investor
+portal, a registrar and transfer agent and a custodian as the outside partners, and fund-accounting / investor-registry
+integrations. The DLP classifiers (PAN, Aadhaar, investor records) are the built-in estate's, untouched: the
+decision table reads them.
 
 The attack storyline stays the one the built-in estate models; everything around it varies. Output:
 ``fixtures/`` (+ ``settings.json``), ``corpus/`` (+ ``labels.json``), ``suppliers.yaml``, ``estate.json``.
@@ -66,6 +73,29 @@ ERP = ["Oracle-ERP-Payroll-Admin", "Workday-Prod-Integration", "Dynamics-Finance
 DEPTS = [("Operations", "Operations Coordinator"), ("Finance", "Financial Analyst"), ("Sales", "Account Executive"),
          ("Engineering", "Software Engineer"), ("HR", "People Partner"), ("Legal", "Paralegal"), ("Marketing", "Campaign Manager"),
          ("Procurement", "Buyer"), ("IT", "Service Desk Analyst"), ("Customer Care", "Support Specialist")]
+# --amc: an Indian asset manager (fictional names; none is a real company)
+AMC_ORGS = [("Tarangini Asset Management", "tarangini-amc-demo.in", "TAM"),
+            ("Sahyadri Crest Investment Managers", "sahyadricrest-demo.in", "SCI")]
+AMC_FIRST = ["Aditya", "Kavya", "Rohan", "Ishita", "Vikram", "Neha", "Siddharth", "Pooja", "Karthik", "Ananya", "Manish",
+             "Divya", "Harish", "Shreya", "Varun", "Lakshmi", "Nikhil", "Ritu", "Gaurav", "Swati", "Pranav", "Deepa",
+             "Abhishek", "Nandini"]
+AMC_LAST = ["Sharma", "Iyengar", "Kulkarni", "Banerjee", "Reddy", "Menon", "Joshi", "Chatterjee", "Pillai", "Deshpande",
+            "Agarwal", "Bhat", "Ghosh", "Naidu", "Saxena", "Kapoor", "Mukherjee", "Hegde", "Trivedi", "Das"]
+AMC_DEPTS = [("Fund Operations", "Fund Operations Executive"), ("Fund Accounting", "NAV Analyst"),
+             ("Investor Services", "Investor Services Officer"), ("Distribution", "Relationship Manager"),
+             ("Dealing", "Dealer"), ("Risk and Compliance", "Compliance Officer"), ("Research", "Research Analyst"),
+             ("Technology", "Application Support Engineer"), ("Treasury", "Treasury Analyst"), ("HR", "People Partner")]
+AMC_REGISTRARS = [("Sahayak Registry Services", "sahayak-registry-demo.in"), ("Vahini Transfer Agency", "vahini-rta-demo.in")]
+AMC_CUSTODIANS = [("Ratnakar Custodial Services Group", "ratnakar-custody-demo.in"),
+                  ("Meghdoot Fund Administration Group", "meghdoot-fundadmin-demo.in")]
+AMC_ERP = ["Fund-Accounting-Prod-Service", "Investor-Registry-Integration"]
+# the built-in estate's departments, titles and DLP policy groups, as a fund house names them (longest match first)
+AMC_ROLES = [("Finance Analyst", "NAV Analyst"), ("Accounts Payable", "Investor Services Officer"),
+             ("Finance Team", "Fund Operations Team"), ("DLP-Policy-Finance", "DLP-Policy-FundOps"),
+             ("Account Manager", "Relationship Manager"), ("Sales Team", "Distribution Team"),
+             ("DLP-Policy-Sales", "DLP-Policy-Distribution"), ("Engineering Team", "Technology Team"),
+             ("DLP-Policy-Engineering", "DLP-Policy-Technology"), ("Finance", "Fund Operations"),
+             ("Sales", "Distribution"), ("Engineering", "Technology")]
 SHADOW = [("dropbox.com", [{"label": "File Storage", "type": "content"}]),
           ("chatgpt.com", [{"label": "Generative AI", "type": "application"}]),
           ("teamviewer.com", [{"label": "Remote Access", "type": "content"}]),
@@ -82,11 +112,11 @@ def _load(name: str):
     return mod
 
 
-def mapping_for(seed: int) -> tuple[list[tuple[str, str]], dict]:
+def mapping_for(seed: int, amc: bool = False) -> tuple[list[tuple[str, str]], dict]:
     rng = random.Random(seed)
-    org_name, dom, nb = ORGS[seed % len(ORGS)]
+    org_name, dom, nb = (AMC_ORGS if amc else ORGS)[seed % len(AMC_ORGS if amc else ORGS)]
     slug = dom.split(".")[0]
-    firsts, lasts = rng.sample(FIRST, 12), rng.sample(LAST, 12)
+    firsts, lasts = rng.sample(AMC_FIRST if amc else FIRST, 12), rng.sample(AMC_LAST if amc else LAST, 12)
     people = {"jane": 0, "bob": 1, "priya": 2, "raj": 3, "arun": 4, "meera": 5, "tom": 6, "li": 7, "sunita": 8, "anil": 9}
     lastn = {"doe": 0, "lee": 1, "nair": 2, "mehta": 3, "chen": 7, "iyer": 8, "rao": 9}
     first = {k: firsts[i].lower() for k, i in people.items()}
@@ -102,9 +132,12 @@ def mapping_for(seed: int) -> tuple[list[tuple[str, str]], dict]:
     servers = {"web01": ["web", "portal", "shop"][style] + f"{rng.randint(2, 9):02d}",
                "db01": ["sql", "pgdb", "ora"][style] + f"{rng.randint(2, 9):02d}",
                "fs01": ["files", "nas", "share"][style] + f"{rng.randint(2, 9):02d}"}
+    if amc:                                    # the investor portal, the investor database, the fund-operations share
+        servers = {"web01": f"invportal{rng.randint(2, 9):02d}", "db01": f"invdb{rng.randint(2, 9):02d}",
+                   "fs01": f"fundops-fs{rng.randint(2, 9):02d}"}
     a, b, c = rng.randint(16, 60), rng.randint(1, 250), rng.randint(61, 120)
-    supplier, supplier_dom = rng.choice(SUPPLIERS)
-    second, second_dom = rng.choice(SECOND_SUPPLIERS)
+    supplier, supplier_dom = rng.choice(AMC_REGISTRARS if amc else SUPPLIERS)
+    second, second_dom = rng.choice(AMC_CUSTODIANS if amc else SECOND_SUPPLIERS)
     lookalike_supplier = supplier_dom.replace("i", "l", 1)
     qr_full, qr_root = QR_INFRA[seed % len(QR_INFRA)]
     org_look = dom.replace("o", "0", 1)
@@ -117,14 +150,15 @@ def mapping_for(seed: int) -> tuple[list[tuple[str, str]], dict]:
         ("benefits-portal.payroll-update.support", qr_full), ("payroll-update.support", qr_root),
         ("krishna-logistlcs.com", lookalike_supplier), ("krishna-logistics.com", supplier_dom), ("Krishna Logistics", supplier),
         ("Global Freight Ltd", second), ("Global Freight", second.split(" Group")[0]), ("global-freight-ltd.com", second_dom),
-        ("SAP-Prod-Finance-Service", ERP[seed % len(ERP)]),
+        ("SAP-Prod-Finance-Service", (AMC_ERP if amc else ERP)[seed % len(AMC_ERP if amc else ERP)]),
         ("FS01-Finance-Backups", f"{servers['fs01'].upper()}-Finance-Archive"),
         *hosts.items(), *servers.items(),
         ("10.20.1.", f"10.{a}.{b}."), ("10.10.0.", f"10.{c}.0."), ("203.0.113.10", f"198.51.100.{rng.randint(20, 250)}"),
-        *first.items(), *last.items(),
+        *first.items(), *last.items(), *(AMC_ROLES if amc else []),
     ]
     meta = {"seed": seed, "org_name": org_name, "org": dom, "netbios": nb, "supplier": supplier, "supplier_domain": supplier_dom,
-            "lookalike_supplier": lookalike_supplier, "people_pool": list(zip(firsts[10:], lasts[10:]))}
+            "lookalike_supplier": lookalike_supplier, "people_pool": list(zip(firsts[10:], lasts[10:])),
+            "profile": "asset_manager" if amc else "generic"}
     return m, meta
 
 
@@ -402,7 +436,8 @@ def make_messy(fx: dict, extra: list[dict], laptops: list[dict], rng: random.Ran
 
 
 # ------------------------------------------------------------------------------------------------ main
-def main(out: str, seed: int = 7, scale: float = 1.0, messy: bool = False, handoff: bool = False) -> Path:
+def main(out: str, seed: int = 7, scale: float = 1.0, messy: bool = False, handoff: bool = False,
+         amc: bool = False) -> Path:
     rng = random.Random(seed * 7919)
     ren = _load("rename_estate")
     bf = _load("build_fixtures")
@@ -412,7 +447,7 @@ def main(out: str, seed: int = 7, scale: float = 1.0, messy: bool = False, hando
     fb = _load("fixture_builders")
     for b in [bf.crowdstrike, *fb.BUILDERS]:
         b()
-    mapping, meta = handoff_mapping() if handoff else mapping_for(seed)
+    mapping, meta = handoff_mapping() if handoff else mapping_for(seed, amc=amc)
     messy = messy or handoff
     rx, table = ren.build_pattern(mapping)
     org, nb = meta["org"], meta["netbios"]
@@ -430,14 +465,16 @@ def main(out: str, seed: int = 7, scale: float = 1.0, messy: bool = False, hando
 
     # ---------------- volumes: extra staff and laptops
     n_users = max(3, int(rng.randint(6, 14) * scale))
-    pool_first = [f for f in FIRST if f.lower() not in {v for k, v in mapping if k.islower() and k.isalpha()}]
-    pool_last = list(LAST)
+    pool_first = [f for f in (AMC_FIRST if amc else FIRST)
+                  if f.lower() not in {v for k, v in mapping if k.islower() and k.isalpha()}]
+    pool_last = list(AMC_LAST if amc else LAST)
+    depts = AMC_DEPTS if amc else DEPTS
     rng.shuffle(pool_first)
     rng.shuffle(pool_last)
     extra = []
     for i in range(n_users):
         fn, ln = pool_first[i % len(pool_first)], pool_last[(i * 3 + 1) % len(pool_last)]
-        dept, title = DEPTS[rng.randrange(len(DEPTS))]
+        dept, title = depts[rng.randrange(len(depts))]
         sam = f"{fn.lower()}.{ln.lower()}{'' if i < len(pool_first) else i}"
         extra.append({"id": f"u-x{seed}-{i:03d}", "sam": sam, "upn": f"{sam}@{org}", "name": f"{fn} {ln}", "dept": dept, "title": title})
     users_route = _route(fx["entra"]["routes"], "GET", r"^/v1.0/users$")
@@ -622,5 +659,6 @@ if __name__ == "__main__":
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--messy", action="store_true", help="add real-tenant disorder and event volume")
     ap.add_argument("--handoff", action="store_true", help="the data handoff workbook's estate (naming, addresses, scenarios)")
+    ap.add_argument("--amc", action="store_true", help="an Indian asset manager (fund house names, departments, servers, partners)")
     a = ap.parse_args()
-    print(main(a.out, a.seed, a.scale, a.messy, a.handoff))
+    print(main(a.out, a.seed, a.scale, a.messy, a.handoff, a.amc))

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from soc_platform.connectors.capabilities import Provides
 from soc_platform.connectors.http import ApiKeyHeader, HttpTransport
 from soc_platform.connectors.registry import ConfigField, ConnectorManifest
 from soc_platform.connectors.tools._common import ConnectorAction, need, parse_ts, path_part, sev_name, targets_of
@@ -94,6 +95,7 @@ def _live(s: dict[str, Any]) -> HttpTransport:
 
 MANIFEST = ConnectorManifest(
     name="trend_micro", tool="Trend Micro endpoint security", vendor="Trend Micro", category="edr", dimension="endpoint",
+    provides={"edr.inventory": Provides("endpoints", {"last_seen": "last_connected"}), "edr.alerts": "alerts"},
     description="EDR agent inventory and detections: which devices are protected, when each agent last reported, "
                 "what it detected; device isolation behind two approvers.",
     factory=lambda s, t: TrendMicroConnector(s, t, rate_per_sec=2, burst=4), live_transport=_live, actions=_actions,

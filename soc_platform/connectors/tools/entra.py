@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from soc_platform.connectors.base import ConnectorError, LookupResult, Page
+from soc_platform.connectors.capabilities import Provides
 from soc_platform.connectors.registry import ConfigField, ConnectorManifest
 from soc_platform.connectors.tools._common import (
     ConnectorAction,
@@ -379,6 +380,7 @@ def _actions(c: EntraConnector) -> list:
 
 MANIFEST = ConnectorManifest(
     name="entra", tool="Microsoft Entra ID", vendor="Microsoft", category="identity", dimension="identity",
+    provides={"directory.users": Provides("users", {"privileged": None}), "identity.signins": "signins", "identity.alerts": "risk_detections", "identity.directory_audits": "directory_audits"},
     description="Users, sign-ins, risky users and detections, directory and Azure roles, MFA, inbox rules; session "
                 "revoke and account control.",
     factory=lambda s, t: EntraConnector(s, t, rate_per_sec=5, burst=10),

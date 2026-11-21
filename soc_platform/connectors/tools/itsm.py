@@ -304,6 +304,7 @@ def _sn_live(s: dict[str, Any]) -> HttpTransport:
 MANIFESTS = [
     ConnectorManifest(
         name="servicenow", tool="ServiceNow (ITSM + CMDB)", vendor="ServiceNow", category="itsm", dimension="ticketing",
+        provides={"itsm.tickets": "tickets", "cmdb.assets": "cmdb"},
         description="Remediation/incident tickets with bidirectional status; CMDB ownership and criticality.",
         factory=lambda s, t: ServiceNowConnector(s, t, rate_per_sec=3, burst=6), live_transport=_sn_live,
         config=[ConfigField("instance_url", "https://<instance>.service-now.com", kind="url"),
@@ -318,6 +319,7 @@ MANIFESTS = [
         focus_areas=("vulnerability", "incident")),
     ConnectorManifest(
         name="jira", tool="Jira (ITSM)", vendor="Atlassian", category="itsm", dimension="ticketing",
+        provides={"itsm.tickets": "tickets"},
         description="Remediation tickets as Jira issues with comments/status sync.",
         factory=lambda s, t: JiraConnector(s, t, rate_per_sec=3, burst=6),
         live_transport=lambda s: HttpTransport(s["base_url"], BasicAuth(s["email"], s["api_token"])),
@@ -329,6 +331,7 @@ MANIFESTS = [
         focus_areas=("vulnerability", "incident")),
     ConnectorManifest(
         name="cmdb_csv", tool="Ownership mapping (CSV)", vendor="internal", category="cmdb", dimension="ticketing",
+        provides={"cmdb.assets": "cmdb"},
         description="Maintained hostname-pattern to owner/platform-team/criticality mapping on a mounted file (fallback for A04/D06). For cloud resources, prefer the ownership mapping uploaded on the Cloud posture screen.",
         factory=lambda s, t: CsvCmdbConnector(s, t, rate_per_sec=100, burst=100),
         live_transport=lambda s: HttpTransport("http://localhost", NoAuth()),

@@ -111,6 +111,7 @@ SPEC: dict[str, tuple[str, Any]] = {
     "SOC_CLOCK_FREEZE": ("datetime", None),
     "SOC_CONNECTORS_CONFIG": ("file", None), "SOC_SUPPLIERS_FILE": ("file", None), "SOC_LLM_CA_BUNDLE": ("file", None),
     "SOC_FIXTURES_DIR": ("dir", None), "SOC_SAMPLE_CORPUS_DIR": ("dir", None),
+    "SOC_CONNECTOR_DEFINITIONS": ("dirs", None),     # folders of declared connectors (connectors/declarative.py)
     "SOC_ORG_DOMAINS": ("domains", None), "SOC_SUPPLIER_DOMAINS": ("domains", None),
     "SOC_TRUSTED_PROXIES": ("cidrs", None),
     "SOC_BREAKGLASS_SHA256": ("sha256", None),
@@ -186,6 +187,10 @@ def _check_one(name: str, raw: str) -> list[SettingProblem]:
         return [] if os.path.isfile(v) else bad(f"file '{v[:120]}' does not exist", "")
     if kind == "dir":
         return [] if os.path.isdir(v) else bad(f"folder '{v[:120]}' does not exist", "")
+    if kind == "dirs":
+        missing = [d for d in (x.strip() for x in v.split(os.pathsep)) if d and not os.path.isdir(d)]
+        return bad(f"folder(s) do not exist: {', '.join(m[:80] for m in missing[:3])}",
+                   f"folders separated by '{os.pathsep}'") if missing else []
     if kind == "domains":
         wrong = [d for d in (x.strip().lower() for x in v.split(",")) if d and not _DOMAIN.match(d)]
         return bad(f"not domains: {', '.join(w[:60] for w in wrong[:3])}", "comma-separated, e.g. example.com") \

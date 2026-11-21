@@ -60,6 +60,8 @@ leaf any layer may call, and everything works without it.
 | | Cases, actions, policy | Cases and evidence; the only execution path; L0-L4 policy, containment, kill switch | `core/cases.py`, `actions.py`, `policy.py` |
 | | Governance | Audit chain, access and roles, watch lists, ownership, notifications, scope | `core/audit.py`, `access.py`, `auth.py`, `watchlists.py`, `ownership.py`, `notify.py`, `scope.py` |
 | Connectors | NAM's tools | Fake mode on fixtures now; live through `HttpTransport` once each API is confirmed | `connectors/tools/` (`_paged.py` shared) |
+| | Capabilities | What each tool provides (record kinds and fields per capability); every workflow asks for capabilities, never products; module readiness (`capabilities --check`) | `connectors/capabilities.py` |
+| | Declared connectors | A plain REST tool connected by a definition file (no code): read-only, fixed converters, own host only; loaded with the code connectors | `connectors/declarative.py`, `config/connectors.d/` |
 | AI | LLM gateway | Budgets, per-person limits, model per feature, redaction, grounding and citation checks, circuit breaker | `llm/` |
 
 ## 3. Processes and deployment units

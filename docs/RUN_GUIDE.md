@@ -238,8 +238,22 @@ $env:SOC_ORG_DOMAINS = "<the estate's domain from out\veridian\estate.json>"
 $env:SOC_DATABASE_URL = "sqlite:///./veridian.db"; python -m soc_platform init-db; python -m soc_platform demo
 ```
 
-`--messy` adds real-tenant disorder and volume; `--scale N` grows it. The DLP, cross-tool and coverage results follow
+`--messy` adds real-tenant disorder and volume; `--scale N` grows it. `--amc` makes the organisation an Indian asset
+manager (fund house, fund-operations and investor-services staff, investor database, registrar and custodian):
+`python scripts\build_estate_variant.py out\amc --seed 11 --amc` then the same three settings. The DLP, cross-tool and coverage results follow
 the estate's own data.
+
+**Plug in another tool without code.** The example definition `config/connectors.d/examples/examplevendor_edr.yaml`
+describes a hypothetical EDR whose sample devices include two the demo's EDR does not list:
+
+```powershell
+python -m soc_platform connector validate config\connectors.d\examples\examplevendor_edr.yaml
+$env:SOC_CONNECTOR_DEFINITIONS = "config\connectors.d\examples"
+python -m soc_platform capabilities          # the example now appears as a provider of edr.inventory / edr.alerts
+```
+
+Switch it on (*Integrations*, stage *Fixtures*) and re-run the inventory: coverage measures the EDR control from it
+too, with no workflow change.
 
 ## 10. Resetting between demos
 

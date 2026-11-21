@@ -28,8 +28,15 @@ EVENT_KINDS = ("alert", "signin", "email", "mail_event", "dns", "deception", "se
 # Signals that describe a condition which is still true (an open exposure, an open incident): they count in full
 # until the condition ends, instead of decaying like activity does.
 STANDING_SIGNALS = frozenset({"kev_exposure", "priority_vulnerability", "internet_exposed_vulnerable", "open_incident"})
-# every connector that is an EDR (a host it lists has endpoint telemetry); Trend Micro is the NAM build's EDR
-EDR_TOOLS = frozenset({"crowdstrike", "defender_endpoint", "trend_micro"})
+
+
+def edr_tools() -> frozenset[str]:
+    """Every connector that provides an EDR capability (a host it lists has endpoint telemetry)."""
+    from soc_platform.connectors.capabilities import tools_for
+
+    return frozenset(tools_for("edr.inventory", "edr.alerts"))
+
+
 # Amplifiers add weight because of other signals; each fades with the signals that triggered it (None = any).
 AMPLIFIER_TRIGGERS: dict[str, frozenset[str] | None] = {
     "privileged_user_at_risk": frozenset({"identity_risk", "risky_signin", "phishing_identity_compromise"}),
@@ -215,7 +222,7 @@ class RiskEngine:
                         f"{f.cve} on internet-exposed asset")
             from soc_platform.core.asset_types import needs_endpoint_agent
 
-            has_edr = EDR_TOOLS & set((ent.attributes or {}).get("by_tool", {}))
+            has_edr = edr_tools() & set((ent.attributes or {}).get("by_tool", {}))
             if not has_edr and factors and needs_endpoint_agent(self.s, ent):
                 add("no_edr_coverage", "coverage", 5, "platform", entity_id, None, "no EDR telemetry for this host",
                     factor=strongest(AMPLIFIER_TRIGGERS["no_edr_coverage"]))

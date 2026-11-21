@@ -169,6 +169,17 @@ confirmed against its documentation; every path is a setting, and `preflight` li
 are switched on, configured, previewed (*Preflight*) and approved on *Integrations*; each moves through stages
 fixtures → recording → read-only → recommend → automate, one approved step at a time; *Pause* stops one at once.
 
+**Plug-and-play.** Workflows never name a product: each connector declares the capabilities it provides (EDR device
+inventory, DLP incidents, risky sign-ins, encryption state...) and every module uses whichever switched-on tool
+provides what it needs - a second EDR or DLP product, or a replacement, changes coverage, DLP context, cross-tool
+cases, risk and tool health with no code. A tool with a plain REST API can be connected from a definition file (no
+code; it only reads, cannot reach another host, holds no secret); `capabilities --check` (and
+`GET /api/v1/capabilities`) tells a deployment which module lacks a capability before go-live.
+
+**List or tiles.** The connectors card shows the tools as a table (*List*) or as square cards (*Tiles*: tool,
+stage, health, fresh streams, what it provides, its last preflight and the same buttons); each person's choice is
+remembered in their browser.
+
 | Integrations |
 |---|
 | ![](screenshots/n13-integrations.png) |
@@ -367,8 +378,11 @@ shows met, improving, not improved, no baseline, no target or no data.
 
 `scripts/build_estate_variant.py` generates other organisations (names, devices, addresses, volumes, a messy
 variant) with the NAM tools' fixtures; the DLP pipeline, cross-tool rules and coverage run on every estate in the
-suite (`ESTATES`), and no name of the sample estate leaks into another's output. An Indian asset-manager sample estate
-(fund operations, investor database, Indian names) is not built yet.
+suite (`ESTATES`), and no name of the sample estate leaks into another's output. `--amc` generates an Indian asset
+manager - a fictional fund house, Indian names, fund-operations / fund-accounting / investor-services / distribution
+departments and DLP policy groups, an investor database, a fund-operations share and an investor portal, a registrar
+and transfer agent and a custodian as partners - and the suite runs every per-estate test on it with real-tenant
+disorder (`--amc --messy`).
 
 ## 11. How it was verified
 
@@ -384,5 +398,6 @@ suite (`ESTATES`), and no name of the sample estate leaks into another's output.
 
 Connectors for Arcon (privileged access), Cloudflare (WAF), NAM's SIEM and SOAR products · live, tenant-verified
 versions of the five connectors and their action calls · privileged-access check-outs in the cross-tool rules ·
-execution through NAM's SOAR (M9) · the decide stage · NAM's own control list and confirmed regulatory deadlines
+execution through NAM's SOAR (M9) · a console screen for the module readiness matrix and onboarding (the matrix is CLI
+and API only) · push intake for every record kind (the SIEM webhook takes alerts) · the decide stage · NAM's own control list and confirmed regulatory deadlines
 (only CERT-In's 6 hours is in the catalogue, marked "to verify") · the Indian asset-manager sample estate.

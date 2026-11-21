@@ -160,6 +160,7 @@ def _pm_live(s: dict[str, Any]) -> HttpTransport:
 MANIFESTS = [
     ConnectorManifest(
         name="delinea_secret_server", tool="Delinea Secret Server", vendor="Delinea", category="pam",
+        provides={"pam.checkouts": "secret_audits"},
         dimension="privileged_access",
         description="Secret access audit, privileged sessions, standing privilege; credential rotation.",
         factory=lambda s, t: SecretServerConnector(s, t, rate_per_sec=2, burst=4), live_transport=_ss_live,
@@ -179,6 +180,7 @@ MANIFESTS = [
         focus_areas=("incident",)),
     ConnectorManifest(
         name="delinea_privilege_manager", tool="Delinea Privilege Manager", vendor="Delinea", category="pam",
+        provides={"pam.elevations": "elevation_events"},
         dimension="privileged_access", description="Elevation and application-control events.",
         factory=lambda s, t: PrivilegeManagerConnector(s, t, rate_per_sec=2, burst=4), live_transport=_pm_live,
         config=[ConfigField("base_url", "Privilege Manager URL", kind="url"),

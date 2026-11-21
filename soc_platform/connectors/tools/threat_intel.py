@@ -231,6 +231,7 @@ def _factory(s: dict[str, Any], t: Any) -> ThreatIntelConnector:
 
 MANIFEST = ConnectorManifest(
     name="threat_intel", tool="Threat intelligence fusion", vendor="multiple", category="intel", dimension="threat_intel",
+    provides={"intel.indicators": None},
     description="VirusTotal, AbuseIPDB, OTX, URLhaus, ThreatFox, MalwareBazaar, GreyNoise, Shodan - fused verdict.",
     factory=_factory, live_transport=lambda s: _LiveBundle(_live_transports(s)),
     config=[ConfigField(m["key"], f"{src} API key", secret=True, required=False) for src, m in SOURCES.items()
